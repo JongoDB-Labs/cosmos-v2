@@ -607,11 +607,15 @@ async function stopInvite(
       if (!(e instanceof CalendarNotConnected || e instanceof CalendarReconnectNeeded)) throw e;
       if (!link.contentHash.startsWith(PENDING_CANCEL)) {
         await prisma.externalEventLink.update({ where: { id: link.id }, data: { contentHash: PENDING_CANCEL + reason } });
+        // About their Outlook connection, not the meeting (it names nothing of
+        // it), so it names no meeting: a meeting notification reaches only
+        // people who can read the meeting, and an organizer who lost it (one
+        // reason to stop) must still be asked to reconnect.
         await createNotification({
           orgId, userId: organizer, type: "integration.outlook_invite_cancel_pending",
           title: "Reconnect Outlook to cancel invitations",
           message: "Cosmos couldn't cancel an Outlook invitation you sent. Reconnect Outlook Calendar (Settings, Preferences) and it will be cancelled.",
-          relatedType: "meeting", relatedId: m.id, url: null,
+          url: null,
         }).catch(() => undefined);
       }
       return "pending";

@@ -99,6 +99,9 @@ vi.mock("@/hooks/use-custom-fields", () => ({
 // The workflow's transitions: unknown (null) unless a test sets them.
 const transitions = vi.hoisted(() => ({ value: null as null | Map<string, unknown> }));
 vi.mock("@/hooks/use-item-transitions", () => ({ useItemTransitions: () => transitions.value }));
+// A react-query consumer too (the marks on assignees who can't see the
+// project), and this suite renders the sheet without a QueryClientProvider.
+vi.mock("@/hooks/use-project-member-visibility", () => ({ useMembersWhoCantSeeProject: () => null }));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
 
 import { CardDetailSheet } from "@/components/work-items/card-detail-sheet";

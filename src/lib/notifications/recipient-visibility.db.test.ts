@@ -10,6 +10,11 @@
 // positive control on each: a member who can read it, in the same request,
 // gets everything. When the item can't be told, nothing is sent, and a check
 // that fails is logged.
+//
+// A meeting invitation is judged the way the meeting's own page judges it
+// (canReadMeeting): its project's visibility and MEETING_READ, or MEETING_READ
+// alone for a meeting under no project. Anything else that names a project
+// (a plugin's notification, say) is held to that project's visibility.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
@@ -38,9 +43,17 @@ vi.mock("@/lib/integrations/microsoft/teams-app/outbox.server", async (importOri
   };
 });
 
+// The attendee route asks for a calendar push after it answers; there is no
+// calendar here, and it would race the org's deletion at the end.
+vi.mock("@/lib/integrations/microsoft/calendar-sync.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/integrations/microsoft/calendar-sync.server")>()),
+  syncMeetingSoon: () => undefined,
+}));
+
 const { POST: comment } = await import("@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/comments/route");
 const { PATCH: patchItem } = await import("@/app/api/v1/orgs/[orgId]/work-items/[itemId]/route");
 const { POST: pmComment } = await import("@/app/api/v1/orgs/[orgId]/projects/[projectId]/pm-comments/route");
+const { POST: addAttendee } = await import("@/app/api/v1/orgs/[orgId]/meetings/[meetingId]/attendees/route");
 const { getBus } = await import("@/lib/realtime/bus");
 const { createNotification } = await import("@/lib/notifications/create");
 const { topics } = await import("@/lib/realtime/topics");
@@ -249,5 +262,70 @@ describe("notifications about a team-scoped project (e2e DB)", () => {
     expect(await reached(insider)).toEqual(NOTHING);
     db.mockRestore();
     failed.mockRestore();
+  });
+});
+
+describe("meeting and other non-item notifications (e2e DB)", () => {
+  const meeting = (pid: string | null) =>
+    prisma.syncMeeting.create({ data: { orgId, projectId: pid, title: "Hidden planning", meetingDate: new Date(), createdById: owner } });
+  const invite = (meetingId: string, userId: string) =>
+    addAttendee(json("POST", { userId }), { params: Promise.resolve({ orgId, meetingId }) });
+  // Only work items go to Teams and Slack; the bell, live updates and push carry the rest.
+  const BELL_LIVE_PUSH = { ...NOTHING, bell: 1, live: 1, push: 1 };
+
+  it("an invitation to a meeting in a team-scoped project reaches the attendee on the project, and nobody outside it", async () => {
+    const m = await meeting(projectId);
+    expect((await invite(m.id, outsider)).status).toBe(201);
+    expect((await invite(m.id, insider)).status).toBe(201);
+    // Both were added; only the one who can read the meeting was told.
+    expect(await prisma.meetingAttendee.count({ where: { meetingId: m.id, userId: { in: [insider, outsider] } } })).toBe(2);
+    expect(await reached(insider)).toEqual(BELL_LIVE_PUSH);
+    expect(await reached(outsider)).toEqual(NOTHING);
+  });
+
+  it("an invitation to a meeting under no project reaches a member, and not a role that can't read meetings", async () => {
+    const billing = await member("billing-mtg", "BILLING_ADMIN");
+    const m = await meeting(null);
+    expect((await invite(m.id, billing)).status).toBe(201);
+    expect((await invite(m.id, outsider)).status).toBe(201);
+    expect(await reached(outsider)).toEqual(BELL_LIVE_PUSH);
+    expect(await reached(billing)).toEqual(NOTHING);
+  });
+
+  it("someone a policy forbids reading a project's meetings hears nothing about one", async () => {
+    const denied = await member("denied-mtg", "MEMBER", [
+      { effect: "deny", actions: ["MEETING_READ"], conditions: [{ attr: "projectId", op: "eq", value: openProjectId }] },
+    ]);
+    const m = await meeting(openProjectId);
+    expect((await invite(m.id, denied)).status).toBe(201);
+    expect((await invite(m.id, insider)).status).toBe(201);
+    expect(await reached(insider)).toEqual(BELL_LIVE_PUSH);
+    expect(await reached(denied)).toEqual(NOTHING);
+  });
+
+  it("judges a meeting by its own project, never one the caller names, and sends nothing about a meeting it can't find", async () => {
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const hidden = await meeting(projectId);
+    const base = { orgId, userId: outsider, type: "meeting.invited", title: "Invited", relatedType: "meeting" };
+    // The caller naming an open project doesn't open a restricted meeting.
+    expect(await createNotification({ ...base, relatedId: hidden.id, projectId: openProjectId })).toBeNull();
+    // No id, a malformed one, and one that isn't a meeting in this org.
+    expect(await createNotification({ ...base })).toBeNull();
+    expect(await createNotification({ ...base, relatedId: "not-a-uuid" })).toBeNull();
+    expect(await createNotification({ ...base, relatedId: crypto.randomUUID() })).toBeNull();
+    expect(await reached(outsider)).toEqual(NOTHING);
+    expect(warned.mock.calls.flat().join(" ")).toMatch(/meeting\.invited about meeting not sent/);
+    // Positive control: the same call about a meeting they can read goes through.
+    const open = await meeting(openProjectId);
+    expect(await createNotification({ ...base, relatedId: open.id })).not.toBeNull();
+    warned.mockRestore();
+  });
+
+  it("anything else that names a project (a plugin's notification) is held to that project", async () => {
+    const base = { orgId, type: "plugin.alert", title: "Over budget", relatedType: "plugin_thing", relatedId: crypto.randomUUID(), projectId };
+    expect(await createNotification({ ...base, userId: outsider })).toBeNull();
+    expect(await createNotification({ ...base, userId: insider })).not.toBeNull();
+    expect(await reached(outsider)).toEqual(NOTHING);
+    expect(await reached(insider)).toEqual(BELL_LIVE_PUSH);
   });
 });

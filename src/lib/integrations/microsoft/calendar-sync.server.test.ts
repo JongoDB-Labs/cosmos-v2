@@ -1379,6 +1379,36 @@ describe("Outlook meeting sync (e2e DB)", () => {
     expect(await linkOf(bob.id, meeting.id)).not.toBeNull();
   });
 
+  it("an organizer who can no longer see the meeting is still told to reconnect, so the invitation can be cancelled", async () => {
+    // Meeting notifications reach only people who can read the meeting. This
+    // one is about the organizer's own Outlook connection, says nothing of the
+    // meeting, and matters most when they have lost it: without it, nobody is
+    // asked to reconnect and the attendees' invitations stay live.
+    const { org, alice, g, deps, meeting, stamp } = await setup();
+    const organizer = await prisma.user.create({ data: { email: `organizer-${stamp}@test.local`, displayName: "Organizer" } });
+    try {
+      await prisma.orgMember.create({ data: { orgId: org.id, userId: organizer.id, role: "MEMBER" } });
+      await connect(org.id, organizer, `${organizer.id}-${stamp}`);
+      g.setAddress(`Bearer at-${organizer.id}`, organizer.email);
+      await setMeetingInvite(org.id, meeting.id, organizer.id, true, deps);
+      expect((await prisma.syncMeeting.findUniqueOrThrow({ where: { id: meeting.id } })).inviteOrganizerId).toBe(organizer.id);
+      // The meeting moves into a team-scoped project the organizer isn't on.
+      const key = `LK${stamp.slice(-4).replace(/[^a-z0-9]/gi, "").toUpperCase()}`;
+      const project = await prisma.project.create({ data: { orgId: org.id, name: "Locked", key, teamScopedAccess: true } });
+      await prisma.syncMeeting.update({ where: { id: meeting.id }, data: { projectId: project.id } });
+      const { loadMemberAuthContext } = await import("@/lib/rbac/effective-permissions");
+      const { canReadMeeting } = await import("@/lib/meetings/meeting-reader");
+      expect(await canReadMeeting((await loadMemberAuthContext(org.id, organizer.id))!, project.id)).toBe(false);
+      // Their Outlook needs reconnecting when an admin turns the invitation off.
+      await patchCalendarMeta((await credOf(org.id, organizer.id)).id, { status: "reconnect" });
+      await setMeetingInvite(org.id, meeting.id, alice.id, false, deps);
+      expect((await invitePreview(org.id, meeting.id, alice.id))!).toMatchObject({ pendingCancel: true });
+      expect(await prisma.notification.count({ where: { orgId: org.id, userId: organizer.id, type: "integration.outlook_invite_cancel_pending" } })).toBe(1);
+    } finally {
+      await prisma.user.deleteMany({ where: { id: organizer.id } });
+    }
+  });
+
   it("an invitation is never patched into a mirror copy: it is cancelled and a fresh copy made", async () => {
     const { org, alice, g, deps, meeting } = await setup();
     await setMeetingInvite(org.id, meeting.id, alice.id, true, deps);

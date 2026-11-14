@@ -341,6 +341,10 @@ export async function assertAssigneesInOrg(
  * in the one writer every edit goes through (the PUT route, bulk edit, the
  * assistant, automations), because the foreign keys are single-column and
  * accept another tenant's ids.
+ *
+ * The type stays in although applyWorkItemChange drops it for the request's
+ * own patch (the workflow gate already holds that one to the org, with a 404):
+ * checkTransitionPatch reads this too, for whatever a transition adds.
  */
 function patchRefs(p: WorkItemPatch): Refs {
   return { workItem: p.parentId, interval: p.intervalId, team: p.teamId, workItemType: p.workItemTypeId };

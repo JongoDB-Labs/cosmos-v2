@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.7",
+    date: "2026-11-14",
+    title: "Know when an assignee can't see the project",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "In a work item's Assignees picker, anyone who can't see the item's project is marked \"Can't see this project\". Assigning one of them still works, and now says that they can't open the item and won't be notified. Assign to, on the Work Items page, says the same in its confirmation.",
+      },
+      {
+        kind: "fix",
+        text: "A meeting invitation now reaches only people who can see the meeting, the same people its page lets in. Before, someone added to a meeting in a project they couldn't see was still told about it.",
+      },
+    ],
+  },
+  {
     version: "2.561.0",
     date: "2026-11-14",
     title: "The board header takes less room",

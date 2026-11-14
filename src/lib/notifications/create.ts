@@ -6,9 +6,10 @@ import { queueTeamsNotification } from "@/lib/integrations/microsoft/teams-app/o
 import { queueSlackNotification } from "@/lib/integrations/slack/outbox.server";
 import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
 import { isProjectVisible } from "@/lib/rbac/project-access";
-import { canReadInProject } from "@/lib/rbac/require-project-read";
+import { memberCanReadInProject } from "@/lib/rbac/require-project-read";
 import type { PermissionKey } from "@/lib/rbac/permissions";
 import { isPmSubjectType, PM_SUBJECT_READ, resolvePmSubject } from "@/lib/pm/subjects";
+import { canReadMeeting } from "@/lib/meetings/meeting-reader";
 
 export interface CreateNotificationInput {
   orgId: string;
@@ -22,7 +23,10 @@ export interface CreateNotificationInput {
   /**
    * The project the notification is about. Required for a PM register item
    * (relatedType "pm_<kind>"), which must be in it, or nothing is sent. A work
-   * item's project is always looked up from relatedId; this is ignored for it.
+   * item's or a meeting's project is always looked up from relatedId; this is
+   * ignored for them. Anything else that belongs to a project (a plugin's own
+   * records, say) should name it here, so it reaches only people who can see
+   * that project.
    */
   projectId?: string | null;
 }
@@ -37,6 +41,8 @@ const isUuid = (v: unknown): v is string =>
  *   - a PM register item ("pm_<kind>"): that register's read permission
  *     (PM_SUBJECT_READ), in the project the caller names, which the item must
  *     belong to;
+ *   - a meeting: the meeting pages' own rule (canReadMeeting), for the
+ *     meeting's OWN project, looked up here, or none;
  *   - anything else that names a project: that project's visibility;
  *   - anything else: nothing to check here ("open").
  * "unknown" is something that should name an item but whose item can't be
@@ -46,6 +52,7 @@ type Subject =
   | { kind: "open" }
   | { kind: "unknown"; why: string }
   | { kind: "read"; projectId: string; action: PermissionKey }
+  | { kind: "meeting"; projectId: string | null }
   | { kind: "visible"; projectId: string };
 
 async function subjectOf(input: CreateNotificationInput): Promise<Subject> {
@@ -67,6 +74,12 @@ async function subjectOf(input: CreateNotificationInput): Promise<Subject> {
     }
     return { kind: "read", projectId: input.projectId, action: PM_SUBJECT_READ[kind] };
   }
+  if (t === "meeting") {
+    if (!isUuid(input.relatedId)) return { kind: "unknown", why: "no meeting id" };
+    const meeting = await prisma.syncMeeting.findFirst({ where: { id: input.relatedId, orgId: input.orgId }, select: { projectId: true } });
+    if (!meeting) return { kind: "unknown", why: "no such meeting in this org" };
+    return { kind: "meeting", projectId: meeting.projectId };
+  }
   if (input.projectId != null) {
     return isUuid(input.projectId) ? { kind: "visible", projectId: input.projectId } : { kind: "unknown", why: "a malformed project id" };
   }
@@ -79,8 +92,8 @@ async function subjectOf(input: CreateNotificationInput): Promise<Subject> {
  * page makes: its read permission, any policy denying it, and the project's
  * team scoping (requireProjectRead). Every channel (the bell, live updates,
  * web push, Teams, Slack) goes out from createNotification, so this one check
- * covers them all. Notifications about other things (feedback, meetings,
- * chat, time) are not judged here.
+ * covers them all. Notifications about other things (feedback, chat, time)
+ * are not judged here.
  */
 export async function recipientCanSeeNotification(input: CreateNotificationInput): Promise<boolean> {
   const about = await subjectOf(input);
@@ -90,9 +103,10 @@ export async function recipientCanSeeNotification(input: CreateNotificationInput
     console.warn(`[notifications] ${input.type} about ${input.relatedType ?? "nothing"} not sent in org ${input.orgId}: ${about.why}`);
     return false;
   }
+  if (about.kind === "read") return memberCanReadInProject(input.orgId, input.userId, about.projectId, about.action);
   const ctx = await loadMemberAuthContext(input.orgId, input.userId);
   if (!ctx) return false;
-  return about.kind === "read" ? canReadInProject(ctx, about.projectId, about.action) : isProjectVisible(ctx, about.projectId);
+  return about.kind === "meeting" ? canReadMeeting(ctx, about.projectId) : isProjectVisible(ctx, about.projectId);
 }
 
 /**

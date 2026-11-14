@@ -3,6 +3,7 @@ import { type PermissionKey } from "@/lib/rbac/permissions";
 import { requireAccess } from "@/lib/abac/require-access";
 import { isProjectVisible } from "@/lib/rbac/project-access";
 import { requireKeyMayAccess, type KeyOrSessionBits } from "@/lib/rbac/key-role";
+import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
 
 /**
  * The gate for reading anything that belongs to a project.
@@ -66,6 +67,18 @@ export async function canReadInProject(ctx: AuthContext, projectId: string, acti
     if (e instanceof ForbiddenError) return false;
     throw e;
   }
+}
+
+/**
+ * `canReadInProject` asked as an org member other than the caller, from their
+ * stored access (`loadMemberAuthContext`); false for someone who isn't a
+ * member. Whether a person is told about something in a project
+ * (createNotification), and whether the assignee picker warns that they can't
+ * see it: one rule, so the warning and the silence can't disagree.
+ */
+export async function memberCanReadInProject(orgId: string, userId: string, projectId: string, action: PermissionKey): Promise<boolean> {
+  const ctx = await loadMemberAuthContext(orgId, userId);
+  return ctx ? canReadInProject(ctx, projectId, action) : false;
 }
 
 /**
