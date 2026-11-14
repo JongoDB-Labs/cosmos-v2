@@ -28,8 +28,10 @@
 // but not one holding what a query returned.
 // The route's own path parameter does not stand in for a body field of the
 // same name. A route that hands its body to a service is checked where VIA
-// says the service checks it. Anything else is listed in INLINE with how it is
-// checked or why it is not a reference to a row, or in KNOWN_GAPS.
+// says the service checks it: in the function VIA names, and the functions of
+// its own module that it calls, never a sibling function of that module.
+// Anything else is listed in INLINE with how it is checked or why it is not a
+// reference to a row, or in KNOWN_GAPS.
 //
 // Parsed with the TypeScript compiler, so a word in a comment or a string is
 // never a field or a check. What it still cannot see: whether a check REFUSES
@@ -97,8 +99,11 @@ const DEDICATED: Record<string, string[]> = {
 };
 
 /**
- * A route or tool that calls one of these is checked in the module named:
- * the scan reads that module's checks as the caller's own.
+ * A route or tool that calls one of these is checked in that function, in the
+ * module named: the scan reads the checks in its body, and in the functions of
+ * that module it calls, as the caller's own. Not the rest of the module: it
+ * used to read every check in the file, so a check in `createX` vouched for
+ * an `updateX` beside it that checked nothing.
  */
 const VIA: Record<string, string> = {
   applyWorkItemChange: "src/lib/work-items/apply-change.server.ts",
@@ -182,9 +187,7 @@ const INLINE: Record<string, Record<string, string>> = {
   [`${API}invoices/[invoiceId]/route.ts`]: { billId: INVOICE_TAG, expenseId: INVOICE_TAG },
   [`${API}invoices/route.ts`]: { billId: INVOICE_TAG, expenseId: INVOICE_TAG },
   [`${API}preferences/route.ts`]: {
-    defaultBoardId: "the caller's own preference, followed only when it is one of the project's boards",
     skinId: "a skin preset's key, checked against the preset registry, not a row",
-    themeId: "the caller's own preference, which nothing reads back",
   },
   [`${API}projects/[projectId]/documents/[docId]/convert/route.ts`]: { blockId: "a block inside this document's content, not a row" },
   [`${API}projects/[projectId]/tab-prefs/route.ts`]: {
@@ -227,12 +230,6 @@ const INLINE: Record<string, Record<string, string>> = {
 const KNOWN_GAPS: Record<string, Record<string, string>> = {
   [`${API}chat/channels/[channelId]/read/route.ts`]: {
     messageId: "not yet held to this channel's messages; it sets only the caller's own read position",
-  },
-  [`${API}projects/[projectId]/intervals/[intervalId]/capacity/route.ts`]: {
-    userId: "not yet held to the org's members",
-  },
-  [`${API}templates/[templateId]/widgets/route.ts`]: {
-    parentWidgetId: "not yet held to the same template's widgets",
   },
 };
 
@@ -590,7 +587,7 @@ const isOrgMemberCall = (n: ts.CallExpression) =>
   ts.isPropertyAccessExpression(n.expression.expression) &&
   n.expression.expression.name.text === "orgMember";
 
-/** The calls and lookups in a module that can check a field, gathered once per module. */
+/** The calls and lookups under a node (a module, or one function) that can check a field, gathered once per node. */
 interface Checks {
   calls: ts.CallExpression[];
   /** `where: { id: …, orgId }`: the `id` value, for lookups scoped to the tenant. */
@@ -598,10 +595,10 @@ interface Checks {
   /** `orgMember.*({ where: { orgId, … } })`: the where, for lookups of members. */
   memberWheres: ts.Expression[];
 }
-const checksCache = new WeakMap<ts.SourceFile, Checks>();
+const checksCache = new WeakMap<ts.Node, Checks>();
 
-function checksIn(sf: ts.SourceFile): Checks {
-  const cached = checksCache.get(sf);
+function checksIn(root: ts.Node): Checks {
+  const cached = checksCache.get(root);
   if (cached) return cached;
   const out: Checks = { calls: [], scopedIds: [], memberWheres: [] };
   const deps = new Set([...Object.keys(REFS_ARG), ...NAMED, ...Object.values(DEDICATED).flat()]);
@@ -617,30 +614,53 @@ function checksIn(sf: ts.SourceFile): Checks {
     }
     ts.forEachChild(n, visit);
   };
-  visit(sf);
-  checksCache.set(sf, out);
+  visit(root);
+  checksCache.set(root, out);
   return out;
 }
 
-/** The modules whose checks count for a file: itself, and VIA's for the services it calls, and theirs. */
-function checkingModules(sf: ts.SourceFile, srcs: Sources): ts.SourceFile[] {
-  const out = [sf];
-  const visit = (n: ts.Node) => {
-    if (ts.isCallExpression(n)) {
-      const via = own(VIA, calleeName(n) ?? "");
-      const mod = via ? srcs.get(via) : null;
-      if (mod && !out.includes(mod)) out.push(mod);
+/** Where a check can be: a whole file, or one function in it. */
+interface Scope {
+  sf: ts.SourceFile;
+  node: ts.Node;
+}
+
+/**
+ * Where the checks that count for a file can be: the file itself; the function
+ * VIA names for each service it calls, and the functions of that function's own
+ * module it calls in turn; and so on through the services those call.
+ */
+function checkingScopes(sf: ts.SourceFile, srcs: Sources, via: Record<string, string>): Scope[] {
+  const out: Scope[] = [{ sf, node: sf }];
+  const seen = new Set<ts.Node>([sf]);
+  const add = (mod: ts.SourceFile, node: ts.Node | null) => {
+    if (node && !seen.has(node)) {
+      seen.add(node);
+      out.push({ sf: mod, node });
     }
-    ts.forEachChild(n, visit);
   };
-  for (let i = 0; i < out.length; i++) visit(out[i]);
+  const visit = (scope: Scope, n: ts.Node) => {
+    if (ts.isCallExpression(n)) {
+      const name = calleeName(n) ?? "";
+      const path = own(via, name);
+      const mod = path ? srcs.get(path) : null;
+      if (mod) add(mod, topLevel(mod, name));
+      else if (scope.node !== scope.sf && ts.isIdentifier(n.expression)) {
+        // Inside a service function: a helper of its own module is part of it.
+        const fn = topLevel(scope.sf, name);
+        if (fn && isFunction(fn)) add(scope.sf, fn);
+      }
+    }
+    ts.forEachChild(n, (c) => visit(scope, c));
+  };
+  for (let i = 0; i < out.length; i++) visit(out[i], out[i].node);
   return out;
 }
 
-function checkedIn(mods: ts.SourceFile[], field: string): boolean {
+function checkedIn(scopes: Scope[], field: string): boolean {
   const dedicated = own(DEDICATED, field) ?? [];
-  return mods.some((sf) => {
-    const c = checksIn(sf);
+  return scopes.some(({ sf, node }) => {
+    const c = checksIn(node);
     return (
       c.scopedIds.some((id) => namesIn(id, field, sf)) ||
       c.memberWheres.some((w) => namesIn(w, field, sf)) ||
@@ -705,7 +725,7 @@ export interface BodyRef {
 }
 
 /** Every (file, field) a write accepts, and whether a recognised check names it. */
-export function bodyRefs(files: string[], read: Read = disk): BodyRef[] {
+export function bodyRefs(files: string[], read: Read = disk, via: Record<string, string> = VIA): BodyRef[] {
   const srcs = new Sources(read);
   const out: BodyRef[] = [];
   for (const file of files) {
@@ -718,8 +738,8 @@ export function bodyRefs(files: string[], read: Read = disk): BodyRef[] {
       if (isRoute(file)) queryFields(entry, fields);
     }
     if (fields.size === 0) continue;
-    const mods = checkingModules(sf, srcs);
-    for (const field of [...fields].sort()) out.push({ file, field, checked: checkedIn(mods, field) });
+    const scopes = checkingScopes(sf, srcs, via);
+    for (const field of [...fields].sort()) out.push({ file, field, checked: checkedIn(scopes, field) });
   }
   return out;
 }
@@ -883,14 +903,55 @@ const PLANTS: Record<string, { src: string; unchecked: string[] }> = {
       post(`await requireProjectVisible({} as never, b.projectId);`),
     unchecked: [],
   },
+  // VIA names a function, not a module: the check in plantCreate, beside it in
+  // the same file, says nothing about plantUpdate. The guard used to read every
+  // check in the module, and passed this.
+  "s-via-checks-the-named-function-not-its-module": {
+    src: `${head}import { plantUpdate } from "@/lib/zz-plant-service";\nconst s = z.object({ partnerId: z.string().uuid() });\n` +
+      post(`await plantUpdate("o", b);`),
+    unchecked: ["partnerId"],
+  },
+  "t-via-function-that-checks": {
+    src: `${head}import { plantCreate } from "@/lib/zz-plant-service";\nconst s = z.object({ partnerId: z.string().uuid() });\n` +
+      post(`await plantCreate("o", b);`),
+    unchecked: [],
+  },
+  "u-via-function-checks-in-a-helper-of-its-module": {
+    src: `${head}import { plantHelped } from "@/lib/zz-plant-service";\nconst s = z.object({ partnerId: z.string().uuid() });\n` +
+      post(`await plantHelped("o", b);`),
+    unchecked: [],
+  },
 };
 
 const PLANT_SCHEMA = `import { z } from "zod";\nexport const PlantBody = z.object({ parentId: z.string().uuid(), labelIds: z.array(z.string().uuid()) });\n`;
 
+/** A service for the VIA plants: one function checks the partner, one does not, one checks through a helper. */
+const PLANT_SERVICE_PATH = "src/lib/zz-plant-service.ts";
+const PLANT_SERVICE = `import { prisma } from "@/lib/db/client";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
+type In = { partnerId: string };
+export async function plantCreate(orgId: string, input: In) {
+  await assertRefsInScope({ orgId }, { partner: input.partnerId });
+  await prisma.contract.create({ data: { orgId, title: "t", partnerId: input.partnerId } });
+}
+export async function plantUpdate(orgId: string, input: In) {
+  await prisma.contract.update({ where: { id: "x" }, data: { partnerId: input.partnerId } });
+}
+async function checkPartner(orgId: string, input: In) {
+  await assertRefsInScope({ orgId }, { partner: input.partnerId });
+}
+export async function plantHelped(orgId: string, input: In) {
+  await checkPartner(orgId, input);
+  await prisma.contract.update({ where: { id: "x" }, data: { partnerId: input.partnerId } });
+}
+`;
+const PLANT_VIA = { ...VIA, plantCreate: PLANT_SERVICE_PATH, plantUpdate: PLANT_SERVICE_PATH, plantHelped: PLANT_SERVICE_PATH };
+
 describe("the scanner reports the routes written to slip past it", () => {
   const files = Object.fromEntries(Object.entries(PLANTS).map(([name, p]) => [`${PLANT}-${name}/route.ts`, p.src]));
-  const read: Read = (p) => (p === "src/lib/zz-plant-schema.ts" ? PLANT_SCHEMA : files[p] ?? disk(p));
-  const refs = () => bodyRefs(Object.keys(files), read);
+  const read: Read = (p) =>
+    p === "src/lib/zz-plant-schema.ts" ? PLANT_SCHEMA : p === PLANT_SERVICE_PATH ? PLANT_SERVICE : files[p] ?? disk(p);
+  const refs = () => bodyRefs(Object.keys(files), read, PLANT_VIA);
 
   it.each(Object.entries(PLANTS))("%s", (name, plant) => {
     const file = `${PLANT}-${name}/route.ts`;

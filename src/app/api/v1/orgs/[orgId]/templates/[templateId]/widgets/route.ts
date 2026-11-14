@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { ProblemError } from "@/lib/openapi/problem";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 
@@ -92,6 +93,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         await tx.boardTemplateWidget.deleteMany({
           where: { id: { in: toDelete } },
         });
+      }
+
+      // A parent must be one of this template's own widgets that the sync
+      // keeps (the ones it removes are gone by now): the foreign key takes any
+      // template's widget, another org's included.
+      const parentIds = [...new Set(widgets.flatMap((w) => (w.parentWidgetId ? [w.parentWidgetId] : [])))];
+      if (parentIds.length > 0) {
+        const kept = await tx.boardTemplateWidget.count({
+          where: { id: { in: parentIds }, template: { id: templateId, orgId } },
+        });
+        if (kept !== parentIds.length) {
+          throw new ProblemError(400, "invalid_request", "That parent widget isn't part of this template.");
+        }
       }
 
       for (const widget of widgets) {

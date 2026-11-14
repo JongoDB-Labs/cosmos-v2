@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.8",
+    date: "2026-11-14",
+    title: "Links between records stay inside your organization",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A widget in a board template can now only sit under another widget of the same template.",
+      },
+      {
+        kind: "fix",
+        text: "Your default board must now be a board you can open, and your theme must be one of your organization's themes or a built-in one.",
+      },
+      {
+        kind: "fix",
+        text: "Sprint capacity can now only be set for current members of your organization.",
+      },
+      {
+        kind: "fix",
+        text: "Every change to a work item now checks that its parent, sprint and team are in the item's own project, and its type and assignee in its organization, whichever screen, import or automation made the change.",
+      },
+      {
+        kind: "fix",
+        text: "Merging two work items now moves only your organization's comments, time, files, links and sub-items, and leaves a sub-item in another project where it is.",
+      },
+    ],
+  },
+  {
     version: "2.561.1",
     date: "2026-11-14",
     title: "Cosmo follows the sprint and Program Increment rules, and asks before sharing",
