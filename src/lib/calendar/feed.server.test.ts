@@ -196,6 +196,38 @@ describe("renderFeed (e2e DB)", () => {
     expect(busyIcs).not.toContain("meetup-join");
   });
 
+  it("gives a meeting its video link, both lines with a Teams one, and never on a busy row", async () => {
+    const { org, owner, token, secret } = await setup();
+    const meet = async (title: string, data: Record<string, unknown>) => {
+      const m = await prisma.syncMeeting.create({
+        data: { orgId: org.id, title, meetingDate: new Date("2026-10-27T15:00:00Z"), createdById: owner.id, ...data },
+      });
+      await prisma.meetingAttendee.create({ data: { meetingId: m.id, userId: owner.id } });
+      return `UID:meeting-${m.id}@`;
+    };
+    const video = await meet("Video sync", { meetingUrl: "https://video.example.test/j/open" });
+    const both = await meet("Both sync", {
+      meetingUrl: "https://video.example.test/j/both",
+      teamsJoinUrl: "https://teams.example.test/l/meetup-join/both", teamsHostId: owner.id,
+    });
+    const classified = await meet("Classified video", { meetingUrl: "https://video.example.test/j/secret", projectId: secret.id });
+    // A marking in the link itself makes the row busy, as the Outlook sync judges it.
+    const markedLink = await meet("Plain title", { meetingUrl: "https://video.example.test/j/x?t=CUI//SP-PRVCY" });
+
+    const ics = unfold((await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics);
+    for (const uid of [video, both, classified, markedLink]) expect(ics).toContain(uid);
+    expect(ics).toContain("DESCRIPTION:Join: https://video.example.test/j/open");
+    // Two lines, as the Outlook sync writes them; ICS escapes the line break.
+    expect(ics).toContain(
+      "DESCRIPTION:Join: https://video.example.test/j/both\\nJoin the Teams meeting: https://teams.example.test/l/meetup-join/both",
+    );
+    expect(ics).toContain("SUMMARY:Video sync"); // the positive control for the marked link's title
+    expect(ics).not.toContain("j/secret");
+    expect(ics).not.toContain("Classified video");
+    expect(ics).not.toContain("SP-PRVCY");
+    expect(ics).not.toContain("Plain title");
+  });
+
   it("serves nothing once the org turns feeds off, the link is revoked, or the person leaves", async () => {
     const off = await setup({ enabled: false });
     expect(await renderFeed(off.token, { origin: ORIGIN, now: NOW })).toBeNull();

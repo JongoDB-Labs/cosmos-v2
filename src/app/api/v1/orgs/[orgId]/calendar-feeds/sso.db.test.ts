@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db/client";
 import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 import { renderFeed } from "@/lib/calendar/feed.server";
-import { parseFeedSegment } from "@/lib/calendar/feed-token";
+import { hashFeedToken, parseFeedSegment } from "@/lib/calendar/feed-token";
 
 // The request the route is answering. Each test signs someone in first.
 const h = vi.hoisted(() => ({ headers: new Headers() }));
@@ -28,7 +28,7 @@ vi.mock("next/headers", () => ({
 // every call here is its own request.
 vi.mock("react", async (orig) => ({ ...(await orig<typeof import("react")>()), cache: <T,>(fn: T) => fn }));
 
-import { POST as createFeed } from "./route";
+import { GET as listFeeds, POST as createFeed } from "./route";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const DAY = 24 * 60 * 60 * 1000;
@@ -74,6 +74,16 @@ async function signIn(orgId: string, session: { authMethod: string; idpConnId?: 
   return { userId: user.id, email };
 }
 
+/** Another session for someone already signed in, which the next request uses. */
+async function signInAgain(userId: string, session: { authMethod: string; idpConnId?: string }) {
+  const id = randomBytes(24).toString("hex");
+  await prisma.session.create({ data: { id, userId, expiresAt: new Date(Date.now() + DAY), ...session } });
+  h.headers = new Headers({ cookie: `session=${id}` });
+}
+
+const list = (orgId: string) =>
+  listFeeds(new NextRequest("http://localhost/x", { method: "GET", headers: h.headers }), { params: Promise.resolve({ orgId }) });
+
 const create = (orgId: string) =>
   createFeed(new NextRequest("http://localhost/x", { method: "POST", headers: h.headers, body: "{}" }), {
     params: Promise.resolve({ orgId }),
@@ -115,6 +125,38 @@ describe("calendar feed links and single sign-on (e2e DB)", () => {
     expect(await renderFeed(token, { origin: ORIGIN })).toBeNull();
     await prisma.idpConnection.update({ where: { id: o.connId }, data: { enforced: false } });
     expect(await renderFeed(token, { origin: ORIGIN })).not.toBeNull();
+  });
+
+  it("the list says which link single sign-on stopped, by the rule the feed itself applies", async () => {
+    const o = await org(false);
+    const me = await signIn(o.id, { authMethod: "password" });
+    const before = await tokenOf(await create(o.id));
+    await prisma.idpConnection.update({ where: { id: o.connId }, data: { enforced: true } });
+    // Now only a session through the IdP opens the org, so that is how its owner comes back.
+    await signInAgain(me.userId, { authMethod: "oidc", idpConnId: o.connId });
+    const after = await tokenOf(await create(o.id));
+    const id = async (token: string) =>
+      (await prisma.calendarFeed.findUniqueOrThrow({ where: { tokenHash: hashFeedToken(token) }, select: { id: true } })).id;
+    const standing = async () => {
+      const res = await list(o.id);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { feeds: Array<{ id: string; inactiveReason: string | null }> };
+      return { text: JSON.stringify(body), byId: Object.fromEntries(body.feeds.map((f) => [f.id, f.inactiveReason])) };
+    };
+
+    const now = await standing();
+    expect(now.byId).toEqual({ [await id(before)]: "sso", [await id(after)]: null });
+    // The feed agrees with the list, link for link.
+    expect(await renderFeed(before, { origin: ORIGIN })).toBeNull();
+    expect(await renderFeed(after, { origin: ORIGIN })).not.toBeNull();
+    // The IdP is on the row (the positive control), never in what the list says.
+    expect((await prisma.calendarFeed.findUniqueOrThrow({ where: { id: await id(after) } })).idpConnId).toBe(o.connId);
+    expect(now.text).not.toContain(o.connId);
+
+    // No longer required: the list and the feed both take the old link back.
+    await prisma.idpConnection.update({ where: { id: o.connId }, data: { enforced: false } });
+    expect((await standing()).byId).toEqual({ [await id(before)]: null, [await id(after)]: null });
+    expect(await renderFeed(before, { origin: ORIGIN })).not.toBeNull();
   });
 
   it("won't make a link that single sign-on would then refuse (a platform admin's break-glass session)", async () => {

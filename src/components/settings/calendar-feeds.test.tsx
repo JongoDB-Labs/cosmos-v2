@@ -12,6 +12,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: vi.fn() }));
 
 import { CalendarFeedsOrgSwitch, CalendarFeedsSection } from "./calendar-feeds";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { FEED_INACTIVE_TEXT } from "@/lib/calendar/feed-settings";
 
 const OPTS = { workItems: true, meetings: true, intervals: false, busyOnly: false };
 
@@ -52,6 +53,25 @@ describe("CalendarFeedsSection", () => {
     await waitFor(() => expect(screen.getByRole("group", { name: "Calendar link 1" })).toBeTruthy());
     // The list never carries a URL: only the create response did.
     expect(screen.getByRole("group", { name: "Calendar link 1" }).textContent).not.toMatch(/TOKEN/);
+  });
+});
+
+describe("CalendarFeedsSection, a link that stopped", () => {
+  it("says why under that link, in the feed's own words, and nothing under one that works", async () => {
+    vi.mocked(jsonFetch).mockResolvedValue({
+      enabled: true,
+      canManage: false,
+      feeds: [
+        { id: "f1", options: OPTS, createdAt: "2026-10-22T00:00:00Z", lastFetchedAt: null, inactiveReason: "sso" },
+        { id: "f2", options: OPTS, createdAt: "2026-10-23T00:00:00Z", lastFetchedAt: null, inactiveReason: null },
+      ],
+    } as never);
+    wrap(<CalendarFeedsSection orgId="o1" />);
+    const stopped = await screen.findByRole("group", { name: "Calendar link 1" });
+    expect(stopped.textContent).toContain(FEED_INACTIVE_TEXT.sso);
+    const working = screen.getByRole("group", { name: "Calendar link 2" });
+    expect(working.textContent).toMatch(/Link 2/); // the positive control: this is the row
+    expect(working.textContent).not.toMatch(/Not active/);
   });
 });
 

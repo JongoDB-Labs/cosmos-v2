@@ -121,8 +121,8 @@ export function keyInactiveReason(
  * (null: it requires none). A credential has no sign-in of its own, so the
  * session it was made from is what the requirement is held to, and one with
  * no recorded IdP fails it: there is no sign-in behind it to vouch for.
- * API keys (above) and calendar feed links (lib/calendar/feed.server.ts
- * `feedMeetsSso`) both ask it.
+ * API keys (above) and calendar feed links (lib/calendar/feed-settings.ts
+ * `feedInactiveReason`) both ask it.
  */
 export function madeThroughRequiredIdp(requiredIdpConnId: string | null, idpConnId: string | null | undefined): boolean {
   return requiredIdpConnId === null || (idpConnId ?? null) === requiredIdpConnId;

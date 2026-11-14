@@ -51,11 +51,15 @@ const RELEASES: Release[] = [
   {
     version: "2.560.4",
     date: "2026-11-14",
-    title: "Calendar feed links follow single sign-on, and show Teams join links",
+    title: "Calendar feed links follow single sign-on and member removal, and show join links",
     highlights: [
       {
         kind: "fix",
-        text: "Where your organization requires single sign-on, a calendar feed link works only if you made it after signing in through the organization's single sign-on, as for an API key. Links made before, or through another sign-in, stop updating. Sign in through single sign-on and create a new link in Settings, Preferences.",
+        text: "Where your organization requires single sign-on, a calendar feed link works only if you made it after signing in through the organization's single sign-on, as for an API key. Links made before, or through another sign-in, stop updating, and Settings, Preferences says so under each one. Sign in through single sign-on and create a new link there.",
+      },
+      {
+        kind: "fix",
+        text: "Removing someone from your organization now revokes their calendar feed links, as it already deleted their API keys. Adding them back, or their signing in again through single sign-on, doesn't bring the old links back. Turning on Require MFA revokes everyone's calendar feed links, and the save message says how many.",
       },
       {
         kind: "fix",
@@ -67,7 +71,11 @@ const RELEASES: Release[] = [
       },
       {
         kind: "improvement",
-        text: "A Teams meeting in your calendar feed now carries its join link in the event's description. Meetings the feed shows only as busy never do.",
+        text: "A meeting in your calendar feed now carries its join links in the event's description: its video link, and its Teams link when it has one. Meetings the feed shows only as busy never do.",
+      },
+      {
+        kind: "fix",
+        text: "On a phone, screen readers now name the settings section picker, and the Revoke button on a calendar link has enough contrast to read.",
       },
     ],
   },

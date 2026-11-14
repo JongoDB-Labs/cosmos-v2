@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { deleteApiKeysIn, keyHoldersWithoutManage } from "@/lib/auth/api-key-manage.server";
+import { revokeCalendarFeedsIn } from "@/lib/calendar/feed-revoke.server";
 import { z } from "zod";
 import { AccountRequestMode, type Prisma } from "@prisma/client";
 import { allowlistState, lockoutRefusal, lockoutResponse, securitySettingsFor } from "@/lib/auth/ip-allowlist";
@@ -235,34 +236,53 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // themselves. The response says how many went, so the admin who saved
     // knows.
     //
-    // `ssoEnforced` revokes no keys: no sign-in path reads it. The single
-    // sign-on rule that binds keys is the org's enforced IdP connection
-    // (orgRequiresSso), and it is checked each time a key is used, not here:
-    // see keyInactiveReason.
+    // Every calendar link in the org goes in the same transaction, admins'
+    // included. A link has no sign-in to check against the floor either, and
+    // nobody can see or revoke anyone else's link, so the reason admins' keys
+    // stay doesn't hold for links. Each person makes a new one after signing
+    // in under the new rule.
+    //
+    // `ssoEnforced` revokes no keys or links: no sign-in path reads it. The
+    // single sign-on rule that binds them is the org's enforced IdP connection
+    // (orgRequiresSso), and it is checked each time a key is used or a link is
+    // fetched, not here: see keyInactiveReason and feedInactiveReason.
     let apiKeysRevoked = 0;
+    let calendarFeedsRevoked = 0;
     if (tightenedMfa) {
       const holders = await keyHoldersWithoutManage(orgId);
-      if (holders.length > 0) {
-        apiKeysRevoked = await prisma.$transaction(async (tx) => {
-          const prefixes = await deleteApiKeysIn(tx, { orgId, createdById: { in: holders } });
-          if (prefixes.length > 0) {
-            await logAudit({
-              orgId,
-              userId: ctx.userId,
-              action: "security_settings.api_keys_revoked",
-              entity: "org_security_settings",
-              entityId: settings.id,
-              metadata: {
-                reason: "mfa_required",
-                revokedCount: prefixes.length,
-                prefixes,
-              },
-              ipAddress: getIpAddress(request),
-            }, tx);
-          }
-          return prefixes.length;
-        });
-      }
+      ({ apiKeysRevoked, calendarFeedsRevoked } = await prisma.$transaction(async (tx) => {
+        const prefixes = holders.length > 0
+          ? await deleteApiKeysIn(tx, { orgId, createdById: { in: holders } })
+          : [];
+        if (prefixes.length > 0) {
+          await logAudit({
+            orgId,
+            userId: ctx.userId,
+            action: "security_settings.api_keys_revoked",
+            entity: "org_security_settings",
+            entityId: settings.id,
+            metadata: {
+              reason: "mfa_required",
+              revokedCount: prefixes.length,
+              prefixes,
+            },
+            ipAddress: getIpAddress(request),
+          }, tx);
+        }
+        const feedIds = await revokeCalendarFeedsIn(tx, { orgId });
+        if (feedIds.length > 0) {
+          await logAudit({
+            orgId,
+            userId: ctx.userId,
+            action: "security_settings.calendar_feeds_revoked",
+            entity: "org_security_settings",
+            entityId: settings.id,
+            metadata: { reason: "mfa_required", revokedCount: feedIds.length, feedIds },
+            ipAddress: getIpAddress(request),
+          }, tx);
+        }
+        return { apiKeysRevoked: prefixes.length, calendarFeedsRevoked: feedIds.length };
+      }));
     }
 
     if (org.tenantClass === "GOV" && (tightenedSso || tightenedMfa)) {
@@ -281,7 +301,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    return success({ ...settings, apiKeysRevoked });
+    return success({ ...settings, apiKeysRevoked, calendarFeedsRevoked });
   } catch (error) {
     return handleApiError(error);
   }

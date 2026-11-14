@@ -6,12 +6,11 @@ import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { createClassificationResolver } from "@/lib/classification/resolver";
-import { madeThroughRequiredIdp } from "@/lib/auth/api-key-policy";
 import { requiredIdpConnectionId } from "@/lib/auth/sso-enforcement";
 import type { AuthContext } from "@/lib/rbac/check";
 import { buildIcs } from "./ics";
 import { feedEvents } from "./feed-events";
-import { calendarFeedsEnabled, readFeedOptions } from "./feed-settings";
+import { calendarFeedsEnabled, feedInactiveReason, readFeedOptions, type FeedStanding } from "./feed-settings";
 import { hashFeedToken } from "./feed-token";
 
 const DAY = 86_400_000;
@@ -26,26 +25,16 @@ export interface RenderedFeed {
   lastModified: Date;
 }
 
-/**
- * Whether a link made from a session of `idpConnId` (null: not single sign-on)
- * may be served in this org. A link is a bearer credential like an API key, so
- * it is held to the rule a member's key is (api-key-policy
- * `madeThroughRequiredIdp`): where the org requires single sign-on, only a link
- * made through that org's IdP. Creating a link asks it of the session, so a
- * link is never made that this would then refuse.
- *
- * The org's IP allowlist can't apply to a link: the calendar provider fetches
- * it from its own servers, never from the person's network.
- */
-export async function feedMeetsSso(orgId: string, idpConnId: string | null): Promise<boolean> {
-  return madeThroughRequiredIdp(await requiredIdpConnectionId(orgId), idpConnId);
+/** The org's rules today, for feedInactiveReason. */
+export async function loadFeedStanding(org: { id: string; settings: unknown }): Promise<FeedStanding> {
+  return { enabled: calendarFeedsEnabled(org.settings), requiredIdpConnId: await requiredIdpConnectionId(org.id) };
 }
 
 /**
  * The feed behind a token, or null for ANY reason it shouldn't be served: an
- * unknown or revoked token, calendar feeds switched off for the org, a link
- * the org's single sign-on doesn't vouch for (feedMeetsSso), a deactivated or
- * removed person. The route turns null into a bare 404, so a caller learns
+ * unknown or revoked token, a deactivated or removed person, or a link the
+ * org's rules stop (feedInactiveReason: feeds switched off, or a link the
+ * org's single sign-on doesn't vouch for). The route turns null into a bare 404, so a caller learns
  * nothing about which check failed.
  *
  * Access is re-derived on every fetch from the person's CURRENT membership,
@@ -62,9 +51,8 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
     },
   });
   if (!feed || feed.revokedAt || feed.user.deactivatedAt) return null;
-  if (!calendarFeedsEnabled(feed.org.settings)) return null;
+  if (feedInactiveReason(await loadFeedStanding(feed.org), feed) !== null) return null;
   const { orgId, userId } = feed;
-  if (!(await feedMeetsSso(orgId, feed.idpConnId))) return null;
   // forApiKey: no OWNER break-glass, so the org's restrictions bind an
   // owner's link as they bind an owner's API key.
   const eff = await loadEffectivePermissions(orgId, userId, { forApiKey: true });
@@ -125,7 +113,7 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
             meetingDate: { gte: from, lte: to },
             attendees: { some: { userId } },
           },
-          select: { id: true, title: true, meetingDate: true, updatedAt: true, projectId: true, teamsJoinUrl: true },
+          select: { id: true, title: true, meetingDate: true, updatedAt: true, projectId: true, teamsJoinUrl: true, meetingUrl: true },
           orderBy: { meetingDate: "asc" },
           take: FEED_MAX_EVENTS,
         })
@@ -184,7 +172,10 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
       // Null unless it is a Teams meeting: the database drops the link of a
       // meeting with no host (trigger sync_meetings_teams_link_needs_host).
       teamsJoinUrl: m.teamsJoinUrl,
-      restricted: restricted(m.projectId, m.title),
+      meetingUrl: m.meetingUrl,
+      // The link is judged with the title, as the Outlook sync judges it: a
+      // marking in either makes the row busy.
+      restricted: restricted(m.projectId, m.title, m.meetingUrl),
     })),
     intervals: intervals.filter(visible).map((i) => ({
       id: i.id, name: i.name, projectKey: i.project.key, startDate: i.startDate, endDate: i.endDate,

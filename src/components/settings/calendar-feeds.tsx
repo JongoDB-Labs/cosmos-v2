@@ -13,6 +13,7 @@ import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { notifyError } from "@/lib/errors/notify";
 import type { FeedOptions } from "@/lib/calendar/feed-events";
+import { FEED_INACTIVE_TEXT, type FeedInactiveReason } from "@/lib/calendar/feed-settings";
 
 /**
  * COSMOS-202: calendar subscription links. A person makes a link and pastes it
@@ -26,6 +27,8 @@ interface FeedRow {
   options: FeedOptions;
   createdAt: string;
   lastFetchedAt: string | null;
+  /** Why the feed has stopped serving it, by the feed's own rule; null while it works. */
+  inactiveReason: FeedInactiveReason | null;
 }
 interface FeedsResponse {
   enabled: boolean;
@@ -130,13 +133,20 @@ export function CalendarFeedsSection({ orgId }: { orgId: string }) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="gap-1.5 text-destructive hover:text-destructive"
+                  // The text shade of the critical colour: text-destructive is the
+                  // fill shade, below 4.5:1 as text on the card (axe color-contrast).
+                  className="gap-1.5 text-[var(--status-critical-text,var(--status-critical))] hover:text-[var(--status-critical-text,var(--status-critical))]"
                   onClick={() => revoke.mutate(f.id)}
                   disabled={revoke.isPending}
                 >
                   <Trash2 className="h-3.5 w-3.5" /> Revoke
                 </Button>
               </div>
+              {f.inactiveReason && (
+                <p className="text-xs font-medium text-[var(--status-critical-text,var(--status-critical))]">
+                  {FEED_INACTIVE_TEXT[f.inactiveReason]}
+                </p>
+              )}
               {OPTION_LABELS.map((o) => (
                 <label key={o.key} className="flex items-center justify-between gap-3 text-sm">
                   {o.label}
