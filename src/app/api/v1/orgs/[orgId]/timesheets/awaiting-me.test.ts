@@ -26,7 +26,13 @@ const { getAuthContext, prisma, readableTimeUserIds, timeUserIdFilter } =
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
-vi.mock("@/lib/time/scope", () => ({ readableTimeUserIds, timeUserIdFilter }));
+// The real key roster: these callers are browser sessions, which it leaves as
+// readableTimeUserIds answered.
+vi.mock("@/lib/time/scope", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/time/scope")>()),
+  readableTimeUserIds,
+  timeUserIdFilter,
+}));
 
 import { GET } from "./route";
 

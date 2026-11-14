@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { readableTimeUserIds, timeProjectCeiling } from "@/lib/time/scope";
+import { keyTimeRoster, readableTimeUserIds, timeProjectCeiling } from "@/lib/time/scope";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { periodFor, type Period } from "@/lib/time/period";
 import { DEFAULT_PERIOD_LENGTH } from "@/lib/time/timesheet";
@@ -52,8 +52,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       // null means "no filter" — the caller may read everybody's hours. Any
       // other value is the exact set, and a subject outside it is refused
       // rather than quietly returned empty, which would read as "they worked
-      // nothing" instead of "that is not yours to see".
-      const allowed = await readableTimeUserIds(ctx);
+      // nothing" instead of "that is not yours to see". A key limited to some
+      // projects also needs the subject inside its roster (`keyTimeRoster`),
+      // as the timesheet list does.
+      const { allowed } = await keyTimeRoster(ctx, await readableTimeUserIds(ctx));
       if (allowed !== null && !allowed.includes(subject)) {
         return new Response("Forbidden", { status: 403 });
       }

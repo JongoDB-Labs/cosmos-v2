@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { resolveApprovalRoute } from "@/lib/time/routing";
 import { resolveSubmitGate } from "@/lib/time/submit-gate";
+import { keyTimeRoster } from "@/lib/time/scope";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -32,19 +33,23 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.TIME_READ);
 
-    const [route, gate] = await Promise.all([
+    // A key limited to some projects names only the people its roster reaches
+    // (`keyTimeRoster`); everybody else is left out of both lists below.
+    const [route, gate, roster] = await Promise.all([
       resolveApprovalRoute(orgId, ctx.userId),
       resolveSubmitGate({
         orgId,
         subjectUserId: ctx.userId,
         canApproveOwnTime: hasPermission(ctx.permissions, Permission.TIME_APPROVE),
       }),
+      keyTimeRoster(ctx, null),
     ]);
 
+    const notify = route.notify.filter(roster.has);
     const names =
-      route.notify.length > 0
+      notify.length > 0
         ? await prisma.user.findMany({
-            where: { id: { in: route.notify } },
+            where: { id: { in: notify } },
             select: { displayName: true },
           })
         : [];
@@ -64,7 +69,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       // Who this worker may ask, so the request modal opens already populated
       // rather than fetching again at the moment it is needed. Employee ids
       // are what the request endpoint accepts.
-      eligibleSupervisors: gate.eligible.map((c) => ({
+      eligibleSupervisors: gate.eligible.filter((c) => roster.has(c.userId)).map((c) => ({
         employeeId: c.employeeId,
         displayName: c.displayName,
       })),

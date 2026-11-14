@@ -59,7 +59,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "An API key limited to some projects now lists timesheets only for people on those projects, and names only approvers on them. Signed-in people and org-wide keys see the same timesheets as before.",
+        text: "An API key limited to some projects now sees time only for its owner and the people on those projects. Timesheets, week statuses, the person picker, team leave, leave balances and the list of your approvers all agree. Approvers outside those projects are not named. Signed-in people and org-wide keys see the same as before.",
       },
       {
         kind: "fix",
