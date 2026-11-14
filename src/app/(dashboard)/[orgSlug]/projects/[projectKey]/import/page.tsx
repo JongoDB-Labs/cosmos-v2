@@ -5,6 +5,7 @@ import { narrowBoards } from "@/lib/rbac/board-access";
 import { redirect, notFound } from "next/navigation";
 import { PageShell } from "@/components/ui/page-shell";
 import { ImportWizard } from "@/components/import/import-wizard";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -16,7 +17,7 @@ export default async function ProjectImportPage({ params }: PageParams) {
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
     },
     select: {
       id: true,

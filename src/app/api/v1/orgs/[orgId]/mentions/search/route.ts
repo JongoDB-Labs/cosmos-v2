@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { searchEntities } from "@/lib/mentions/registry.server";
+import { limitEntitySearch } from "@/lib/mentions/search-rate-limit";
 import { isEntityType, type EntityType } from "@/lib/mentions/refs";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -29,6 +30,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const sp = request.nextUrl.searchParams;
     const q = sp.get("q") ?? "";
+    // An empty query searches nothing (searchEntities returns []), so it spends no token.
+    if (!q.trim()) return success([]);
+    // One budget with the ⌘K palette: the same fan-out.
+    const limited = limitEntitySearch(request, ctx.userId);
+    if (limited) return limited;
     const typesParam = sp.get("types");
     const types: EntityType[] | undefined = typesParam
       ? typesParam.split(",").map((s) => s.trim()).filter(isEntityType)

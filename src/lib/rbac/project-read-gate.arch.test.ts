@@ -177,6 +177,15 @@ const VISIBLE_ANYWHERE = new RegExp(
 );
 
 /**
+ * Chat's own check, in lib/chat/access.ts: its channel loader and list filters
+ * hide a channel on a project the caller can't see (pinned below). It judges
+ * a CHANNEL's project, so it counts only in chat's handlers; elsewhere it says
+ * nothing about the project a write names.
+ */
+const CHAT_VISIBLE = /\b(?:loadChannelAndMembership|channelProjectVisible|visibleChannelWhere|visibleChannelProjectIds)\(/;
+const CHAT_ROUTES = "src/app/api/v1/orgs/[orgId]/chat/";
+
+/**
  * Modules whose READS aren't team-scoped either: anyone with the module's bit
  * sees every record, whatever its project. Gating only their writes would
  * refuse a change to a record its author can plainly see, so they are held
@@ -184,13 +193,6 @@ const VISIBLE_ANYWHERE = new RegExp(
  * 2026-10-24). Listed so none can be forgotten, and none added silently.
  */
 const NOT_TEAM_SCOPED = new Set([
-  // Chat channels: visible by channel membership, not by project.
-  "POST /v1/orgs/[orgId]/chat/channels/route.ts",
-  "PATCH /v1/orgs/[orgId]/chat/channels/[channelId]/route.ts",
-  "DELETE /v1/orgs/[orgId]/chat/channels/[channelId]/route.ts",
-  "POST /v1/orgs/[orgId]/chat/channels/[channelId]/commands/route.ts",
-  "POST /v1/orgs/[orgId]/chat/channels/[channelId]/join/route.ts",
-  "POST /v1/orgs/[orgId]/chat/channels/[channelId]/read/route.ts",
   // Data classifications: every member reads them, to render banners.
   "POST /v1/orgs/[orgId]/classifications/route.ts",
   "PUT /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
@@ -198,8 +200,10 @@ const NOT_TEAM_SCOPED = new Set([
   "DELETE /v1/orgs/[orgId]/classifications/[classificationId]/route.ts",
 ]);
 
-/** Writes the scan flags that write to no project the caller chooses, and why. */
+/** Writes the scan flags that write to no project the caller chooses, or check it another way, and why. */
 const NOT_A_PROJECT_WRITE: Record<string, string> = {
+  "POST /v1/orgs/[orgId]/chat/channels/route.ts": "creates a channel; foreignRef refuses a project the creator can't see",
+  "DELETE /v1/orgs/[orgId]/chat/channels/[channelId]/route.ts": "org owners and admins only, who see every project",
   "POST /v1/orgs/[orgId]/projects/route.ts": "creates the project; its creator is its first member",
   "DELETE /v1/orgs/[orgId]/api-keys/[keyId]/route.ts": "revokes a key; its projects are only written to the audit entry",
   "POST /v1/orgs/[orgId]/contracts/route.ts": "an org-level contract: the body can't name a project",
@@ -219,6 +223,16 @@ const NOT_A_PROJECT_WRITE: Record<string, string> = {
   "POST /v1/orgs/[orgId]/webhooks/[webhookId]/test/route.ts": "a test delivery is about no project",
 };
 
+/** Whether a write handler (in `file`, with the helpers it calls) touches a project, and checks it's visible. */
+function judge(file: string, code: string): { touches: boolean; gated: boolean } {
+  const touches =
+    WRITES_A_PROJECT_MODEL.test(code) ||
+    /\bprojectIds?\b/.test(code) ||
+    (LOADS_A_PROJECT_MODEL.test(code) && WRITES_ANYTHING.test(code));
+  const gated = VISIBLE_ANYWHERE.test(code) || (file.startsWith(CHAT_ROUTES) && CHAT_VISIBLE.test(code));
+  return { touches, gated };
+}
+
 describe("writes outside projects/[projectId] that touch a project are gated too", () => {
   const API = "src/app/api";
   const flagged = routeFiles(API)
@@ -228,14 +242,24 @@ describe("writes outside projects/[projectId] that touch a project are gated too
       return WRITES.flatMap((m) => {
         const code = handlerCode(src, m, f);
         if (!code) return [];
-        const touches =
-          WRITES_A_PROJECT_MODEL.test(code) ||
-          /\bprojectIds?\b/.test(code) ||
-          (LOADS_A_PROJECT_MODEL.test(code) && WRITES_ANYTHING.test(code));
-        if (!touches) return [];
-        return [{ at: `${m} ${f.slice(API.length)}`, gated: VISIBLE_ANYWHERE.test(code) }];
+        const { touches, gated } = judge(f, code);
+        return touches ? [{ at: `${m} ${f.slice(API.length)}`, gated }] : [];
       });
     });
+
+  it("counts chat's check only in chat's own handlers", () => {
+    // A handler outside chat that loads some channel, then writes to a project
+    // named in its body: the channel's project says nothing about that one.
+    const elsewhere = `const { channel } = await loadChannelAndMembership(ctx, body.channelId);
+      if (!channel) return notFound();
+      await prisma.workItem.create({ data: { projectId: body.projectId, title: body.title } });`;
+    expect(judge("src/app/api/v1/orgs/[orgId]/work-items/route.ts", elsewhere)).toEqual({ touches: true, gated: false });
+    // Positive control: in a chat handler, the loader is the check.
+    const inChat = `const { channel } = await loadChannelAndMembership(ctx, channelId);
+      if (!channel) return notFound();
+      await prisma.chatChannel.update({ where: { id: channelId }, data: { topic } });`;
+    expect(judge(`${CHAT_ROUTES}channels/[channelId]/route.ts`, inChat)).toEqual({ touches: true, gated: true });
+  });
 
   it("read the schema and the real routes", () => {
     expect(PROJECT_MODELS).toEqual(expect.arrayContaining(["workItem", "syncMeeting", "timeEntry", "contract"]));
@@ -262,6 +286,14 @@ describe("writes outside projects/[projectId] that touch a project are gated too
     // getReadableProjectIds applies team scope and a key's project scope.
     expect(src).toMatch(/return \(await getReadableProjectIds\(ctx, "MEETING_READ"\)\)\.includes\(projectId\)/);
     expect(src).toMatch(/!\(await canReadMeeting\(ctx, meeting\.projectId\)\)/);
+  });
+
+  it("the chat access helpers, which the rule trusts, still hide a channel on a hidden project", () => {
+    const src = readFileSync("src/lib/chat/access.ts", "utf8");
+    expect(src).toMatch(/return !projectId \|\| isProjectVisible\(ctx, projectId\);/);
+    expect(src).toMatch(/if \(!row \|\| !\(await channelProjectVisible\(ctx, row\.projectId\)\)\) return \{ channel: null, member: null \};/);
+    expect(src).toMatch(/hiddenProjectIds\(ctx\)/);
+    expect(src).toMatch(/\{ projectId: \{ in: await visibleChannelProjectIds\(ctx\) \} \}/);
   });
 
   it("loadFeedbackRoute, which the rule trusts, still refuses an item under a hidden project", () => {

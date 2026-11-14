@@ -167,4 +167,104 @@ describe("mergeWorkItems (e2e DB)", () => {
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: survivor.id } })).parentId).toBe(parent.id);
     await expectTree(project.id);
   });
+
+  // Rows that point at the duplicate but belong to another org (what an older,
+  // unchecked write could leave) are not the merge's to move: each nested move
+  // is scoped to this org, and sub-items to this project. Each kind has the
+  // org's own row beside it, which does move.
+  it("moves only this org's rows, and only this project's sub-items", async () => {
+    const { org, project, owner, mk } = await setup();
+    const stamp = Math.random().toString(36).slice(2, 8);
+    const orgB = await prisma.organization.create({ data: { name: `mgb ${stamp}`, slug: `mgb-${stamp}` } });
+    orgIds.push(orgB.id);
+    const stranger = await prisma.user.create({ data: { email: `mg-stranger-${stamp}@merge.test`, displayName: "S" } });
+    const pB = await prisma.project.create({ data: { orgId: orgB.id, name: "PB", key: `MB${stamp.slice(0, 4).toUpperCase()}` } });
+    const p2 = await prisma.project.create({ data: { orgId: org.id, name: "P2", key: `MC${stamp.slice(0, 4).toUpperCase()}` } });
+    await ensureFixtureStatuses(pB.id, ["todo"]);
+    await ensureFixtureStatuses(p2.id, ["todo"]);
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
+    const rawItem = (orgId: string, projectId: string, ticketNumber: number, parentId?: string) =>
+      prisma.workItem.create({
+        data: { orgId, projectId, ticketNumber, title: `x-${ticketNumber}`, columnKey: "todo", workItemTypeId: type.id, createdById: owner.id, parentId },
+      });
+
+    const survivor = await mk({ title: "survivor" });
+    const dup = await mk({ title: "dup" });
+    const subA = await mk({ title: "own sub", parentId: dup.id });
+    const subB = await rawItem(orgB.id, pB.id, 1, dup.id);
+    const subP2 = await rawItem(org.id, p2.id, 1, dup.id);
+    const itemB = await rawItem(orgB.id, pB.id, 2);
+    const other = await mk({ title: "linked" });
+
+    /** One row of each kind that points at the duplicate, in `orgId`. */
+    const plant = async (orgId: string, projectId: string, who: string, target: string) => {
+      const board = await prisma.board.create({ data: { orgId, projectId, name: "B", type: "KANBAN" } });
+      const interval = await prisma.interval.create({
+        data: { orgId, projectId, number: 1, name: "S", startDate: new Date("2026-11-02"), endDate: new Date("2026-11-13") },
+      });
+      const ceremony = await prisma.sprintCeremony.create({ data: { orgId, boardId: board.id, intervalId: interval.id, kind: "REVIEW" } });
+      const goal = await prisma.goal.create({ data: { orgId, projectId, title: "G" } });
+      const objective = await prisma.objective.create({ data: { orgId, projectId, title: "O" } });
+      const kr = await prisma.keyResult.create({ data: { objectiveId: objective.id, title: "KR" } });
+      const milestone = await prisma.milestone.create({ data: { orgId, projectId, title: "M", dueDate: new Date("2026-12-01") } });
+      const workItemId = dup.id;
+      return {
+        comment: (await prisma.comment.create({ data: { orgId, workItemId, authorId: who, content: "c" } })).id,
+        timeEntry: (await prisma.timeEntry.create({ data: { orgId, userId: who, workItemId, date: new Date("2026-10-20"), hours: 1 } })).id,
+        document: (await prisma.document.create({
+          data: { orgId, workItemId, uploadedById: who, title: "d", filename: "d.txt", contentType: "text/plain", size: 1, storageKey: `k-${orgId}` },
+        })).id,
+        feedback: (await prisma.feedbackItem.create({ data: { orgId, workItemId, authorId: who, title: "f" } })).id,
+        retro: (await prisma.retroActionItem.create({ data: { ceremonyId: ceremony.id, text: "r", workItemId } })).id,
+        goalLink: (await prisma.goalLink.create({ data: { goalId: goal.id, kind: "WORK_ITEM", workItemId } })).id,
+        milestoneLink: (await prisma.milestoneLink.create({ data: { milestoneId: milestone.id, workItemId } })).id,
+        link: (await prisma.workItemLink.create({ data: { orgId, sourceItemId: workItemId, targetItemId: target, type: "BLOCKS" } })).id,
+        kr: kr.id,
+        objective: objective.id,
+        watcher: who,
+        krLink: (await prisma.keyResultLink.create({ data: { orgId, keyResultId: kr.id, workItemId } })).id,
+        objectiveLink: (await prisma.objectiveLink.create({ data: { orgId, objectiveId: objective.id, workItemId } })).id,
+        watcherRow: (await prisma.workItemWatcher.create({ data: { orgId, workItemId, userId: who } })).id,
+      };
+    };
+    const mine = await plant(org.id, project.id, owner.id, other.id);
+    const theirs = await plant(orgB.id, pB.id, stranger.id, itemB.id);
+
+    await prisma.$transaction((tx) =>
+      mergeWorkItems(tx, { orgId: org.id, projectId: project.id, duplicateId: dup.id, survivorId: survivor.id, userId: owner.id }),
+    );
+
+    /** Which item each planted row now points at: S for the survivor, D for the duplicate. */
+    const at = async (rows: Awaited<ReturnType<typeof plant>>) => {
+      const where = (id: string | null | undefined) => (id === survivor.id ? "S" : id === dup.id ? "D" : `? ${id}`);
+      const link = await prisma.workItemLink.findUnique({ where: { id: rows.link } });
+      return {
+        comment: where((await prisma.comment.findUniqueOrThrow({ where: { id: rows.comment } })).workItemId),
+        timeEntry: where((await prisma.timeEntry.findUniqueOrThrow({ where: { id: rows.timeEntry } })).workItemId),
+        document: where((await prisma.document.findUniqueOrThrow({ where: { id: rows.document } })).workItemId),
+        feedback: where((await prisma.feedbackItem.findUniqueOrThrow({ where: { id: rows.feedback } })).workItemId),
+        retro: where((await prisma.retroActionItem.findUniqueOrThrow({ where: { id: rows.retro } })).workItemId),
+        goalLink: where((await prisma.goalLink.findUniqueOrThrow({ where: { id: rows.goalLink } })).workItemId),
+        milestoneLink: where((await prisma.milestoneLink.findUniqueOrThrow({ where: { id: rows.milestoneLink } })).workItemId),
+        link: where(link?.sourceItemId),
+        // Copied to the survivor and dropped from the duplicate, or left alone.
+        krLink: (await prisma.keyResultLink.count({ where: { keyResultId: rows.kr, workItemId: survivor.id } })) === 1 ? "S" : "D",
+        objectiveLink: (await prisma.objectiveLink.count({ where: { objectiveId: rows.objective, workItemId: survivor.id } })) === 1 ? "S" : "D",
+        watcher: (await prisma.workItemWatcher.count({ where: { workItemId: survivor.id, userId: rows.watcher } })) === 1 ? "S" : "D",
+      };
+    };
+    const everywhere = (v: string) => ({
+      comment: v, timeEntry: v, document: v, feedback: v, retro: v, goalLink: v, milestoneLink: v, link: v, krLink: v, objectiveLink: v, watcher: v,
+    });
+    expect(await at(mine)).toEqual(everywhere("S"));
+    expect(await at(theirs)).toEqual(everywhere("D"));
+    // Another org's key-result and objective links are still on the duplicate, not dropped.
+    expect(await prisma.keyResultLink.count({ where: { id: theirs.krLink, workItemId: dup.id } })).toBe(1);
+    expect(await prisma.objectiveLink.count({ where: { id: theirs.objectiveLink, workItemId: dup.id } })).toBe(1);
+
+    const parentOf = async (id: string) => (await prisma.workItem.findUniqueOrThrow({ where: { id } })).parentId;
+    expect(await parentOf(subA.id)).toBe(survivor.id);
+    expect(await parentOf(subB.id)).toBe(dup.id);
+    expect(await parentOf(subP2.id)).toBe(dup.id);
+  });
 });

@@ -9,6 +9,7 @@ import { availableEntityDefs, type EntityImportRequest } from "@/lib/import/enti
 import { mapRows, codeKeyError, runEntityImport } from "@/lib/import/entity-import";
 import { PluginRegistry, PluginServerRegistry } from "@/lib/plugins/registry";
 import { getEnabledPluginSlugs } from "@/lib/plugins/enablement";
+import { escapeLike } from "@/lib/query/like";
 
 const MAX_ROWS = 5000;
 const MAX_CELL = 20_000;
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
     const org = await prisma.organization.findFirst({
-      where: UUID_RE.test(orgId) ? { id: orgId } : { slug: { equals: orgId, mode: "insensitive" } },
+      where: UUID_RE.test(orgId) ? { id: orgId } : { slug: { equals: escapeLike(orgId), mode: "insensitive" } },
       select: { id: true, slug: true },
     });
     if (!org) throw new NotFoundError("Organization not found");

@@ -382,6 +382,7 @@ export const getAuthContext = cache(
       orgRole: effective.orgRole,
       permissions: effective.permissions,
       basePermissions: effective.basePermissions,
+      unrestrictedBasePermissions: effective.unrestrictedBasePermissions,
       abacRules: effective.abacRules,
     };
   },

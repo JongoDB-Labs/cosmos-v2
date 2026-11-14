@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, maskFromDb } from "@/lib/rbac/permissions";
-import { workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
+import { currentWorkRoleRefusal, workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
@@ -47,24 +47,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const r = await resolve(orgId, roleId);
     if (r.error) return r.error;
 
-    // Escalation guard at ASSIGNMENT time: you can't assign a role that grants
-    // permissions you don't hold yourself. The create/edit subset guard lives
-    // on the role *definition*, so without this an ORG_MANAGE_MEMBERS holder
-    // could assign an OWNER-authored over-privileged role (e.g. one granting
-    // ORG_MANAGE_BILLING / ORG_DELETE) to themselves or anyone and escalate.
-    // Ceiling is basePermissions (excludes the actor's own work-role grants) so
-    // a self-assigned grant can't be re-laundered. OWNER's base holds all bits.
-    // It covers taking the role away too (the roster is replaced whole), which
-    // is the ceiling on current role.
-    if (workRoleCeilingRefusal(r.ctx, maskFromDb(r.role.grants))) {
-      return new Response(
-        JSON.stringify({
-          error: "You can't assign a role that grants permissions you don't have",
-        }),
-        { status: 403, headers: { "Content-Type": "application/json" } },
-      );
-    }
-
     const { orgMemberIds } = setSchema.parse(await request.json());
 
     // Only accept ids that are genuinely members of THIS org (no cross-tenant
@@ -74,6 +56,31 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       select: { id: true },
     });
     const validIds = valid.map((m) => m.id);
+
+    // Escalation guard at ASSIGNMENT time: you can't assign a role that grants
+    // permissions you don't hold yourself. The create/edit subset guard lives
+    // on the role *definition*, so without this an ORG_MANAGE_MEMBERS holder
+    // could assign an OWNER-authored over-privileged role (e.g. one granting
+    // ORG_MANAGE_BILLING / ORG_DELETE) to themselves or anyone and escalate.
+    // Ceiling is basePermissions (excludes the actor's own work-role grants) so
+    // a self-assigned grant can't be re-laundered. OWNER's base holds all bits.
+    // A roster that only takes people off is the ceiling on current role, and
+    // is counted without the org's restrictions, as removing them would be.
+    const holders = new Set(
+      (await prisma.orgMemberWorkRole.findMany({ where: { workRoleId: roleId }, select: { orgMemberId: true } }))
+        .map((a) => a.orgMemberId),
+    );
+    const adds = validIds.some((id) => !holders.has(id));
+    const grants = maskFromDb(r.role.grants);
+    const refused = (error: string) =>
+      new Response(JSON.stringify({ error }), { status: 403, headers: { "Content-Type": "application/json" } });
+    if (adds) {
+      if (workRoleCeilingRefusal(r.ctx, grants)) {
+        return refused("You can't assign a role that grants permissions you don't have");
+      }
+    } else if (currentWorkRoleRefusal(r.ctx, grants)) {
+      return refused("You can't take away a role that grants permissions you don't have");
+    }
 
     await prisma.$transaction([
       prisma.orgMemberWorkRole.deleteMany({ where: { workRoleId: roleId } }),

@@ -93,16 +93,86 @@ function asks(nodes: readonly ts.Node[]): Set<string> {
   return out;
 }
 
-/** The condition reads `isApiKey` somewhere: `ctx.isApiKey`, `!r.ctx.isApiKey`, `a && ctx.isApiKey`. */
-function testsIsApiKey(cond: ts.Node): boolean {
+/** Local names that hold the flag, each with the scopes (block, function, file) it is declared in. */
+type Aliases = Map<string, ts.Node[]>;
+
+/** The block, function or file a declaration's name is visible in. */
+function scopeOf(decl: ts.Node): ts.Node {
+  for (let p = decl.parent; p; p = p.parent) {
+    if (ts.isBlock(p) || ts.isSourceFile(p) || ts.isModuleBlock(p) || ts.isCaseClause(p) || ts.isDefaultClause(p)
+      || ts.isFunctionLike(p) || ts.isForStatement(p) || ts.isForInStatement(p) || ts.isForOfStatement(p)) return p;
+  }
+  return decl.getSourceFile();
+}
+
+/** `id` reads a variable: not `x.id`, not an `{ id: … }` key, not the name being declared. */
+function isReference(id: ts.Identifier): boolean {
+  const p = id.parent;
+  if (ts.isPropertyAccessExpression(p)) return p.expression === id;
+  if (ts.isQualifiedName(p)) return p.left === id;
+  if (ts.isPropertyAssignment(p) || ts.isPropertySignature(p) || ts.isPropertyDeclaration(p) || ts.isMethodDeclaration(p)) return p.name !== id;
+  if (ts.isBindingElement(p)) return p.name !== id && p.propertyName !== id;
+  if (ts.isVariableDeclaration(p) || ts.isParameter(p) || ts.isFunctionDeclaration(p)) return p.name !== id;
+  return true;
+}
+
+/**
+ * `n` reads the flag: `isApiKey` named outright (`ctx.isApiKey`, `!r.ctx.isApiKey`,
+ * `a && ctx.isApiKey`), or a local name holding it, read where that name is in
+ * scope. An object literal's `isApiKey:` key builds a context; it reads none.
+ */
+function readsIsApiKey(n: ts.Node, aliases: Aliases): boolean {
   let found = false;
-  const visit = (n: ts.Node) => {
+  const visit = (x: ts.Node) => {
     if (found) return;
-    if (ts.isIdentifier(n) && n.text === "isApiKey") found = true;
-    else ts.forEachChild(n, visit);
+    if (ts.isIdentifier(x)) {
+      if (x.text === "isApiKey") found = !(ts.isPropertyAssignment(x.parent) && x.parent.name === x);
+      else {
+        const scopes = aliases.get(x.text);
+        if (scopes && isReference(x)) for (let p: ts.Node | undefined = x.parent; p && !found; p = p.parent) found = scopes.includes(p);
+      }
+    } else ts.forEachChild(x, visit);
   };
-  visit(cond);
+  visit(n);
   return found;
+}
+
+/**
+ * Every local name that holds the flag, to a fixed point, so a chain of them
+ * resolves: `const k = ctx.isApiKey`, `const asSession = !k`, a destructured
+ * `{ isApiKey: k }` (nested too, and in a parameter), and a value computed from
+ * the flag (`const viaKey = Boolean(ctx.isApiKey) && …`).
+ */
+function aliasesOf(sf: ts.SourceFile): Aliases {
+  const aliases: Aliases = new Map();
+  const add = (id: ts.Identifier, scope: ts.Node) => {
+    const scopes = aliases.get(id.text) ?? [];
+    if (scopes.includes(scope)) return false;
+    aliases.set(id.text, [...scopes, scope]);
+    return true;
+  };
+  const fromPattern = (name: ts.BindingName, scope: ts.Node): boolean => {
+    let added = false;
+    if (!ts.isObjectBindingPattern(name)) return added;
+    for (const el of name.elements) {
+      const key = el.propertyName ?? el.name;
+      if ((ts.isIdentifier(key) || ts.isStringLiteralLike(key)) && key.text === "isApiKey" && ts.isIdentifier(el.name)) added = add(el.name, scope) || added;
+      else if (!ts.isIdentifier(el.name)) added = fromPattern(el.name, scope) || added;
+    }
+    return added;
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    const visit = (n: ts.Node) => {
+      if (ts.isVariableDeclaration(n) || ts.isParameter(n)) {
+        if (!ts.isIdentifier(n.name)) changed = fromPattern(n.name, scopeOf(n)) || changed;
+        else if (n.initializer && readsIsApiKey(n.initializer, aliases)) changed = add(n.name, scopeOf(n)) || changed;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+  }
+  return aliases;
 }
 
 /** Leaves the function: the branch, or its last statement, returns or throws. */
@@ -126,18 +196,22 @@ const differs = (a: Set<string>, b: Set<string>) =>
  *     the rest of its block do.
  * Both sides must ask for something: `if (ctx.isApiKey) return deny;` refuses
  * keys outright, and a ternary choosing data for a key names no bit.
- * Limit: a condition that reads isApiKey through another name
- * (`const k = ctx.isApiKey; if (k)`) is not seen.
+ * The condition may read isApiKey through a local name (`const k = ctx.isApiKey;
+ * if (k)`, `const { isApiKey: k } = ctx`; see aliasesOf).
+ * Limit: the flag handed to another function (`gate(ctx.isApiKey)`, read there
+ * as a parameter) or assigned after its declaration (`let k; k = ctx.isApiKey`)
+ * is not followed.
  */
 function substitutions(code: string, fileName = "snippet.ts"): string[] {
   const sf = parseSource(code, fileName);
+  const aliases = aliasesOf(sf);
   const found: string[] = [];
   const at = (n: ts.Node) => `${fileName}:${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`;
   const visit = (n: ts.Node) => {
-    if (ts.isConditionalExpression(n) && testsIsApiKey(n.condition) && differs(asks([n.whenTrue]), asks([n.whenFalse]))) {
+    if (ts.isConditionalExpression(n) && readsIsApiKey(n.condition, aliases) && differs(asks([n.whenTrue]), asks([n.whenFalse]))) {
       found.push(at(n));
     }
-    if (ts.isIfStatement(n) && testsIsApiKey(n.expression)) {
+    if (ts.isIfStatement(n) && readsIsApiKey(n.expression, aliases)) {
       if (n.elseStatement) {
         if (differs(asks([n.thenStatement]), asks([n.elseStatement]))) found.push(at(n));
       } else if (exits(n.thenStatement) && (ts.isBlock(n.parent) || ts.isSourceFile(n.parent))) {
@@ -197,6 +271,38 @@ describe("a key asked for a stand-in bit is also held to its creator's", () => {
       keyRole: readFileSync("src/lib/rbac/key-role.ts", "utf8"),
       // A comment is not code.
       comment: `// requirePermission(ctx, ctx.isApiKey ? Permission.PROJECT_READ : Permission.ORG_READ);\n/* if (ctx.isApiKey) requirePermission(ctx, Permission.RULES_RUN); else requirePermission(ctx, Permission.ORG_READ); */`,
+    };
+    for (const [name, code] of Object.entries(fine)) expect(substitutions(code), name).toEqual([]);
+  });
+
+  it("sees isApiKey read through a local name: an alias, a destructured binding, a chain of them", () => {
+    const keyOrOrg = `requirePermission(ctx, Permission.PROJECT_READ); else requirePermission(ctx, Permission.ORG_READ);`;
+    const shapes = {
+      alias: `const k = ctx.isApiKey;\nif (k) ${keyOrOrg}`,
+      renamed: `const { isApiKey: viaKey } = ctx;\nrequirePermission(ctx, viaKey ? Permission.PROJECT_READ : Permission.ORG_READ);`,
+      shorthand: `const { isApiKey } = ctx;\nif (isApiKey) ${keyOrOrg}`,
+      nested: `const { ctx: { isApiKey: k } } = r;\nif (k) ${keyOrOrg}`,
+      // An alias of an alias, negated, and a value computed from the flag.
+      chain: `const k = ctx.isApiKey;\nconst asSession = !k;\nif (asSession) requirePermission(ctx, Permission.ORG_READ); else requirePermission(ctx, Permission.PROJECT_READ);`,
+      derived: `const viaKey = Boolean(r.ctx.isApiKey) && !r.ctx.projectScope;\nif (viaKey) ${keyOrOrg}`,
+      early: `function f() {\n  const k = ctx.isApiKey;\n  if (!k) {\n    requirePermission(ctx, Permission.ORG_READ);\n    return;\n  }\n  requirePermission(ctx, Permission.PROJECT_READ);\n}`,
+      parameter: `function gate({ isApiKey: k }: Ctx) {\n  if (k) ${keyOrOrg}\n}`,
+      // Declared in an outer block, read in an inner one.
+      outer: `function f() {\n  const k = ctx.isApiKey;\n  for (const p of ps) {\n    if (k) ${keyOrOrg}\n  }\n}`,
+      // A function above the module-level name it reads (why aliasesOf runs to a fixed point).
+      hoisted: `function gate() {\n  const asKey = !!viaKey;\n  if (asKey) ${keyOrOrg}\n}\nconst viaKey = ctx.isApiKey;`,
+    };
+    for (const [name, code] of Object.entries(shapes)) expect(substitutions(code), name).toHaveLength(1);
+
+    const fine = {
+      // The same name in another function is a different variable.
+      otherScope: `function a() { const k = ctx.isApiKey; return k; }\nfunction b(k: boolean) { if (k) ${keyOrOrg} }`,
+      // A property that shares the alias's name is not the alias.
+      property: `const k = ctx.isApiKey;\nif (opts.k) ${keyOrOrg}`,
+      // An object literal's isApiKey: key builds a context; it doesn't read one.
+      built: `const item = await find({ ...auth, isApiKey: false });\nif (item) ${keyOrOrg}`,
+      // An alias whose branches ask for the same thing.
+      same: `const k = ctx.isApiKey;\nif (k) requirePermission(ctx, Permission.ORG_READ); else requirePermission(ctx, Permission.ORG_READ);`,
     };
     for (const [name, code] of Object.entries(fine)) expect(substitutions(code), name).toEqual([]);
   });

@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { channelProjectVisible } from "@/lib/chat/access";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 
@@ -23,9 +24,10 @@ export async function POST(_req: NextRequest, { params }: RouteParams) {
 
     const channel = await prisma.chatChannel.findUnique({
       where: { id: channelId },
-      select: { id: true, orgId: true, isPrivate: true, kind: true, archivedAt: true },
+      select: { id: true, orgId: true, isPrivate: true, kind: true, archivedAt: true, projectId: true },
     });
-    if (!channel || channel.orgId !== orgId || channel.archivedAt) {
+    // A project's channel is joinable only by someone who can see the project.
+    if (!channel || channel.orgId !== orgId || channel.archivedAt || !(await channelProjectVisible(ctx, channel.projectId))) {
       return new Response("Not found", { status: 404 });
     }
     if (channel.kind !== "CHANNEL") {

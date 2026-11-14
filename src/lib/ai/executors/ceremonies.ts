@@ -221,7 +221,7 @@ export async function addCeremonyNoteTool(input: Record<string, unknown>, ctx: T
   if ("error" in gate) return gate;
 
   try {
-    const note = await addCeremonyNote(gate.auth, scopeOf(ctx, parsed.data), async () => ({ ceremonyId, columnKey, text }));
+    const note = await addCeremonyNote(gate.auth, scopeOf(ctx, parsed.data), async () => ({ ceremonyId, columnKey, text }), TOOL_CALLER);
     return { created: true, note: { id: note.id, columnKey: note.columnKey, createdAt: note.createdAt } };
   } catch (e) {
     return refusalOrThrow(e);
@@ -242,7 +242,7 @@ export async function updateCeremonyNoteTool(input: Record<string, unknown>, ctx
   if ("error" in gate) return gate;
 
   try {
-    const note = await updateCeremonyNote(gate.auth, scopeOf(ctx, parsed.data), noteId, async () => ({ text }));
+    const note = await updateCeremonyNote(gate.auth, scopeOf(ctx, parsed.data), noteId, async () => ({ text }), TOOL_CALLER);
     return { updated: true, note: { id: note.id } };
   } catch (e) {
     return refusalOrThrow(e);
@@ -262,7 +262,7 @@ export async function deleteCeremonyNoteTool(input: Record<string, unknown>, ctx
   if ("error" in gate) return gate;
 
   try {
-    const { id } = await deleteCeremonyNote(gate.auth, scopeOf(ctx, parsed.data), parsed.data.noteId);
+    const { id } = await deleteCeremonyNote(gate.auth, scopeOf(ctx, parsed.data), parsed.data.noteId, TOOL_CALLER);
     return { deleted: true, id };
   } catch (e) {
     return refusalOrThrow(e);
@@ -294,6 +294,7 @@ export async function addCeremonyActionTool(input: Record<string, unknown>, ctx:
       gate.auth,
       scopeOf(ctx, parsed.data),
       async () => ({ ceremonyId, text, ownerId, dueDate }),
+      TOOL_CALLER,
     );
     return {
       created: true,
@@ -330,6 +331,7 @@ export async function updateCeremonyActionTool(input: Record<string, unknown>, c
       scopeOf(ctx, { projectId, intervalId }),
       actionId,
       async () => changes,
+      TOOL_CALLER,
     );
     return {
       updated: true,
@@ -353,7 +355,7 @@ export async function deleteCeremonyActionTool(input: Record<string, unknown>, c
   if ("error" in gate) return gate;
 
   try {
-    const out = await deleteCeremonyAction(gate.auth, scopeOf(ctx, parsed.data), parsed.data.actionId);
+    const out = await deleteCeremonyAction(gate.auth, scopeOf(ctx, parsed.data), parsed.data.actionId, TOOL_CALLER);
     return { deleted: true, id: out.id, promotedWorkItemId: out.promotedWorkItemId };
   } catch (e) {
     return refusalOrThrow(e);
