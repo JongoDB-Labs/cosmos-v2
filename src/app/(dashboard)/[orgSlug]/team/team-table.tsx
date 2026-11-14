@@ -157,7 +157,8 @@ export function TeamTable({
           `/api/v1/orgs/${orgId}/members/${memberId}/password-reset`,
           { method: "POST" },
         );
-        if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+        // The server's reason (e.g. the member's access is beyond the caller's own).
+        if (!res.ok) throw await failure(res);
         const data = (await res.json().catch(() => null)) as {
           sent?: boolean;
           reason?: string;

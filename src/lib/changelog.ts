@@ -51,7 +51,7 @@ const RELEASES: Release[] = [
   {
     version: "2.560.6",
     date: "2026-11-14",
-    title: "Restrictions on approving time reach routing and supervisors",
+    title: "Restrictions and removals apply consistently",
     highlights: [
       {
         kind: "fix",
@@ -64,6 +64,18 @@ const RELEASES: Release[] = [
       {
         kind: "fix",
         text: "A completed password reset is now recorded in the audit log of every organization the account belongs to, not only the first. An organization the person has left gets no record.",
+      },
+      {
+        kind: "fix",
+        text: "An organization you have been removed from no longer appears in your list of organizations, in the organization switcher or on the home page, and the home page no longer sends you into it. A password reset you ask for is no longer sent in its name or recorded in its audit log.",
+      },
+      {
+        kind: "fix",
+        text: "A restriction on an action, such as creating work items, no longer stops an admin from changing, removing or sending a password reset to a member whose role allows that action. Giving someone a role still counts every permission the role carries.",
+      },
+      {
+        kind: "fix",
+        text: "When the team page can\u2019t send a member a password reset because their access is beyond yours, it now says so, instead of \u201cCouldn\u2019t send the reset email.\u201d",
       },
     ],
   },

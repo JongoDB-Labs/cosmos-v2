@@ -98,7 +98,10 @@ export async function POST(request: NextRequest) {
           email: true,
           passwordHash: true,
           passwordSetAt: true,
+          // Never mail as, or audit into, an org the person left: removal
+          // keeps the row (removedAt), and a nested read does not hide it.
           memberships: {
+            where: { removedAt: null },
             select: { org: { select: { id: true, slug: true } } },
           },
         },
@@ -116,6 +119,7 @@ export async function POST(request: NextRequest) {
               isBot: true,
               deactivatedAt: true,
               memberships: {
+                where: { removedAt: null },
                 select: { org: { select: { id: true, slug: true } } },
               },
             },

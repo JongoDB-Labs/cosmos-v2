@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { HELD_WORK_ROLES, currentAccessRefusal, heldBeyondRole } from "@/lib/rbac/grant-ceiling";
+import { HELD_WORK_ROLES, OWNER_CHANGE_MESSAGE, currentAccessRefusal, heldBeyondRole } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
@@ -60,7 +60,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // to admins and owners. See grant-ceiling.ts.
     const current = currentAccessRefusal(ctx, member.role, heldBeyondRole(member));
     if (current) {
-      return new Response(JSON.stringify({ error: current }), {
+      // The team table shows this as it stands, so it names a reset, not a change.
+      const error =
+        current === OWNER_CHANGE_MESSAGE
+          ? "Only an owner can send a password reset to an owner."
+          : "You can't send a password reset to someone whose access is beyond your own.";
+      return new Response(JSON.stringify({ error }), {
         status: 403,
         headers: { "Content-Type": "application/json" },
       });

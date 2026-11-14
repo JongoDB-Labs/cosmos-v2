@@ -91,13 +91,18 @@ async function reset(ctx: AuthContext, target: Who) {
   const audited = await prisma.auditLog.count({
     where: { orgId, action: "member.password_reset_sent", entityId: people[target].userId },
   });
-  return { status: res.status, mailedTo: sent.map((s) => s.toEmail), audited };
+  // The team table shows a refusal's `error` as it stands, so it must name a reset.
+  const error = res.status === 403 ? ((await res.json()) as { error?: string }).error : undefined;
+  return { status: res.status, mailedTo: sent.map((s) => s.toEmail), audited, error };
 }
+
+const OWNER_ONLY = "Only an owner can send a password reset to an owner.";
+const BEYOND = "You can't send a password reset to someone whose access is beyond your own.";
 
 describe("who may send a member a password reset", () => {
   it("an admin can't send one to an owner: refused, no mail, no audit row", async () => {
     const r = await reset(byRole("admin"), "owner");
-    expect(r).toEqual({ status: 403, mailedTo: [], audited: 0 });
+    expect(r).toEqual({ status: 403, mailedTo: [], audited: 0, error: OWNER_ONLY });
   });
 
   it("an owner can send one to another owner", async () => {
@@ -112,12 +117,12 @@ describe("who may send a member a password reset", () => {
 
   it("a member who manages members through a work role can't send one to an admin", async () => {
     const r = await reset(workRoleManager(), "admin");
-    expect(r).toEqual({ status: 403, mailedTo: [], audited: 0 });
+    expect(r).toEqual({ status: 403, mailedTo: [], audited: 0, error: BEYOND });
   });
 
   it("nor to a member whose work roles hold more than the caller's base", async () => {
     const r = await reset(workRoleManager(), "elevated");
-    expect(r).toEqual({ status: 403, mailedTo: [], audited: 0 });
+    expect(r).toEqual({ status: 403, mailedTo: [], audited: 0, error: BEYOND });
   });
 
   it("but can send one to a member at their own level", async () => {

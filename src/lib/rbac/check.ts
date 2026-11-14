@@ -12,6 +12,11 @@ export interface AuthContext {
    *  self-assigned grant can't be laundered into new roles. NOT for ordinary
    *  access checks — use `permissions` for those. */
   basePermissions: bigint;
+  /** `basePermissions` before the org's unconditional restrictions: the ceiling
+   *  on CURRENT access only (grant-ceiling.ts `currentAccessRefusal`), so a
+   *  restriction does not count as access the target holds beyond the caller.
+   *  Absent, that ceiling uses `basePermissions`, the stricter of the two. */
+  unrestrictedBasePermissions?: bigint;
   /** Collected ABAC rules (member + assigned work-role policies). Evaluated
    *  by requireAccess(); empty for orgs with no work-roles/policies. */
   abacRules: AbacRule[];

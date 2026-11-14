@@ -15,7 +15,9 @@ export default async function DashboardHomePage() {
   const user = await prisma.user.findUnique({
     where: { id: currentUser.id },
     include: {
+      // Removal keeps the row (removedAt); a nested read does not hide it.
       memberships: {
+        where: { removedAt: null },
         include: {
           org: {
             include: { projects: { where: { archived: false } } },

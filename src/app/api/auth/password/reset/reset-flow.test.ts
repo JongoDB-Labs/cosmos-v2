@@ -367,6 +367,80 @@ describe("a completed reset is recorded in every organization the account belong
   });
 });
 
+/**
+ * A reset REQUEST picks the org whose mail settings send the link, and writes
+ * its outcome to that org's audit log. An org the person was removed from is
+ * neither: the membership is kept for history, and a nested membership read
+ * does not hide it the way a direct orgMember query does.
+ */
+describe("a reset request never mails as, or audits into, an org the person left", () => {
+  const stamp = Math.random().toString(36).slice(2, 8);
+  const orgIds: string[] = [];
+  const userIds: string[] = [];
+
+  async function org(label: string) {
+    const o = await prisma.organization.create({ data: { name: `pwq ${label} ${stamp}`, slug: `zzpwq-${label}-${stamp}` } });
+    orgIds.push(o.id);
+    return o;
+  }
+  async function account(label: string, withPassword: boolean, memberships: { orgId: string; removed: boolean }[]) {
+    const email = `zz-pwq-${label}-${stamp}@example.com`;
+    const u = await prisma.user.create({
+      data: withPassword
+        ? { email, displayName: "PWQ", passwordHash: hashPassword(OLD_PASSWORD), passwordSetAt: new Date() }
+        : { email, displayName: "PWQ", googleId: `zz-pwq-gid-${label}-${stamp}` },
+    });
+    userIds.push(u.id);
+    // In the order given: the removed membership first, so a read that keeps it reaches it first.
+    for (const m of memberships) {
+      await prisma.orgMember.create({
+        data: { orgId: m.orgId, userId: u.id, role: "MEMBER", permissions: "0", ...(m.removed ? { removedAt: new Date() } : {}) },
+      });
+    }
+    return email;
+  }
+  const requested = (orgId: string) => prisma.auditLog.count({ where: { orgId, action: "auth.password_reset.requested" } });
+
+  afterAll(async () => {
+    await prisma.organization.deleteMany({ where: { id: { in: orgIds } } }).catch(() => undefined);
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } }).catch(() => undefined);
+  });
+
+  it("uses the org they still belong to, even when the login screen names the one they left", async () => {
+    const left = await org("left");
+    const kept = await org("kept");
+    const email = await account("both", true, [{ orgId: left.id, removed: true }, { orgId: kept.id, removed: false }]);
+
+    for (const body of [{ email }, { email, orgSlug: left.slug }]) {
+      sentEmails.length = 0;
+      expect((await requestReset(req(body))).status).toBe(200);
+      expect(sentEmails.map((m) => m.orgId)).toEqual([kept.id]);
+    }
+    expect(await requested(kept.id)).toBe(2);
+    expect(await requested(left.id)).toBe(0);
+  });
+
+  it("someone removed from their only org still gets the link, sent as no org, and that org records nothing", async () => {
+    const left = await org("only");
+    const email = await account("only", true, [{ orgId: left.id, removed: true }]);
+    sentEmails.length = 0;
+    expect((await requestReset(req({ email }))).status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0].orgId).toBeUndefined();
+    expect(await requested(left.id)).toBe(0);
+  });
+
+  it("an account with no password, removed from its only org, leaves no record there either", async () => {
+    // The no-mail outcomes are attributed through the same membership read.
+    const left = await org("sso");
+    const email = await account("sso", false, [{ orgId: left.id, removed: true }]);
+    sentEmails.length = 0;
+    expect((await requestReset(req({ email }))).status).toBe(200);
+    expect(sentEmails).toHaveLength(0);
+    expect(await requested(left.id)).toBe(0);
+  });
+});
+
 describe("maskEmail keeps an unmatched address out of the operator log", () => {
   it("leaves one letter and the domain — correlatable, not a copy of the address", () => {
     expect(maskEmail("alice@example.com")).toBe("a***@example.com");

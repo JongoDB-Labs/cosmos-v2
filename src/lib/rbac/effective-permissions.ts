@@ -37,6 +37,15 @@ export interface EffectivePermissions {
    * checks; `basePermissions` is only the grant ceiling.
    */
   basePermissions: bigint;
+  /**
+   * `basePermissions` before the org's unconditional restrictions take bits out:
+   * what the actor could grant were no restriction in force. Only the ceiling on
+   * CURRENT access reads it (grant-ceiling.ts `currentAccessRefusal`). A
+   * restriction limits what anyone may do, not whom they may manage, so the
+   * target's held bits are compared with this, like with like. Granting stays on
+   * `basePermissions`: a grant outlives the restriction.
+   */
+  unrestrictedBasePermissions: bigint;
   abacRules: AbacRule[];
 }
 
@@ -81,7 +90,7 @@ export async function loadEffectivePermissions(
   const workRolePolicies = member.workRoles.flatMap((a) => coerceRules(a.workRole.policies));
   const restrictions = coerceRules(member.org.securitySettings?.actionRestrictions);
   const breakGlass = member.role === "OWNER" && !opts.forApiKey;
-  const { basePermissions, permissions } = foldMemberMask(
+  const { basePermissions, unrestrictedBasePermissions, permissions } = foldMemberMask(
     member,
     breakGlass ? 0n : unconditionalDenyMask(restrictions),
   );
@@ -89,6 +98,7 @@ export async function loadEffectivePermissions(
     orgRole: member.role,
     permissions,
     basePermissions,
+    unrestrictedBasePermissions,
     abacRules: [...coerceRules(member.abacRules), ...workRolePolicies, ...restrictions],
   };
 }
@@ -110,8 +120,9 @@ type MemberMaskRow = {
 function foldMemberMask(member: MemberMaskRow, removed: bigint) {
   let grants = 0n;
   for (const assignment of member.workRoles) grants |= maskFromDb(assignment.workRole.grants);
-  const basePermissions = resolvePermissions(member.role, maskFromDb(member.permissions)) & ~removed;
-  return { basePermissions, permissions: (basePermissions | grants) & ~removed };
+  const unrestrictedBasePermissions = resolvePermissions(member.role, maskFromDb(member.permissions));
+  const basePermissions = unrestrictedBasePermissions & ~removed;
+  return { basePermissions, unrestrictedBasePermissions, permissions: (basePermissions | grants) & ~removed };
 }
 
 /**
@@ -164,6 +175,7 @@ export async function loadMemberAuthContext(
     orgRole: eff.orgRole,
     permissions: eff.permissions,
     basePermissions: eff.basePermissions,
+    unrestrictedBasePermissions: eff.unrestrictedBasePermissions,
     abacRules: eff.abacRules,
   };
 }
