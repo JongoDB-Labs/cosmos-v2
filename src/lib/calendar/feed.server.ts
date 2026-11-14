@@ -6,6 +6,8 @@ import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { createClassificationResolver } from "@/lib/classification/resolver";
+import { madeThroughRequiredIdp } from "@/lib/auth/api-key-policy";
+import { requiredIdpConnectionId } from "@/lib/auth/sso-enforcement";
 import type { AuthContext } from "@/lib/rbac/check";
 import { buildIcs } from "./ics";
 import { feedEvents } from "./feed-events";
@@ -25,10 +27,26 @@ export interface RenderedFeed {
 }
 
 /**
+ * Whether a link made from a session of `idpConnId` (null: not single sign-on)
+ * may be served in this org. A link is a bearer credential like an API key, so
+ * it is held to the rule a member's key is (api-key-policy
+ * `madeThroughRequiredIdp`): where the org requires single sign-on, only a link
+ * made through that org's IdP. Creating a link asks it of the session, so a
+ * link is never made that this would then refuse.
+ *
+ * The org's IP allowlist can't apply to a link: the calendar provider fetches
+ * it from its own servers, never from the person's network.
+ */
+export async function feedMeetsSso(orgId: string, idpConnId: string | null): Promise<boolean> {
+  return madeThroughRequiredIdp(await requiredIdpConnectionId(orgId), idpConnId);
+}
+
+/**
  * The feed behind a token, or null for ANY reason it shouldn't be served: an
- * unknown or revoked token, calendar feeds switched off for the org, a
- * deactivated or removed person. The route turns null into a bare 404, so a
- * caller learns nothing about which check failed.
+ * unknown or revoked token, calendar feeds switched off for the org, a link
+ * the org's single sign-on doesn't vouch for (feedMeetsSso), a deactivated or
+ * removed person. The route turns null into a bare 404, so a caller learns
+ * nothing about which check failed.
  *
  * Access is re-derived on every fetch from the person's CURRENT membership,
  * exactly as if they were signed in, and each item's project is checked for
@@ -46,7 +64,10 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
   if (!feed || feed.revokedAt || feed.user.deactivatedAt) return null;
   if (!calendarFeedsEnabled(feed.org.settings)) return null;
   const { orgId, userId } = feed;
-  const eff = await loadEffectivePermissions(orgId, userId);
+  if (!(await feedMeetsSso(orgId, feed.idpConnId))) return null;
+  // forApiKey: no OWNER break-glass, so the org's restrictions bind an
+  // owner's link as they bind an owner's API key.
+  const eff = await loadEffectivePermissions(orgId, userId, { forApiKey: true });
   if (!eff) return null;
   const ctx: AuthContext = {
     userId,
@@ -104,7 +125,7 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
             meetingDate: { gte: from, lte: to },
             attendees: { some: { userId } },
           },
-          select: { id: true, title: true, meetingDate: true, updatedAt: true, projectId: true },
+          select: { id: true, title: true, meetingDate: true, updatedAt: true, projectId: true, teamsJoinUrl: true },
           orderBy: { meetingDate: "asc" },
           take: FEED_MAX_EVENTS,
         })
@@ -119,8 +140,10 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
             endDate: { gte: from },
             project: { members: { some: { orgMember: { userId, orgId } } } },
           },
+          // No updatedAt: an Interval has none, and asking for it failed
+          // every feed that included sprints.
           select: {
-            id: true, name: true, goal: true, startDate: true, endDate: true, updatedAt: true,
+            id: true, name: true, goal: true, startDate: true, endDate: true,
             projectId: true, project: { select: { key: true } },
           },
           orderBy: { startDate: "asc" },
@@ -158,11 +181,14 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
     })),
     meetings: meetings.map((m) => ({
       id: m.id, title: m.title, meetingDate: m.meetingDate, updatedAt: m.updatedAt,
+      // Null unless it is a Teams meeting: the database drops the link of a
+      // meeting with no host (trigger sync_meetings_teams_link_needs_host).
+      teamsJoinUrl: m.teamsJoinUrl,
       restricted: restricted(m.projectId, m.title),
     })),
     intervals: intervals.filter(visible).map((i) => ({
       id: i.id, name: i.name, projectKey: i.project.key, startDate: i.startDate, endDate: i.endDate,
-      updatedAt: i.updatedAt, restricted: restricted(i.projectId, i.name, i.goal),
+      updatedAt: null, restricted: restricted(i.projectId, i.name, i.goal),
     })),
   }).slice(0, FEED_MAX_EVENTS);
 

@@ -111,8 +111,21 @@ export function keyInactiveReason(
   if (!hasPermission(p, Permission.API_KEY_CREATE)) return "role";
   if (!standing.policy.memberApiKeysEnabled) return "switch_off";
   if (keyLapsedFor(p, key.createdAt, now)) return "lapsed";
-  if (standing.requiredIdpConnId !== null && (key.idpConnId ?? null) !== standing.requiredIdpConnId) return "sso";
+  if (!madeThroughRequiredIdp(standing.requiredIdpConnId, key.idpConnId)) return "sso";
   return null;
+}
+
+/**
+ * Whether a credential made from a session of `idpConnId` (null: not single
+ * sign-on) may act in an org that requires sign-in through `requiredIdpConnId`
+ * (null: it requires none). A credential has no sign-in of its own, so the
+ * session it was made from is what the requirement is held to, and one with
+ * no recorded IdP fails it: there is no sign-in behind it to vouch for.
+ * API keys (above) and calendar feed links (lib/calendar/feed.server.ts
+ * `feedMeetsSso`) both ask it.
+ */
+export function madeThroughRequiredIdp(requiredIdpConnId: string | null, idpConnId: string | null | undefined): boolean {
+  return requiredIdpConnId === null || (idpConnId ?? null) === requiredIdpConnId;
 }
 
 /** Why a key in the list doesn't work, in the list's words. */

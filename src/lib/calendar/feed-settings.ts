@@ -14,17 +14,12 @@ export const feedOptionsSchema = z.object({
  * INTEGRATION_MANAGE turns them on. A subscribed feed is fetched by the
  * calendar provider's servers, so every title in it leaves this system. Whether
  * that is acceptable is the organisation's decision, not each person's.
- * Stored on Organization.settings.calendarFeeds.
+ * Stored on Organization.settings.calendarFeeds, which the settings route
+ * writes with patchOrgSettings (merging `enabled` into that key).
  */
 export function calendarFeedsEnabled(settings: unknown): boolean {
   const s = (settings ?? {}) as { calendarFeeds?: { enabled?: unknown } };
   return s.calendarFeeds?.enabled === true;
-}
-
-export function withCalendarFeedsEnabled(settings: unknown, enabled: boolean): Record<string, unknown> {
-  const s = { ...((settings ?? {}) as Record<string, unknown>) };
-  s.calendarFeeds = { ...((s.calendarFeeds as Record<string, unknown>) ?? {}), enabled };
-  return s;
 }
 
 /** Stored options, defaulted field by field so an old row never breaks a feed. */

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
-import { getAuthContext } from "@/lib/auth/session";
+import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { refuseApiKey } from "@/lib/auth/key-gate";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
@@ -8,6 +8,7 @@ import { success, created, handleApiError, getIpAddress } from "@/lib/api-helper
 import { logAudit } from "@/lib/audit";
 import { calendarFeedsEnabled, feedOptionsSchema, readFeedOptions } from "@/lib/calendar/feed-settings";
 import { feedPath, newFeedToken } from "@/lib/calendar/feed-token";
+import { feedMeetsSso } from "@/lib/calendar/feed.server";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -59,6 +60,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!calendarFeedsEnabled(r.org.settings)) {
       return NextResponse.json({ error: "Calendar feeds are turned off for this organization." }, { status: 403 });
     }
+    // The session's IdP is recorded on the link: where the org requires single
+    // sign-on, that is what lets it be served (feedMeetsSso), as for a member's
+    // API key. Asked here too, so a link is never made that would then be refused.
+    const idpConnId = (await getCurrentUser())?.idpConnId ?? null;
+    if (!(await feedMeetsSso(r.org.id, idpConnId))) {
+      return NextResponse.json(
+        { error: "This organization requires single sign-on. Sign in through it to create a calendar link." },
+        { status: 403 },
+      );
+    }
     const options = feedOptionsSchema.parse((await request.json().catch(() => ({})))?.options ?? readFeedOptions({}));
     const active = await prisma.calendarFeed.count({ where: { orgId: r.org.id, userId: r.ctx.userId, revokedAt: null } });
     if (active >= MAX_ACTIVE_FEEDS) {
@@ -66,7 +77,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
     const { token, tokenHash } = newFeedToken();
     const feed = await prisma.calendarFeed.create({
-      data: { orgId: r.org.id, userId: r.ctx.userId, tokenHash, options },
+      data: { orgId: r.org.id, userId: r.ctx.userId, tokenHash, options, idpConnId },
       select: { id: true, options: true, createdAt: true, lastFetchedAt: true },
     });
     // Never the token or the URL: an audit row is read by more people than the link's owner.

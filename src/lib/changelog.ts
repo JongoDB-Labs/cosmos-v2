@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.560.4",
+    date: "2026-11-14",
+    title: "Calendar feed links follow single sign-on, and show Teams join links",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Where your organization requires single sign-on, a calendar feed link works only if you made it after signing in through the organization's single sign-on, as for an API key. Links made before, or through another sign-in, stop updating. Sign in through single sign-on and create a new link in Settings, Preferences.",
+      },
+      {
+        kind: "fix",
+        text: "A calendar feed link is held to the organization's access restrictions for everyone, owners included. An owner's own session can still undo a restriction, but their link no longer gets past one.",
+      },
+      {
+        kind: "fix",
+        text: "Calendar feed links with sprints switched on now work. Until now such a link served nothing.",
+      },
+      {
+        kind: "improvement",
+        text: "A Teams meeting in your calendar feed now carries its join link in the event's description. Meetings the feed shows only as busy never do.",
+      },
+    ],
+  },
+  {
     version: "2.559.0",
     date: "2026-11-13",
     title: "Your own Outlook meetings on the Program Management calendar",
