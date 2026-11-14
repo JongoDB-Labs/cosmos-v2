@@ -32,7 +32,7 @@
  * The mode is a view preference: `&mode=` when present, else what this viewer
  * last chose.
  */
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { CircleHelp, Filter, Play, Search, Sparkles, WandSparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -140,6 +140,20 @@ export interface QueryBuilderProps {
    * variant; the same controls sit directly on the band.
    */
   variant?: "card" | "inline";
+  /**
+   * Controls that share the builder's last row instead of claiming a row of
+   * their own: a board's scope line, its swimlanes and its actions.
+   *
+   * In Filters mode that is the one row, after the chips. In CQL mode it is
+   * the "Add filter" row, which otherwise holds a single control across the
+   * full width; NOT the editor's row, which the editor and its four buttons
+   * already fill, so anything added there would come out of the editor.
+   *
+   * They are placed as items of that row, not as a box inside it, so they wrap
+   * one at a time when the row is full, and a right-aligned group among them
+   * (`BoardToolbarActions`, `ml-auto`) still ends the row.
+   */
+  trailing?: ReactNode;
 }
 
 /** Enough of a saved filter to offer it and run it. */
@@ -159,6 +173,7 @@ export function QueryBuilder({
   savedFilters,
   onRunFilter,
   variant = "card",
+  trailing,
 }: QueryBuilderProps) {
   const parsed = useMemo(() => parseCql(cql), [cql]);
   const chips = useMemo(
@@ -188,6 +203,30 @@ export function QueryBuilder({
     onModeChange(m);
   };
 
+  // Inside each mode's own row, not beside the mode: there it sat in a column
+  // to the right of everything the mode draws, so a `trailing` row ended short
+  // of it and a board's "New work item" was no longer the band's right edge.
+  //
+  // With `trailing` (a board's bar) the row is full, and Clear appearing on the
+  // first filter pushed the row's last control onto a line of its own: the
+  // board moved down 32px the moment a filter applied (measured, sprint board
+  // at 1280). So there it always holds its place, and with nothing to clear it
+  // is invisible and out of reach: no focus, no click, nothing read out.
+  const flat = trailing !== undefined;
+  const empty = cql.trim() === "";
+  const clear =
+    !empty || flat ? (
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => onCqlChange("")}
+        className={cn("gap-1", empty && "invisible")}
+        {...(empty ? { "aria-hidden": true, inert: true, tabIndex: -1 } : {})}
+      >
+        <X className="h-3.5 w-3.5" /> Clear
+      </Button>
+    ) : null;
+
   return (
     <div
       className={
@@ -196,7 +235,17 @@ export function QueryBuilder({
           : "space-y-2"
       }
     >
-      <div className="flex flex-wrap items-start gap-2">
+      {/* With `trailing`, each mode lays its controls straight into this row
+          (`display: contents`), so a wrapped line starts at the band's left
+          edge. Inside the mode's own box, every wrapped line lost the column
+          under this toggle, and a board with a long toolbar (Timeline) took
+          more lines than it did on main (measured: 145 -> 171px at 1024). */}
+      <div
+        className={cn(
+          "flex flex-wrap gap-x-2",
+          !flat ? "items-start gap-y-2" : effective === "basic" && chips.ok ? "items-center gap-y-1" : "items-start gap-y-2",
+        )}
+      >
         <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-[var(--border)] text-xs" role="group" aria-label="How to filter">
           <button
             type="button"
@@ -238,15 +287,22 @@ export function QueryBuilder({
             }}
             savedFilters={savedFilters}
             onRunFilter={onRunFilter}
+            clear={flat ? clear : null}
+            trailing={trailing}
           />
         ) : (
-          <AdvancedMode orgId={orgId} schema={schema} cql={cql} onRun={onCqlChange} serverDiagnostics={serverDiagnostics} />
+          <AdvancedMode
+            orgId={orgId}
+            schema={schema}
+            cql={cql}
+            onRun={onCqlChange}
+            serverDiagnostics={serverDiagnostics}
+            clear={flat ? clear : null}
+            trailing={trailing}
+          />
         )}
-        {cql.trim() !== "" && (
-          <Button variant="ghost" size="sm" onClick={() => onCqlChange("")} className="gap-1">
-            <X className="h-3.5 w-3.5" /> Clear
-          </Button>
-        )}
+        {/* Without `trailing` (the Work Items page), beside the mode, as before. */}
+        {!flat && clear}
       </div>
       {effective === "advanced" && !chips.ok && basicBlocked && cql.trim() !== "" && (
         <p className="text-xs text-[var(--text-muted)]">{basicBlocked}</p>
@@ -266,6 +322,8 @@ function BasicMode({
   onRunAsQuery,
   savedFilters,
   onRunFilter,
+  clear,
+  trailing,
 }: {
   orgId: string;
   schema: CqlClientSchema;
@@ -277,6 +335,8 @@ function BasicMode({
   onRunAsQuery: (text: string) => void;
   savedFilters?: SavedFilterOption[];
   onRunFilter?: (f: SavedFilterOption) => void;
+  clear: ReactNode;
+  trailing?: ReactNode;
 }) {
   // The free-text box IS the `text ~` chip, so it isn't shown twice.
   const textChip = chips.find(isTextBox);
@@ -305,8 +365,14 @@ function BasicMode({
   const commitText = () => draft.trim() !== text && emit(rest, matchAny, draft);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-      <div className="relative min-w-[200px] flex-1">
+    // With a board's controls in the row (`trailing`), a wrapped line sits 4px
+    // under the one above, the spacing the board's band used between the
+    // builder and the row these controls came from. 8px there made a board
+    // taller at 1024px than before they moved.
+    <div className={trailing !== undefined ? "contents" : "flex min-w-0 flex-1 flex-wrap items-center gap-2"}>
+      {/* From `sm` up, wide enough for its whole placeholder: in a board's full
+          row it was squeezed to 200px, cutting the placeholder mid-word. */}
+      <div className={cn("relative min-w-[200px] flex-1", trailing !== undefined && "sm:min-w-[19rem]")}>
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
         <Input
           value={draft}
@@ -346,6 +412,8 @@ function BasicMode({
           Run as a query
         </button>
       )}
+      {clear}
+      {trailing}
     </div>
   );
 }
@@ -356,12 +424,16 @@ function AdvancedMode({
   cql,
   onRun,
   serverDiagnostics,
+  clear,
+  trailing,
 }: {
   orgId: string;
   schema: CqlClientSchema;
   cql: string;
   onRun: (cql: string) => void;
   serverDiagnostics: CqlDiagnostic[];
+  clear: ReactNode;
+  trailing?: ReactNode;
 }) {
   const narrow = useNarrow();
   const [draft, setDraft] = useState(cql);
@@ -395,9 +467,16 @@ function AdvancedMode({
   const addable = useMemo(() => fieldsIn(draft), [draft]);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <div className="flex min-w-0 flex-wrap items-start gap-2">
+    // With `trailing` this box dissolves into the builder's row: the editor's
+    // row grows beside the How-to-filter toggle, and the Add filter row and
+    // the panels below take whole lines, the band's full width.
+    <div className={trailing !== undefined ? "contents" : "flex min-w-0 flex-1 flex-col gap-2"}>
+      <div className={cn("flex min-w-0 flex-wrap items-start gap-2", trailing !== undefined && "flex-1")}>
         {narrow ? (
+          // A line of its own (`basis-full`), with Run query and the rest under
+          // it. At `flex-1` its basis was 0, so the buttons took the line first
+          // and a 390px phone was left a box about 45px wide, the placeholder
+          // wrapping a few letters per line.
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -410,7 +489,7 @@ function AdvancedMode({
             rows={2}
             aria-label="Query"
             placeholder="assignee = me AND priority IN (HIGH, CRITICAL)"
-            className="min-w-0 flex-1 font-mono text-sm"
+            className="min-w-0 grow basis-full font-mono text-sm"
             spellCheck={false}
           />
         ) : (
@@ -448,27 +527,36 @@ function AdvancedMode({
           right" — here too, not only in chips. This appends `AND <clause>` to
           the text and runs it, so it works on the grouped and history queries
           that forced the bar into this editor in the first place. */}
-      <QueryChips
-        orgId={orgId}
-        schema={schema}
-        chips={[]}
-        matchAny={false}
-        hideMatch
-        excludeFields={addable}
-        onChange={(c) => {
-          const chip = c[c.length - 1];
-          if (!chip) return;
-          const r = appendChip(draft, chip);
-          if (r.ok) {
-            setDraft(r.cql);
-            onRun(r.cql);
-          } else toast.error(`Couldn't add that filter: ${r.reason}.`);
-        }}
-      />
+      <div className={trailing !== undefined ? "flex min-w-0 basis-full flex-wrap items-center gap-x-2 gap-y-1" : "contents"}>
+        <QueryChips
+          orgId={orgId}
+          schema={schema}
+          chips={[]}
+          matchAny={false}
+          hideMatch
+          excludeFields={addable}
+          onChange={(c) => {
+            const chip = c[c.length - 1];
+            if (!chip) return;
+            const r = appendChip(draft, chip);
+            if (r.ok) {
+              setDraft(r.cql);
+              onRun(r.cql);
+            } else toast.error(`Couldn't add that filter: ${r.reason}.`);
+          }}
+        />
+        {/* Here, not in the editor's row: held in place there (see `clear`), it
+            narrowed the editor by its width, and the query wrapped onto one more
+            line than on main (measured: Timeline +16px at 1024). */}
+        {clear}
+        {trailing}
+      </div>
       {/* The textarea has no inline lint, so its findings are listed. */}
-      {narrow && draft !== cql && <Diagnostics items={findings} text={draft} />}
-      {ask && <AskAi orgId={orgId} onQuery={setDraft} />}
-      {help && <SyntaxHelp onPick={(q) => setDraft(q)} />}
+      <div className={trailing !== undefined ? "basis-full space-y-2 empty:hidden" : "contents"}>
+        {narrow && draft !== cql && <Diagnostics items={findings} text={draft} />}
+        {ask && <AskAi orgId={orgId} onQuery={setDraft} />}
+        {help && <SyntaxHelp onPick={(q) => setDraft(q)} />}
+      </div>
     </div>
   );
 }

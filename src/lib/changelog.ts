@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.0",
+    date: "2026-11-14",
+    title: "The board header takes less room",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The board header takes less room. With the query language on, a board's scope, Swimlanes, Select and New work item now sit in the filter bar's own row instead of a row underneath it. On a sprint board, the sprint's name, status, dates and progress continue the row of sprint pills. In CQL mode, Kanban and Table boards start a row higher, and a sprint board at 1280px up to two rows higher. On a phone in CQL mode the header is about half as tall. No board's header is taller than before, and nothing was removed.",
+      },
+      {
+        kind: "improvement",
+        text: "When a board's scope is too long for its row, a More button beside it shows the whole query, so reading it no longer takes a mouse. A scope that fits is shown whole.",
+      },
+      {
+        kind: "fix",
+        text: "On a phone, the query box in CQL mode gets a line of its own. It used to be squeezed to a few letters wide beside Run query and Format.",
+      },
+    ],
+  },
+  {
     version: "2.560.4",
     date: "2026-11-14",
     title: "Exports show only what you could read in the app",

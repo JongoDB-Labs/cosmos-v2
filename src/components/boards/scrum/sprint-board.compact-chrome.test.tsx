@@ -95,6 +95,54 @@ describe("the sprint context is ONE band", () => {
     expect(goal.closest("[title]")?.getAttribute("title")).toBe(LONG_GOAL);
   });
 
+  it("puts the sprint's name and dates in the pill row, not a row beneath it", async () => {
+    // The second half of the same report: the band was the pills on one line
+    // and the sprint's summary on another. The summary now continues the pill
+    // row and wraps only when the row is full, so on a wide screen the band is
+    // one line instead of two.
+    renderBoard();
+    await screen.findByTestId("kanban");
+    const pillRow = screen.getByRole("button", { name: "All items" }).parentElement!;
+    // Positive control: this is the row of pills, not the whole band.
+    expect(pillRow.contains(screen.getByRole("button", { name: "Manage" }))).toBe(true);
+    expect(pillRow.contains(screen.getByRole("heading", { name: "Sprint 1" }))).toBe(true);
+    expect(pillRow.contains(screen.getByText(/Jan 15 – Jan 28/))).toBe(true);
+    // The rest of the summary rides along rather than being left on a line of
+    // its own, which would keep the second row this removes.
+    expect(pillRow.contains(screen.getByText("Active"))).toBe(true);
+    expect(pillRow.contains(screen.getByText(/4 items/))).toBe(true);
+    expect(pillRow.contains(screen.getByText(LONG_GOAL))).toBe(true);
+  });
+
+  it("wraps the summary in groups that read as one thing, not word by word", async () => {
+    // At 1280px with the item count as a row item of its own, "0 items" wrapped
+    // alone onto a second line. Each group is one unbreakable item of the row.
+    renderBoard();
+    await screen.findByTestId("kanban");
+    const unit = (el: Element) => el.closest(".whitespace-nowrap");
+    const identity = unit(screen.getByRole("heading", { name: "Sprint 1" }));
+    expect(identity).toBeTruthy();
+    expect(identity!.contains(screen.getByText(/Jan 15 – Jan 28/))).toBe(true);
+    expect(identity!.contains(screen.getByText(/4 items/))).toBe(true);
+    // How far through: the days left and the bar, together, apart from the name.
+    const progress = unit(screen.getByText(/days? left/));
+    expect(progress).toBeTruthy();
+    expect(progress).not.toBe(identity);
+    expect(progress!.contains(document.querySelector('[title^="Day "]'))).toBe(true);
+    // The goal is NOT in a nowrap group: it is the one part that truncates.
+    expect(unit(screen.getByText(LONG_GOAL))).toBeNull();
+  });
+
+  it("puts the no-sprint line in the pill row too, once All items is picked", async () => {
+    renderBoard();
+    await screen.findByTestId("kanban");
+    screen.getByRole("button", { name: "All items" }).click();
+    const note = await screen.findByText(/showing the full board/);
+    const pillRow = screen.getByRole("button", { name: "All items" }).parentElement!;
+    expect(pillRow.contains(note)).toBe(true);
+    expect(pillRow.contains(screen.getByRole("link", { name: /New sprint/ }))).toBe(true);
+  });
+
   it("drops the day caption to a tooltip rather than its own line", async () => {
     renderBoard();
     await screen.findByTestId("kanban");
