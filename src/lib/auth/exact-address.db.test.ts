@@ -231,26 +231,27 @@ describe("single sign-on", () => {
 describe("addresses that contain a backslash or a percent sign", () => {
   // An address may contain a backslash or a percent sign. Each lookup compares
   // those as written, like every other character of the address.
-  const slashed = (tag: string) => `${tag}\\x.${stamp}@${DOM}`;
+  /** An address with a backslash in it, and the same address without one. */
+  const slashed = (tag: string) => ({ own: `${tag}\\x.${stamp}@${DOM}`, plain: `${tag}x.${stamp}@${DOM}` });
   const percent = (tag: string) => ({ member: `${tag}zz${stamp}@${DOM}`, claimed: `${tag}%${stamp}@${DOM}` });
 
   it("single sign-on links a member whose exact address contains a backslash, in another case", async () => {
-    const own = slashed("ssobs");
+    const { own, plain } = slashed("ssobs");
     const uid = await mkUser(own);
     await prisma.orgMember.create({ data: { orgId: org.id, userId: uid, role: OrgRole.MEMBER } });
     // Control: the same address without the backslash is someone else.
-    const other = await completeSsoLogin(org.slug, conn, claims(`ssobs-x-${stamp}`, own.replace("\\", "")), {});
+    const other = await completeSsoLogin(org.slug, conn, claims(`ssobs-x-${stamp}`, plain), {});
     expect(other.ok && other.userId).not.toBe(uid);
     const r = await completeSsoLogin(org.slug, conn, claims(`ssobs-${stamp}`, own.toUpperCase()), {});
     expect(r.ok && r.userId).toBe(uid);
   });
 
   it("Google sign-in links an account whose exact address contains a backslash, in another case", async () => {
-    const own = slashed("googbs");
+    const { own, plain } = slashed("googbs");
     const uid = await mkUser(own);
     await prisma.allowedEmail.create({ data: { email: own } });
     // Control: the same address without the backslash is not on the allowlist.
-    expect(await isEmailAllowlisted(own.replace("\\", ""))).toBe(false);
+    expect(await isEmailAllowlisted(plain)).toBe(false);
     const r = await resolveFirstPartyUser({
       identity: { provider: "google", subject: `g-bs-${stamp}` },
       verifiedEmails: [own.toUpperCase()],
