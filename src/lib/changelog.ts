@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.0",
+    date: "2026-11-14",
+    title: "The board header takes less room",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The board header takes less room. With the query language on, a board's scope, Swimlanes, Select and New work item now sit in the filter bar's own row instead of a row underneath it. On a sprint board, the sprint's name, status, dates and progress continue the row of sprint pills. In CQL mode, Kanban and Table boards start a row higher, and a sprint board at 1280px up to two rows higher. On a phone in CQL mode the header is about half as tall. Nothing was removed. The header is never taller than before, except in CQL mode on Timeline and Dashboard boards between 628 and 639px wide: there it is up to 20px taller, because the query box now gets a full line of its own instead of being squeezed beside its buttons.",
+      },
+      {
+        kind: "improvement",
+        text: "In a board's filter bar, Clear is now an × at the right end of the search box, or of the query box in CQL mode. It shows only when there is something to clear, and still clears the search and every filter. \"Run as a query\" now appears under the search box while you type something that looks like a query. Neither one moves the board any more.",
+      },
+      {
+        kind: "improvement",
+        text: "When a board's scope is too long for its row, a More button beside it shows the whole query, so reading it no longer takes a mouse. A scope that fits is shown whole.",
+      },
+      {
+        kind: "fix",
+        text: "On a phone, the query box in CQL mode gets a line of its own. It used to be squeezed to a few letters wide beside Run query and Format.",
+      },
+      {
+        kind: "fix",
+        text: "\"Run as a query\" now opens CQL mode with what you typed in it. It used to open an empty query box, on boards and on the Work Items page.",
+      },
+    ],
+  },
+  {
     version: "2.560.4",
     date: "2026-11-14",
     title: "Exports show only what you could read in the app",
