@@ -3,6 +3,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { PmDashboardNav } from "./pm-nav";
+import { escapeLike } from "@/lib/query/like";
 
 type LayoutParams = {
   params: Promise<{ orgSlug: string; projectKey: string }>;
@@ -21,7 +22,7 @@ export default async function PmDashboardLayout({ params, children }: LayoutPara
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
       archived: false,
     },
     select: { id: true, enabledFeatures: true },

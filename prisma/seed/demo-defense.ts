@@ -17,6 +17,7 @@ import { DEFAULT_SEED_STATUSES, ensureSeedStatuses } from "./shared/statuses";
 import { loadEnvLocal } from "./shared/env-local";
 import { upsertRoadmapNodes } from "../../src/lib/roadmap/import";
 import { DEMO_APEX_ROADMAP } from "./demo-defense-roadmap";
+import { escapeLike } from "../../src/lib/query/like";
 
 // Prefer .env.local's DATABASE_URL explicitly so host runs don't fall back to
 // .env's in-container `cosmos-postgres` hostname (importing @prisma/client auto-loads .env).
@@ -48,7 +49,7 @@ async function findOrCreateUser(
 ) {
   const normalized = email.trim();
   const existing = await prisma.user.findFirst({
-    where: { email: { equals: normalized, mode: "insensitive" } },
+    where: { email: { equals: escapeLike(normalized), mode: "insensitive" } },
   });
   if (existing) return existing;
   if (opts.requireExisting) {

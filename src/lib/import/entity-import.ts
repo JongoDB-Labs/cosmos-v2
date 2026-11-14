@@ -63,6 +63,7 @@ import {
   type ImportField,
   splitIncrementSuffix,
 } from "./entity-fields";
+import { escapeLike } from "@/lib/query/like";
 
 export interface EntityEngineCtx {
   orgId: string;
@@ -716,7 +717,7 @@ async function createEntityRow(
       let partnerId = state.partnerCache.get(cacheKey);
       if (!partnerId) {
         const existing = await prisma.partner.findFirst({
-          where: { orgId, name: { equals: partnerName, mode: "insensitive" } },
+          where: { orgId, name: { equals: escapeLike(partnerName), mode: "insensitive" } },
           select: { id: true },
         });
         partnerId = existing
@@ -902,7 +903,7 @@ async function updateEntityRow(
         let partnerId = state.partnerCache.get(cacheKey);
         if (!partnerId) {
           const existing = await prisma.partner.findFirst({
-            where: { orgId, name: { equals: partnerName, mode: "insensitive" } },
+            where: { orgId, name: { equals: escapeLike(partnerName), mode: "insensitive" } },
             select: { id: true },
           });
           partnerId = existing

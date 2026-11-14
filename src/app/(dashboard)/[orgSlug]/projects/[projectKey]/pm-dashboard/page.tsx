@@ -10,6 +10,7 @@ import { loadKpisWithDerived } from "@/lib/pm/kpi-derive";
 import { loadClinsWithBurn } from "@/lib/pm/burn";
 import { loadStaffing, summarizeCompliance } from "@/lib/pm/staffing";
 import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -22,7 +23,7 @@ export default async function ProjectPmDashboardPage({ params }: PageParams) {
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
       archived: false,
     },
     select: { id: true, key: true, name: true },

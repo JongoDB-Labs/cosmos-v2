@@ -28,7 +28,7 @@ vi.mock("@/lib/integrations/invitation-email", () => ({
 
 import { prisma } from "@/lib/db/client";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
-import { parsePasswordResetToken } from "@/lib/auth/password-reset";
+import { createPasswordResetToken, parsePasswordResetToken } from "@/lib/auth/password-reset";
 import { POST as requestReset } from "./request/route";
 import { maskEmail } from "@/lib/auth/mask-email";
 import { POST as confirmReset } from "./confirm/route";
@@ -312,6 +312,132 @@ describe("self-service password reset leaves an outcome trail", () => {
     expect(sentEmails).toHaveLength(0);
     // Nowhere to attribute it: no membership, no pending invitation.
     expect(await prisma.auditLog.count({ where: { orgId } })).toBe(before);
+  });
+});
+
+/**
+ * Each org's admins answer "did anyone reset this person's password?" from
+ * their own audit log, so the completed reset is recorded in EVERY org the
+ * account belongs to. It used to go to the first membership only, which left
+ * every other org blind. An org the person was removed from gets no row: the
+ * membership is kept for history, and a nested membership read does not hide
+ * it the way a direct orgMember query does.
+ */
+describe("a completed reset is recorded in every organization the account belongs to", () => {
+  const stamp = Math.random().toString(36).slice(2, 8);
+  const email = `zz-pwr-multi-${stamp}@example.com`;
+  const orgs = { removed: "", first: "", second: "" };
+  let userId = "";
+
+  beforeAll(async () => {
+    userId = (
+      await prisma.user.create({
+        data: { email, displayName: "PWR multi", passwordHash: hashPassword(OLD_PASSWORD), passwordSetAt: new Date() },
+      })
+    ).id;
+    // The removed membership is created first, so a read that keeps it in
+    // order would reach it first.
+    for (const which of ["removed", "first", "second"] as const) {
+      const orgId = (
+        await prisma.organization.create({ data: { name: `pwr ${which} ${stamp}`, slug: `zzpwm-${which}-${stamp}` } })
+      ).id;
+      orgs[which] = orgId;
+      await prisma.orgMember.create({
+        data: { orgId, userId, role: "MEMBER", permissions: "0", ...(which === "removed" ? { removedAt: new Date() } : {}) },
+      });
+    }
+  });
+  afterAll(async () => {
+    await prisma.organization.deleteMany({ where: { id: { in: Object.values(orgs) } } }).catch(() => undefined);
+    await prisma.user.deleteMany({ where: { id: userId } }).catch(() => undefined);
+  });
+
+  it("writes auth.password_reset.completed in each active org, and none in the org they left", async () => {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const token = createPasswordResetToken(user);
+    expect((await confirmReset(req({ token, newPassword: NEW_PASSWORD }))).status).toBe(200);
+
+    const completed = async (orgId: string) =>
+      prisma.auditLog.count({ where: { orgId, action: "auth.password_reset.completed", entityId: userId } });
+    expect({
+      first: await completed(orgs.first),
+      second: await completed(orgs.second),
+      removed: await completed(orgs.removed),
+    }).toEqual({ first: 1, second: 1, removed: 0 });
+  });
+});
+
+/**
+ * A reset REQUEST picks the org whose mail settings send the link, and writes
+ * its outcome to that org's audit log. An org the person was removed from is
+ * neither: the membership is kept for history, and a nested membership read
+ * does not hide it the way a direct orgMember query does.
+ */
+describe("a reset request never mails as, or audits into, an org the person left", () => {
+  const stamp = Math.random().toString(36).slice(2, 8);
+  const orgIds: string[] = [];
+  const userIds: string[] = [];
+
+  async function org(label: string) {
+    const o = await prisma.organization.create({ data: { name: `pwq ${label} ${stamp}`, slug: `zzpwq-${label}-${stamp}` } });
+    orgIds.push(o.id);
+    return o;
+  }
+  async function account(label: string, withPassword: boolean, memberships: { orgId: string; removed: boolean }[]) {
+    const email = `zz-pwq-${label}-${stamp}@example.com`;
+    const u = await prisma.user.create({
+      data: withPassword
+        ? { email, displayName: "PWQ", passwordHash: hashPassword(OLD_PASSWORD), passwordSetAt: new Date() }
+        : { email, displayName: "PWQ", googleId: `zz-pwq-gid-${label}-${stamp}` },
+    });
+    userIds.push(u.id);
+    // In the order given: the removed membership first, so a read that keeps it reaches it first.
+    for (const m of memberships) {
+      await prisma.orgMember.create({
+        data: { orgId: m.orgId, userId: u.id, role: "MEMBER", permissions: "0", ...(m.removed ? { removedAt: new Date() } : {}) },
+      });
+    }
+    return email;
+  }
+  const requested = (orgId: string) => prisma.auditLog.count({ where: { orgId, action: "auth.password_reset.requested" } });
+
+  afterAll(async () => {
+    await prisma.organization.deleteMany({ where: { id: { in: orgIds } } }).catch(() => undefined);
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } }).catch(() => undefined);
+  });
+
+  it("uses the org they still belong to, even when the login screen names the one they left", async () => {
+    const left = await org("left");
+    const kept = await org("kept");
+    const email = await account("both", true, [{ orgId: left.id, removed: true }, { orgId: kept.id, removed: false }]);
+
+    for (const body of [{ email }, { email, orgSlug: left.slug }]) {
+      sentEmails.length = 0;
+      expect((await requestReset(req(body))).status).toBe(200);
+      expect(sentEmails.map((m) => m.orgId)).toEqual([kept.id]);
+    }
+    expect(await requested(kept.id)).toBe(2);
+    expect(await requested(left.id)).toBe(0);
+  });
+
+  it("someone removed from their only org still gets the link, sent as no org, and that org records nothing", async () => {
+    const left = await org("only");
+    const email = await account("only", true, [{ orgId: left.id, removed: true }]);
+    sentEmails.length = 0;
+    expect((await requestReset(req({ email }))).status).toBe(200);
+    expect(sentEmails).toHaveLength(1);
+    expect(sentEmails[0].orgId).toBeUndefined();
+    expect(await requested(left.id)).toBe(0);
+  });
+
+  it("an account with no password, removed from its only org, leaves no record there either", async () => {
+    // The no-mail outcomes are attributed through the same membership read.
+    const left = await org("sso");
+    const email = await account("sso", false, [{ orgId: left.id, removed: true }]);
+    sentEmails.length = 0;
+    expect((await requestReset(req({ email }))).status).toBe(200);
+    expect(sentEmails).toHaveLength(0);
+    expect(await requested(left.id)).toBe(0);
   });
 });
 

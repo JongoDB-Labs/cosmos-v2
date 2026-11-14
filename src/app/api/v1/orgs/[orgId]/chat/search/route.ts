@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { mayUseChat } from "@/lib/chat/access";
+import { mayUseChat, visibleChannelProjectIds } from "@/lib/chat/access";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { escapeLike } from "@/lib/query/like";
 import { z } from "zod";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -91,8 +92,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     };
 
     // The chat_channel_members join keeps results to channels the user joined
-    // (private content stays private).
-    const conds: string[] = [`c.org_id = ${p(orgId)}::uuid`, `m.deleted_at IS NULL`];
+    // (private content stays private), and the project clause to channels whose
+    // project they can still see: membership outlives losing the project.
+    const conds: string[] = [
+      `c.org_id = ${p(orgId)}::uuid`,
+      `m.deleted_at IS NULL`,
+      `(c.project_id IS NULL OR c.project_id = ANY(${p(await visibleChannelProjectIds(ctx))}::uuid[]))`,
+    ];
     const userBind = p(ctx.userId);
 
     // Free-text FTS is now optional: an operators-only query (e.g. "from:alice
@@ -107,8 +113,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       rankExpr = `ts_rank_cd(m.content_tsv, plainto_tsquery('english', ${tq}))`;
     }
     if (parsed.data.channelId) conds.push(`m.channel_id = ${p(parsed.data.channelId)}::uuid`);
-    if (filters.in) conds.push(`c.name ILIKE ${p(`%${filters.in}%`)}`);
-    if (filters.from) conds.push(`u.display_name ILIKE ${p(`%${filters.from}%`)}`);
+    // A name is matched as text: `in:_` is an underscore, not "any channel".
+    // Backslash is Postgres' default LIKE escape, as for Prisma's contains.
+    if (filters.in) conds.push(`c.name ILIKE ${p(`%${escapeLike(filters.in)}%`)}`);
+    if (filters.from) conds.push(`u.display_name ILIKE ${p(`%${escapeLike(filters.from)}%`)}`);
     if (filters.has === "link") conds.push(`m.content ~* 'https?://'`);
     if (filters.before && DATE_RE.test(filters.before)) conds.push(`m.created_at < ${p(filters.before)}::date`);
     if (filters.after && DATE_RE.test(filters.after)) conds.push(`m.created_at >= ${p(filters.after)}::date`);

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
+import { canReadNote } from "@/lib/notes/access";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -38,10 +39,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (!note) return new Response("Not found", { status: 404 });
 
-    // Enforce visibility: private notes only visible to author
-    if (note.visibility === "PRIVATE" && note.authorId !== ctx.userId) {
-      return new Response("Not found", { status: 404 });
-    }
+    // A private note is its author's alone (canReadNote, which mention
+    // notices follow too).
+    if (!canReadNote(ctx, note)) return new Response("Not found", { status: 404 });
 
     return success(note);
   } catch (error) {

@@ -25,7 +25,23 @@ vi.mock("@/lib/db/client", () => ({
     project: { findFirst: h.projectFindFirst },
   },
 }));
-vi.mock("@/lib/openapi/org-context", () => ({ orgContext: vi.fn(async () => ({ org: {}, ctx: { userId: "u1" } })) }));
+// A whole auth context, not just a user id: the update door applies the org's
+// access rules to it (`requirePolicy` in `writeIntervalChange`). A plain
+// member with no rules, so nothing here is refused by policy. The literal is
+// ORG below; a mock factory runs before the module's constants exist.
+vi.mock("@/lib/openapi/org-context", () => ({
+  orgContext: vi.fn(async () => ({
+    org: {},
+    ctx: {
+      userId: "u1",
+      orgId: "11111111-1111-4111-8111-111111111111",
+      orgRole: "MEMBER",
+      permissions: 0n,
+      basePermissions: 0n,
+      abacRules: [],
+    },
+  })),
+}));
 vi.mock("@/lib/rbac/require-project-read", () => ({
   requireProjectRead: vi.fn(async () => undefined),
   requireProjectVisible: vi.fn(async () => undefined),

@@ -6,9 +6,11 @@ import {
   canDeleteMessageGiven,
 } from "./access";
 
-const publicChan = { kind: "CHANNEL" as const, isPrivate: false, isGeneral: false, orgId: "o1" };
-const privateChan = { kind: "CHANNEL" as const, isPrivate: true,  isGeneral: false, orgId: "o1" };
-const dmChan     = { kind: "DM"      as const, isPrivate: true,  isGeneral: false, orgId: "o1" };
+const publicChan = { kind: "CHANNEL" as const, isPrivate: false, isGeneral: false, orgId: "o1", projectVisible: true };
+const privateChan = { kind: "CHANNEL" as const, isPrivate: true,  isGeneral: false, orgId: "o1", projectVisible: true };
+const dmChan     = { kind: "DM"      as const, isPrivate: true,  isGeneral: false, orgId: "o1", projectVisible: true };
+// A public channel under a project the viewer can't see.
+const hiddenProjectChan = { ...publicChan, projectVisible: false };
 const member     = { role: "MEMBER"  as const };
 const admin      = { role: "ADMIN"   as const };
 
@@ -61,19 +63,19 @@ describe("canManageChannelGiven", () => {
 
 describe("canDeleteMessageGiven", () => {
   it("author can delete own message", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u1", channelMember: member, orgRole: "MEMBER", roleCounts: true })).toBe(true);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u1", channel: publicChan, channelMember: member, orgRole: "MEMBER", roleCounts: true })).toBe(true);
   });
   it("channel admin can delete others' messages", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: admin, orgRole: "MEMBER", roleCounts: true })).toBe(true);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channel: publicChan, channelMember: admin, orgRole: "MEMBER", roleCounts: true })).toBe(true);
   });
   it("org admin can delete others' messages", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: null, orgRole: "ADMIN", roleCounts: true })).toBe(true);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channel: publicChan, channelMember: null, orgRole: "ADMIN", roleCounts: true })).toBe(true);
   });
   it("plain member cannot delete others'", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: member, orgRole: "MEMBER", roleCounts: true })).toBe(false);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channel: publicChan, channelMember: member, orgRole: "MEMBER", roleCounts: true })).toBe(false);
   });
   it("non-channel-member with no org-admin role cannot delete", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: null, orgRole: "MEMBER", roleCounts: true })).toBe(false);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channel: publicChan, channelMember: null, orgRole: "MEMBER", roleCounts: true })).toBe(false);
   });
 });
 
@@ -87,10 +89,39 @@ describe("when the actor's roles don't count (an API key)", () => {
     expect(canManageChannelGiven({ channel: publicChan, member: null, viewerOrgId: "o1", orgRole: "OWNER", roleCounts: false })).toBe(false);
   });
   it("a channel ADMIN or org ADMIN can't delete someone else's message", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: admin, orgRole: "MEMBER", roleCounts: false })).toBe(false);
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channelMember: null, orgRole: "ADMIN", roleCounts: false })).toBe(false);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channel: publicChan, channelMember: admin, orgRole: "MEMBER", roleCounts: false })).toBe(false);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channel: publicChan, channelMember: null, orgRole: "ADMIN", roleCounts: false })).toBe(false);
   });
   it("but still deletes its own", () => {
-    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u1", channelMember: member, orgRole: "MEMBER", roleCounts: false })).toBe(true);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u1", channel: publicChan, channelMember: member, orgRole: "MEMBER", roleCounts: false })).toBe(true);
+  });
+});
+
+// A channel tied to a project follows the project: a member of the channel, a
+// channel ADMIN or an org admin acting on a project they can't see is refused.
+// (Who may see the project is isProjectVisible's question, tested with it; the
+// routes' DB tests cover the whole path.)
+describe("a channel whose project the viewer can't see", () => {
+  it("can't be seen, even by a member of it", () => {
+    expect(canSeeChannelGiven({ channel: hiddenProjectChan, member, viewerOrgId: "o1", orgRole: "MEMBER" })).toBe(false);
+    expect(canSeeChannelGiven({ channel: hiddenProjectChan, member: null, viewerOrgId: "o1", orgRole: "MEMBER" })).toBe(false);
+  });
+  it("can't be posted to by a member", () => {
+    expect(canPostToChannelGiven({ channel: hiddenProjectChan, member, viewerOrgId: "o1", orgRole: "MEMBER" })).toBe(false);
+  });
+  it("can't be managed, by its channel ADMIN or an org admin", () => {
+    expect(canManageChannelGiven({ channel: hiddenProjectChan, member: admin, viewerOrgId: "o1", orgRole: "MEMBER", roleCounts: true })).toBe(false);
+    expect(canManageChannelGiven({ channel: hiddenProjectChan, member: null, viewerOrgId: "o1", orgRole: "ADMIN", roleCounts: true })).toBe(false);
+  });
+  it("can't have a message deleted, the author's own included", () => {
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u1", channel: hiddenProjectChan, channelMember: member, orgRole: "MEMBER", roleCounts: true })).toBe(false);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u2", channel: hiddenProjectChan, channelMember: admin, orgRole: "MEMBER", roleCounts: true })).toBe(false);
+  });
+  it("is the same channel as before once the project is visible (positive control)", () => {
+    const visible = { ...hiddenProjectChan, projectVisible: true };
+    expect(canSeeChannelGiven({ channel: visible, member: null, viewerOrgId: "o1", orgRole: "MEMBER" })).toBe(true);
+    expect(canPostToChannelGiven({ channel: visible, member, viewerOrgId: "o1", orgRole: "MEMBER" })).toBe(true);
+    expect(canManageChannelGiven({ channel: visible, member: admin, viewerOrgId: "o1", orgRole: "MEMBER", roleCounts: true })).toBe(true);
+    expect(canDeleteMessageGiven({ authorId: "u1", viewerId: "u1", channel: visible, channelMember: member, orgRole: "MEMBER", roleCounts: true })).toBe(true);
   });
 });

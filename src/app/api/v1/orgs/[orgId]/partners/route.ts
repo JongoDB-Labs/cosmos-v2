@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { readableContractsWhere } from "@/lib/crm/contract-scope";
+import { escapeLike } from "@/lib/query/like";
 import { z } from "zod";
 
 const createPartnerSchema = z.object({
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: {
         orgId,
         ...(status ? { status } : {}),
-        ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
+        ...(search ? { name: { contains: escapeLike(search), mode: "insensitive" } } : {}),
       },
       include: {
         // Counts only the contracts this caller may see, as the detail lists.

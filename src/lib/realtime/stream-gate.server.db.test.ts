@@ -157,6 +157,75 @@ describe("the stream gate and chat channel membership", () => {
   });
 });
 
+describe("the stream gate's chat channels, which the stream subscribes to", () => {
+  const joined = (id: string) => ({ topic: topics.user(userId), type: "chat.channel.joined", data: { channelId: id } });
+  const said = (id: string) => ({ topic: topics.channel(id), type: "chat.message.created", data: { id: "m", channelId: id, content: "x" } });
+
+  it("adds a channel joined after it opened, at once on the member's own joined event", async () => {
+    const t = 19_000_000;
+    const late = await prisma.chatChannel.create({ data: { orgId, kind: "CHANNEL", name: `late-${stamp}`, createdById: userId } });
+    try {
+      const gate = await openStreamGate((await loadMemberAuthContext(orgId, userId))!, { now: () => t });
+      expect(gate.channels.has(late.id)).toBe(false);
+      await prisma.chatChannelMember.create({ data: { channelId: late.id, userId } });
+      expect(await gate.admit(joined(late.id))).toBe(true);
+      expect(gate.channels.has(late.id)).toBe(true);
+      expect(await gate.admit(said(late.id))).toBe(true);
+    } finally {
+      await prisma.chatChannel.deleteMany({ where: { id: late.id } });
+    }
+  });
+
+  it("drops a project's channel at the next refresh once the member can't see the project, and adds it back when they can", async () => {
+    let t = 20_000_000;
+    const proj = await prisma.chatChannel.create({ data: { orgId, kind: "CHANNEL", name: `proj-${stamp}`, projectId: secId, createdById: userId } });
+    await prisma.chatChannelMember.create({ data: { channelId: proj.id, userId } });
+    const pm = await prisma.projectMember.create({ data: { projectId: secId, orgMemberId: memberId } });
+    try {
+      const gate = await openStreamGate((await loadMemberAuthContext(orgId, userId))!, { now: () => t });
+      expect([...gate.channels]).toContain(proj.id);
+      expect(await gate.admit(said(proj.id))).toBe(true);
+
+      // Losing the project announces nothing: the refresh is the bound.
+      await prisma.projectMember.delete({ where: { id: pm.id } });
+      t += AUDIENCE_TTL_MS - 1;
+      await gate.refreshIfStale();
+      expect(gate.channels.has(proj.id)).toBe(true);
+      t += 1;
+      await gate.refreshIfStale();
+      expect(gate.channels.has(proj.id)).toBe(false);
+      expect(await gate.admit(said(proj.id))).toBe(false);
+      // Still a member of the channel: the project decided.
+      expect(await prisma.chatChannelMember.count({ where: { channelId: proj.id, userId } })).toBe(1);
+
+      await prisma.projectMember.create({ data: { projectId: secId, orgMemberId: memberId } });
+      t += AUDIENCE_TTL_MS;
+      await gate.refreshIfStale();
+      expect(gate.channels.has(proj.id)).toBe(true);
+      expect(await gate.admit(said(proj.id))).toBe(true);
+    } finally {
+      await prisma.projectMember.deleteMany({ where: { projectId: secId, orgMemberId: memberId } });
+      await prisma.chatChannel.deleteMany({ where: { id: proj.id } });
+    }
+  });
+
+  it("never holds a project's channel for a member who could not see the project when it opened", async () => {
+    const t = 21_000_000;
+    const proj = await prisma.chatChannel.create({ data: { orgId, kind: "CHANNEL", name: `proj2-${stamp}`, projectId: secId, createdById: userId } });
+    await prisma.chatChannelMember.create({ data: { channelId: proj.id, userId } });
+    try {
+      const gate = await openStreamGate((await loadMemberAuthContext(orgId, userId))!, { now: () => t });
+      expect(gate.channels.has(proj.id)).toBe(false);
+      expect(await gate.admit(said(proj.id))).toBe(false);
+      // Their own joined event (a re-join) recomputes, and still leaves it out.
+      expect(await gate.admit(joined(proj.id))).toBe(true);
+      expect(gate.channels.has(proj.id)).toBe(false);
+    } finally {
+      await prisma.chatChannel.deleteMany({ where: { id: proj.id } });
+    }
+  });
+});
+
 describe("the stream gate ends with the session it opened with", () => {
   const ok = () => onOrg("settings.updated", { orgId, section: "org" });
   const MIN = 60_000;

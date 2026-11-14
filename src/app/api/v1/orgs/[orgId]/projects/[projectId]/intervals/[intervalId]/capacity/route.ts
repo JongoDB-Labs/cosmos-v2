@@ -2,8 +2,8 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
+import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
@@ -74,6 +74,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     // Upsert each entry; remove entries not in the payload
     const userIds = body.entries.map((e) => e.userId);
+    // Each person must be a current member of the org: a user id belongs to no
+    // org, so the foreign key takes anyone's.
+    await assertRefsInScope({ orgId: ctx.orgId }, { member: userIds });
 
     await prisma.$transaction([
       prisma.intervalCapacity.deleteMany({
