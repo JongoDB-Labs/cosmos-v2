@@ -55,11 +55,11 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "fix",
-        text: "Single sign-on now connects to an organization's identity provider under the same address rules as every other outside URL: never to link-local or cloud metadata addresses, and to a private address only inside the ranges the instance's operator lists in OUTBOUND_ALLOW_PRIVATE_CIDRS. That covers the discovery request and every later request to the provider. An operator whose identity provider is on a private network must list its range, or sign-in through it fails.",
+        text: "Single sign-on now connects to an organization's identity provider under the same address rules as every other outside URL: never to link-local or cloud metadata addresses, and to a private address only inside the ranges the instance's operator lists in SSO_ALLOW_PRIVATE_CIDRS, a new list for identity providers alone. That covers the discovery request and every later request to the provider. OUTBOUND_ALLOW_PRIVATE_CIDRS stays the list for the endpoints org admins configure, and neither list opens a range to the other side. An operator whose identity provider is on a private network must list its range in SSO_ALLOW_PRIVATE_CIDRS, or sign-in through it fails.",
       },
       {
         kind: "improvement",
-        text: "The Helm chart can now set OUTBOUND_ALLOW_PRIVATE_CIDRS, through the outbound.allowPrivateCidrs value. It is empty by default, so existing installs render unchanged.",
+        text: "The Helm chart can now set SSO_ALLOW_PRIVATE_CIDRS through the sso.allowPrivateCidrs value, and OUTBOUND_ALLOW_PRIVATE_CIDRS through the outbound.allowPrivateCidrs value. Both are empty by default, so existing installs render unchanged.",
       },
       {
         kind: "fix",

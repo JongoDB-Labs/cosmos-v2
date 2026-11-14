@@ -475,7 +475,7 @@ CSEC=$(kubectl -n cosmos get secret cosmos-sso-acme -o jsonpath='{.data.secret}'
 # run prisma/seed/wire-keycloak-idp.ts (as a Job/exec) with:
 #   ORG_SLUG=acme  ISSUER_URL=https://sso.uds.dev/realms/uds  CLIENT_ID=$CID  CLIENT_SECRET=$CSEC  JIT=1  DEFAULT_ROLE=MEMBER
 ```
-In the cluster `sso.uds.dev` resolves to a private address, and the app reaches an SSO issuer's private address only when it is listed in the chart's `outbound.allowPrivateCidrs` (`OUTBOUND_ALLOW_PRIVATE_CIDRS`, see `docs/runbooks/outbound-endpoints.md`). Set it to the address the issuer's host name resolves to from the app pod, as a `/32`; without it login fails with `sso_discovery_failed` and the pod logs `[sso] discovery failed` with the refusal.
+In the cluster `sso.uds.dev` resolves to a private address, and the app reaches an SSO issuer's private address only when it is listed in the chart's `sso.allowPrivateCidrs` (`SSO_ALLOW_PRIVATE_CIDRS`, see `docs/runbooks/outbound-endpoints.md`). Set it to the address the issuer's host name resolves to from the app pod, as a `/32`; without it login fails with `sso_discovery_failed` and the pod logs `[sso] discovery failed` with the refusal.
 
 **Verify (JIT end-to-end):** `https://cosmos.uds.dev/login?org=acme` → "Sign in with SSO" → Keycloak → back to `/` with a session cookie; in the DB a `federated_identities` row binds the Keycloak `sub` (NOT email) to the JIT-provisioned user, `org_members` has them at MEMBER, `sessions.auth_method='oidc'` (the `docs/sso-acceptance/` dex run is the template). `IdpConnection.enabled` is the **runtime SSO toggle** (SP8) — flips login on/off per org with no rebuild.
 

@@ -62,7 +62,7 @@ that matches dex's registered `redirectURI`. dex's issuer is `http://dex:5556/de
 `SSO_ALLOW_INSECURE_ISSUER=1` on the cosmos service (set in the dex override;
 default-off everywhere else). `dex` resolves to an address on the compose
 network, which is private, so the override must also set
-`OUTBOUND_ALLOW_PRIVATE_CIDRS` to that network's range (see
+`SSO_ALLOW_PRIVATE_CIDRS` to that network's range (see
 `docker network inspect cosmos-v2_default`); without it discovery is refused.
 
 ## Observed result (2026-06-06)

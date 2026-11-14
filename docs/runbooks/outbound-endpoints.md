@@ -8,7 +8,7 @@ operator-chosen identity provider names in its discovery document:
 | Any project admin | Webhooks | Never |
 | Cosmo, from a chat | `fetch_url` | Never |
 | An org admin | OpenAI-compatible model endpoint, Jira site, MCP server URL | Only inside `OUTBOUND_ALLOW_PRIVATE_CIDRS` |
-| The operator, for an org | The org's SSO issuer, and every endpoint its discovery document names (token, userinfo, JWKS) | Only inside `OUTBOUND_ALLOW_PRIVATE_CIDRS` |
+| The operator, for an org | The org's SSO issuer, and every endpoint its discovery document names (token, userinfo, JWKS) | Only inside `SSO_ALLOW_PRIVATE_CIDRS` |
 
 Every one of these goes through `src/lib/security/outbound-post.server.ts`:
 
@@ -32,26 +32,19 @@ These are refused for every caller, whatever the operator configures:
   `instance-data`, `instance-data.ec2.internal`
 - any IPv4 address written as IPv6 (`::a.b.c.d`, `::ffff:a.b.c.d`, `::ffff:0:a.b.c.d`)
 
-## Allowing a self-hosted model, Jira or identity provider on a private network
+## Allowing a self-hosted model, Jira or MCP server on a private network
 
 Set `OUTBOUND_ALLOW_PRIVATE_CIDRS` in the app's environment to the narrowest
 ranges that hold those services. With docker compose that is `.env`. With the
 Helm chart it is the `outbound.allowPrivateCidrs` value, which is empty by
 default.
 
-An SSO issuer whose host name resolves to a private address (an in-cluster
-Keycloak, an identity provider on an internal network) needs its range here too.
-Until it is listed, its sign-in fails at discovery and the server logs
-`[sso] discovery failed` with the refusal. Find the address from the app host or
-pod, and list it as a `/32` (or `/128`) when it is a single address.
-
-
 ```
 OUTBOUND_ALLOW_PRIVATE_CIDRS=10.20.30.0/24,fd12:3456:789a::/48
 ```
 
-- It applies only to endpoints an org admin configured and to SSO issuers.
-  Webhooks and `fetch_url` never use it.
+- It applies only to endpoints an org admin configured. SSO issuers, webhooks
+  and `fetch_url` never use it.
 - It is an instance setting, not an org setting: on a shared instance every org's
   admins can then point an endpoint into these ranges. List only what every
   tenant may reach.
@@ -61,6 +54,29 @@ OUTBOUND_ALLOW_PRIVATE_CIDRS=10.20.30.0/24,fd12:3456:789a::/48
 - An entry that isn't a CIDR range makes every call or save that needs a
   private address fail with an error naming the bad entry. Public endpoints
   keep working.
+
+## Allowing an identity provider on a private network
+
+An SSO issuer whose host name resolves to a private address (an in-cluster
+Keycloak, an identity provider on an internal network) needs its range in
+`SSO_ALLOW_PRIVATE_CIDRS`. With the Helm chart it is the `sso.allowPrivateCidrs`
+value, which is empty by default. It takes the same comma-separated CIDR ranges.
+
+```
+SSO_ALLOW_PRIVATE_CIDRS=10.43.12.34/32
+```
+
+- It is SSO's own list. A range in it never opens to the endpoints org admins
+  configure, and a range in `OUTBOUND_ALLOW_PRIVATE_CIDRS` never opens to SSO.
+  An issuer the two share must be listed in both.
+- It covers discovery and every later request to the provider: the token
+  endpoint, userinfo and JWKS, so list each of their addresses.
+- Until the issuer's range is listed, its sign-in fails at discovery and the
+  server logs `[sso] discovery failed` with the refusal. Find the address from
+  the app host or pod, and list it as a `/32` (or `/128`) when it is a single
+  address.
+- Link-local and metadata addresses stay unreachable, whatever is listed.
+- Restart the app after changing it.
 
 ## Checking a refusal
 

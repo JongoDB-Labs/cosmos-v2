@@ -125,15 +125,23 @@ function idpRequestBody(body: oidc.CustomFetchOptions["body"]): string | undefin
  * the Configuration that discovery returns keeps this for all its requests. Each
  * one goes through the outbound guard (security/outbound-post.server.ts), like
  * every URL Cosmos didn't choose itself: it may reach a private address only
- * inside the operator's OUTBOUND_ALLOW_PRIVATE_CIDRS, never link-local or cloud
+ * inside the operator's SSO_ALLOW_PRIVATE_CIDRS, never link-local or cloud
  * metadata, connects to the address it checked, and follows no redirect. An IdP
  * on a private network is a real deployment: its operator lists its range there.
+ * That list is SSO's alone. OUTBOUND_ALLOW_PRIVATE_CIDRS, which opens ranges to
+ * the endpoints org admins configure, never opens an issuer, and an issuer's
+ * range never opens to them.
  */
 const idpFetch: oidc.CustomFetch = (url, options) =>
   fetchPublicUrl(
     url,
     { method: options.method, headers: options.headers, body: idpRequestBody(options.body) },
-    { allowOperatorPrivate: true, signal: options.signal, timeoutMs: IDP_TIMEOUT_MS },
+    {
+      allowOperatorPrivate: true,
+      operatorRanges: "SSO_ALLOW_PRIVATE_CIDRS",
+      signal: options.signal,
+      timeoutMs: IDP_TIMEOUT_MS,
+    },
   );
 
 /**
@@ -154,7 +162,7 @@ export function getOidcConfig(conn: IdpConnection): Promise<oidc.Configuration> 
   // without public TLS, and (b) the throwaway dex Docker-acceptance stack. It is
   // DEFAULT-OFF and must never be set for an internet-facing tenant. It says
   // nothing about addresses: an issuer on a private network also needs its range
-  // in OUTBOUND_ALLOW_PRIVATE_CIDRS (idpFetch above).
+  // in SSO_ALLOW_PRIVATE_CIDRS (idpFetch above).
   const allowInsecure = process.env.SSO_ALLOW_INSECURE_ISSUER === "1";
   const promise = oidc
     .discovery(
@@ -176,6 +184,30 @@ export function getOidcConfig(conn: IdpConnection): Promise<oidc.Configuration> 
 /** Test seam: drop cached discovery configs (e.g. on connection rotation). */
 export function clearOidcConfigCache(): void {
   configCache.clear();
+}
+
+/** Any URL's query string and fragment, which can carry an authorization code. */
+const URL_QUERY = /(\bhttps?:\/\/[^\s?#"'<>]*)[?#][^\s"'<>]*/gi;
+
+/**
+ * An SSO failure for a log line: each Error in the cause chain, by name, code
+ * and message (with any URL's query string cut off), so a refused address or a
+ * bad token shows behind openid-client's "something went wrong". Nothing else
+ * an error carries: openid-client attaches the token response (access, ID and
+ * refresh tokens), the callback's parameters (the authorization code) or the
+ * IdP's error body as a `cause` that isn't an Error, and the chain stops there.
+ */
+export function describeSsoError(err: unknown): { name: string; code?: string; message: string }[] {
+  const chain: { name: string; code?: string; message: string }[] = [];
+  for (let e: unknown = err; e instanceof Error && chain.length < 8; e = e.cause) {
+    const code = (e as { code?: unknown }).code;
+    chain.push({
+      name: e.name,
+      ...(typeof code === "string" ? { code } : {}),
+      message: e.message.replace(URL_QUERY, "$1?[removed]"),
+    });
+  }
+  return chain;
 }
 
 // ─────────────────────────────────────────────

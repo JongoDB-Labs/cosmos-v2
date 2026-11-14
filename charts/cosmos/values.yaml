@@ -43,23 +43,31 @@ expose:
 # The IdpConnection row (which actually turns login on for an org) is written by the
 # `prisma/seed/wire-keycloak-idp.ts` seed, sealing this client's secret into the DB.
 # Inside the cluster the issuer's host name resolves to a private address, which the
-# app refuses unless it is listed in `outbound.allowPrivateCidrs` below.
+# app refuses unless it is listed in `allowPrivateCidrs` here.
 sso:
   enabled: true
   clientId: cosmos-acme            # the Keycloak client (realm `uds`)
   name: "COSMOS — acme (demo)"     # human label shown in Keycloak
   orgSlug: acme                    # the cosmos org this client logs into (redirect path + seed)
   secretName: cosmos-sso-acme      # k8s Secret the UDS operator writes the client creds to
+  # Private networks an org's SSO issuer may be on. Sets SSO_ALLOW_PRIVATE_CIDRS
+  # (docs/runbooks/outbound-endpoints.md). Comma-separated CIDR ranges, e.g.
+  # "10.43.12.34/32,fd12:3456::/48". Empty (the default) sets nothing, so an issuer
+  # must be public. List only the narrowest range that holds the issuer, e.g. the
+  # address its host name resolves to from the app pod, as a /32. Only SSO reads this
+  # list: it never opens a range to the endpoints org admins configure (`outbound`
+  # below), and link-local and cloud metadata addresses stay unreachable whatever is
+  # listed.
+  allowPrivateCidrs: ""
 
-# Private networks the app may reach on an operator's or org admin's behalf: an org's
-# SSO issuer, and the OpenAI-compatible model, Jira and MCP endpoints org admins
-# configure. Sets OUTBOUND_ALLOW_PRIVATE_CIDRS (docs/runbooks/outbound-endpoints.md).
-# Comma-separated CIDR ranges, e.g. "10.43.12.34/32,fd12:3456::/48". Empty (the
-# default) sets nothing, so those endpoints must be public. Every org admin's
-# endpoints can then reach these ranges too, so list only the narrowest that hold
-# the services, e.g. the address the SSO issuer's host name resolves to from the app
-# pod, as a /32. Webhooks and Cosmo's fetch_url never use it, and link-local and
-# cloud metadata addresses stay unreachable whatever is listed.
+# Private networks the endpoints org admins configure may be on: the OpenAI-compatible
+# model, Jira and MCP endpoints. Sets OUTBOUND_ALLOW_PRIVATE_CIDRS
+# (docs/runbooks/outbound-endpoints.md). Comma-separated CIDR ranges, as above. Empty
+# (the default) sets nothing, so those endpoints must be public. Every org admin's
+# endpoints can then reach these ranges, so list only the narrowest that hold the
+# services. SSO issuers never use this list (`sso.allowPrivateCidrs` above), nor do
+# webhooks or Cosmo's fetch_url, and link-local and cloud metadata addresses stay
+# unreachable whatever is listed.
 outbound:
   allowPrivateCidrs: ""
 
