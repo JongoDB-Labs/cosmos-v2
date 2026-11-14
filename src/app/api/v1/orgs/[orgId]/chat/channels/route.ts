@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { mayUseChat } from "@/lib/chat/access";
+import { mayUseChat, visibleChannelWhere } from "@/lib/chat/access";
 import { success, created, handleApiError } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { logAudit } from "@/lib/audit";
@@ -24,8 +24,10 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
+    // Membership alone doesn't list a channel whose project the caller can't
+    // see (lib/chat/access.ts): it drops out of the sidebar until they can.
     const memberships = await prisma.chatChannelMember.findMany({
-      where: { userId: ctx.userId, channel: { orgId, archivedAt: null } },
+      where: { userId: ctx.userId, channel: { orgId, archivedAt: null, AND: [await visibleChannelWhere(ctx)] } },
       include: {
         channel: {
           select: {

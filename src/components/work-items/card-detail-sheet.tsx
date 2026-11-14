@@ -100,7 +100,8 @@ import { formatDateStable } from "@/lib/format/stable-date";
 import { CommentItem } from "@/components/comments/comment-item";
 import { DraftCommentComposer } from "@/components/comments/comment-composer";
 import { isWorkItemResolved } from "@/lib/work-items/done-state";
-import { memberPickerOptions } from "@/lib/org/member-picker";
+import { cantSeeProjectWarning, markCantSeeProject, memberDisplayName, memberPickerOptions } from "@/lib/org/member-picker";
+import { useMembersWhoCantSeeProject } from "@/hooks/use-project-member-visibility";
 import { entityUrl } from "@/lib/mentions/urls";
 import { useOrgSlug } from "@/lib/query/keys";
 import { toast } from "sonner";
@@ -346,8 +347,12 @@ export function CardDetailSheet({
     [members, intervals, projectTeams, allTypes, statusOptions],
   );
   // Assignee options: alphabetical, with the email carried as hidden search
-  // text so the picker's filter matches it too (COSMOS-171).
-  const assigneeOptions = useMemo(() => memberPickerOptions(members), [members]);
+  // text so the picker's filter matches it too (COSMOS-171). Anyone who can't
+  // see this project is marked: assigning them tells them nothing, and they
+  // couldn't open the item. The server judges each member (only for someone
+  // who may change items here, so only asked then).
+  const cantSeeProject = useMembersWhoCantSeeProject(orgId, projectId, open && can(Permission.ITEM_UPDATE));
+  const assigneeOptions = useMemo(() => markCantSeeProject(memberPickerOptions(members), cantSeeProject), [members, cantSeeProject]);
   // Custom-field defs for this project (org-wide + project-scoped), narrowed to
   // the fields that apply to THIS item's work-item type (type bindings honored).
   const { fields: customFields } = useCustomFields(orgId, projectId);
@@ -744,13 +749,23 @@ export function CardDetailSheet({
         if (!res.ok) throw new Error("Failed to update");
         const updated: WorkItem = await res.json();
         onUpdate(updated);
+        // The assigner's only signal that someone they just added hears
+        // nothing of it.
+        const unseen = next.filter((id) => !prevSet.includes(id) && cantSeeProject?.has(id));
+        const warning = cantSeeProjectWarning(
+          unseen.map((id) => {
+            const m = members.find((mm) => mm.userId === id);
+            return m ? memberDisplayName(m) : "Someone";
+          }),
+        );
+        if (warning) toast.warning(warning);
       } catch (err) {
         setAssigneeIds(prevSet);
         setAssigneeId(prevPrimary);
         notifyError(err, "Couldn't update assignees.");
       }
     },
-    [item, basePath, onUpdate, assigneeIds, assigneeId],
+    [item, basePath, onUpdate, assigneeIds, assigneeId, cantSeeProject, members],
   );
 
   // Persist a single custom-field value. The PUT route MERGES the customFields

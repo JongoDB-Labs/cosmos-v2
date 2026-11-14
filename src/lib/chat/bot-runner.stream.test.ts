@@ -128,11 +128,11 @@ describe("runChatBot — no confirm-class tool reaches a bot", () => {
     }
   });
 
-  it("a bot gets no tool that changes access either: adding someone to a project or team, or sharing a view", async () => {
+  it("a bot gets no tool that changes access either: adding someone to a project or team, or sharing a view, a note or an event", async () => {
     runAgentLoop.mockResolvedValue({ text: "ok", transcript: "ok", toolCalls: [] });
     await runChatBot({ bot: "assistant", orgId: "o1", orgSlug: "acme", channelId: "ch1", invokerUserId: "u1", invokerAuth: stubAuth("o1", "u1"), prompt: "q" });
     const names = (runAgentLoop.mock.calls[0][0].tools as { name: string }[]).map((t) => t.name);
-    for (const n of ["add_project_member", "add_team_member", "share_saved_view"]) {
+    for (const n of ["add_project_member", "add_team_member", "share_saved_view", "share_note", "share_calendar_event"]) {
       expect(names).not.toContain(n);
       // The catalog has it, so the absence is the filter.
       expect(cosmosTools.map((t) => t.name)).toContain(n);

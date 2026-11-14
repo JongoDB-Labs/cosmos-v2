@@ -41,6 +41,7 @@ import { COMMENT_TEXT_FIELDS, HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, 
 import { ID_SET_MAX, diag, tooBroad, type CqlDiagnostic, type Span } from "./errors";
 import { withStatementTimeout } from "./timeout.server";
 import type { CustomFieldType, SchemaCustomField } from "./typecheck";
+import { escapeLike } from "./like";
 
 /** A dashboard variable's value as a caller supplies it: ids/names, or nothing (= everyone). */
 export type VarInput = string | number | boolean | null | undefined | (string | number | boolean)[];
@@ -202,7 +203,7 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   // ── 2. Batched, scoped lookups ─────────────────────────────────────────────
   const readableIds = [...readable];
   const nameOrIdOr = (names: Set<string>, column: "name" | "key" | "email" | "displayName" | "title") =>
-    [...names].map((n) => ({ [column]: { equals: n, mode: "insensitive" as const } }));
+    [...names].map((n) => ({ [column]: { equals: escapeLike(n), mode: "insensitive" as const } }));
   // People, as every member list shows them (`memberDisclosure`): a
   // project-scoped key names only the people in its roster, and typed text is
   // matched against addresses only with members:read. Otherwise an address in,

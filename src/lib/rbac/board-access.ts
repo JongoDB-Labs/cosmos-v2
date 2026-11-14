@@ -4,6 +4,7 @@ import { teamIdsForActor } from "@/lib/rbac/team-membership";
 import { canManageProject } from "@/lib/rbac/scope";
 import { visibleBoards, type BoardLike, type BoardViewer } from "@/lib/rbac/board-visibility";
 import { isProjectVisible } from "@/lib/rbac/project-access";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
 
 /**
  * The TEAM half of board access, in one place, for every surface that reaches a
@@ -122,4 +123,20 @@ export async function requireBoardRead(
   ) {
     throw new NotFoundError("Board not found");
   }
+}
+
+/**
+ * Whether this actor may open this board, as a yes or no: the gates `getBoard`
+ * applies, BOARD_READ on its project, the project's visibility and the board's
+ * team. For a write that names a board by id (a default board, in
+ * foreign-refs.ts) and must not take one its writer could not open.
+ */
+export async function canOpenBoard(
+  ctx: AuthContext,
+  board: BoardLike & { projectId: string },
+): Promise<boolean> {
+  return (
+    (await canReadInProject(ctx, board.projectId, "BOARD_READ")) &&
+    (await isBoardVisible(ctx, board.projectId, board))
+  );
 }

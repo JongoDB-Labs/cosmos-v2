@@ -91,7 +91,7 @@ async function setup(
     org, project, people, fake, owner, newProject,
     item: (title = "Fix the login loop", projectId = project.id) =>
       createFixtureWorkItem({ orgId: org.id, projectId, workItemTypeId: typeId, createdById: owner.id, title, columnKey: "todo" }),
-    assign: async (itemId: string, userId: string) => {
+    assign: async (itemId: string, userId: string | null) => {
       asOwner();
       const res = await patchItem(json("PATCH", { assigneeId: userId }), { params: Promise.resolve({ orgId: org.id, itemId }) });
       expect(res.status).toBe(200);
@@ -239,7 +239,9 @@ describe("Slack notifications (e2e DB)", () => {
     expect(JSON.stringify(s.fake.state.posts[0])).not.toContain("budget");
 
     await prisma.organization.update({ where: { id: s.org.id }, data: { tenantClass: "COMMERCIAL" } });
-    await prisma.workItem.update({ where: { id: item.id }, data: { assigneeId: null } });
+    // Unassigned the way the app does it (the whole assignee set), so assigning
+    // her again is news; someone still on the item isn't told twice.
+    await s.assign(item.id, null);
     await s.assign(item.id, s.people.dana.id);
     await s.drain();
     // Escaped for Slack, so the title can't become a link or a mention.

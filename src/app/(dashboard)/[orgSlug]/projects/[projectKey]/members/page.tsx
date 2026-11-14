@@ -5,6 +5,7 @@ import { redirect, notFound } from "next/navigation";
 import { canManageProject } from "@/lib/rbac/scope";
 import { ProjectMembersManager } from "@/components/projects/project-members-manager";
 import { ProjectTeamsSection } from "@/components/projects/project-teams-section";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = {
   params: Promise<{ orgSlug: string; projectKey: string }>;
@@ -19,7 +20,7 @@ export default async function ProjectMembersPage({ params }: PageParams) {
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
       archived: false,
     },
     select: { id: true, name: true },

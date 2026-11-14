@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { ProblemError } from "@/lib/openapi/problem";
 import type { AuthContext } from "@/lib/rbac/check";
+import { canOpenBoard } from "@/lib/rbac/board-access";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
 
 /**
@@ -42,7 +43,8 @@ export type RefDb = Prisma.TransactionClient | PrismaClient;
  *
  *  - `projectId`: refs to project-owned rows must be in THIS project.
  *  - otherwise, `viewer`: refs to project-owned rows must be in a project the
- *    viewer can see (team scoping and an API key's project ceiling both apply).
+ *    viewer can see (team scoping and an API key's project ceiling both apply),
+ *    and a board must be one they may open.
  *  - neither: the org is the only bound.
  */
 export interface RefScope {
@@ -68,6 +70,8 @@ interface ResolvedScope {
   orgId: string;
   /** A project bound, as a Prisma filter on the ref's `projectId` column. */
   project?: string | { notIn: string[] };
+  /** Who is writing, for a rule that narrows by more than the project (`board`). */
+  viewer?: AuthContext;
 }
 
 const inIds = (ids: Ids) => ({ in: [...ids] });
@@ -203,10 +207,38 @@ const RULES = {
     inProject: false,
     count: (db, ids, s) => db.orgMember.count({ where: { userId: inIds(ids), orgId: s.orgId, removedAt: null } }),
   },
+  // A person the org has had as a member, removed or not: for a write that
+  // carries a row's history forward (a merge keeps a removed member's
+  // assignment, as removing them does), where `member` would refuse it. A
+  // person a REQUEST names is a current member: `member`. Counted through the
+  // user, because the default client hides a removed membership from every
+  // orgMember read, and a relation filter is not one of those reads.
+  memberOrFormer: {
+    label: "person",
+    outsideOrg: "That person isn't a member of this organization.",
+    inProject: false,
+    count: (db, ids, s) => db.user.count({ where: { id: inIds(ids), memberships: { some: { orgId: s.orgId } } } }),
+  },
+  // With a viewer, a board they may open (canOpenBoard: its project's
+  // BOARD_READ and visibility, and the board's team), so one they could not
+  // open is refused like one that does not exist, as getBoard answers it. That
+  // is a lookup per board found: for a write naming a few, not a list.
   board: {
     label: "board",
     inProject: true,
-    count: (db, ids, s) => db.board.count({ where: { id: inIds(ids), orgId: s.orgId, ...projectBound(s) } }),
+    count: async (db, ids, s) => {
+      const where = { id: inIds(ids), orgId: s.orgId, ...projectBound(s) };
+      const viewer = s.viewer;
+      if (!viewer) return db.board.count({ where });
+      const boards = await db.board.findMany({ where, select: { id: true, projectId: true, teamId: true } });
+      return (await Promise.all(boards.map((b) => canOpenBoard(viewer, b)))).filter(Boolean).length;
+    },
+  },
+  // The org's own themes, and the built-in ones (no org) every org may use.
+  theme: {
+    label: "theme",
+    inProject: false,
+    count: (db, ids, s) => db.theme.count({ where: { id: inIds(ids), OR: [{ orgId: s.orgId }, { orgId: null }] } }),
   },
 } satisfies Record<string, RefRule>;
 
@@ -243,7 +275,7 @@ export async function foreignRef(db: RefDb, scope: RefScope, refs: Refs): Promis
     const ids = idsOf(refs[kind]);
     if (ids.length === 0) continue;
     const rule: RefRule = RULES[kind];
-    const resolved: ResolvedScope = { orgId: scope.orgId };
+    const resolved: ResolvedScope = { orgId: scope.orgId, viewer: scope.viewer };
     if (rule.inProject && scope.projectId) {
       resolved.project = scope.projectId;
     } else if ((rule.inProject || kind === "project") && scope.viewer) {

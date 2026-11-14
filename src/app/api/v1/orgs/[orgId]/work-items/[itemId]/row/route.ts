@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { getReadableProjectIds, runWorkItemQuery } from "@/lib/work-items/query";
+import { escapeLike } from "@/lib/query/like";
 
 type RouteParams = { params: Promise<{ orgId: string; itemId: string }> };
 
@@ -51,7 +52,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         where: {
           orgId,
           id: { in: allowedProjectIds },
-          key: { equals: key[1], mode: "insensitive" },
+          key: { equals: escapeLike(key[1]), mode: "insensitive" },
         },
         select: { id: true },
         take: 2,

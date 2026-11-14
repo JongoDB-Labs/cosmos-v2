@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  CANT_SEE_PROJECT,
+  cantSeeProjectWarning,
   filterMemberOptions,
+  markCantSeeProject,
   matchesMemberQuery,
   memberDisplayName,
   memberPickerOptions,
@@ -100,6 +103,33 @@ describe("member search matching (COSMOS-171)", () => {
     expect(filterMemberOptions(options, "nobody")).toEqual([]);
     expect(matchesMemberQuery({ label: "Ana", searchText: "Ana" }, "zz")).toBe(
       false,
+    );
+  });
+});
+
+describe("marking members who can't see the project", () => {
+  const options = memberPickerOptions([member("u1", "Ivy"), member("u2", "Otto"), member("u3", "Ana")]);
+
+  it("marks exactly the members the server says can't see it, and leaves the rest as they were", () => {
+    const marked = markCantSeeProject(options, new Set(["u2"]));
+    expect(marked.map((o) => [o.label, o.description ?? null])).toEqual([
+      ["Ana", null],
+      ["Ivy", null],
+      ["Otto", CANT_SEE_PROJECT],
+    ]);
+    expect(CANT_SEE_PROJECT).toBe("Can't see this project");
+  });
+
+  it("marks nobody while the answer isn't known, or when everyone can", () => {
+    expect(markCantSeeProject(options, null)).toEqual(options);
+    expect(markCantSeeProject(options, new Set())).toEqual(options);
+  });
+
+  it("warns by name, and says nothing when everyone assigned can see it", () => {
+    expect(cantSeeProjectWarning([])).toBeNull();
+    expect(cantSeeProjectWarning(["Otto"])).toBe("Otto can't see this project, so they can't open this item and won't be notified.");
+    expect(cantSeeProjectWarning(["Otto", "Ivy", "Ana"])).toBe(
+      "Otto, Ivy and Ana can't see this project, so they can't open this item and won't be notified.",
     );
   });
 });

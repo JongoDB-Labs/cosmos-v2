@@ -11,6 +11,7 @@ import {
   type PriorityValue,
   type TargetFieldId,
 } from "./work-item-fields";
+import { escapeLike } from "@/lib/query/like";
 
 interface EngineCtx {
   orgId: string;
@@ -577,7 +578,7 @@ export async function runImport(
           where: {
             orgId: ctx.orgId,
             projectId: ctx.projectId,
-            title: { equals: k.trim(), mode: "insensitive" },
+            title: { equals: escapeLike(k.trim()), mode: "insensitive" },
           },
           select: { id: true },
           take: 2,

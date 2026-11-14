@@ -63,6 +63,46 @@ const IN_MEMORY = /\.(find|filter)\(\s*\(?\s*\w+\s*\)?\s*=>\s*\w+\.status\s*===\
 /** A Prisma interval query filtering on ACTIVE. */
 const PRISMA_INTERVAL = /prisma\.interval\.(findFirst|findMany)\(/;
 
+/**
+ * Source with its comments removed. The rules below look for words that
+ * exclude a PI ("PROGRAM_INCREMENT", "intervalKind"), and the files that once
+ * had this bug explain the fix in a comment that uses those words. Read whole,
+ * a file passed on the comment alone: `update_interval` did, with its own
+ * check counting a running PI as a competitor. Code only, then.
+ */
+const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+
+/**
+ * Does this source find an ACTIVE interval in memory without excluding PIs?
+ * Permitted when the file goes through the shared picker, or filters the
+ * container out itself.
+ *
+ * `intervalKind` counts as narrowing, so a file that filters kinds itself is
+ * not an offender. NOTE that an allowlist (`kind === "SPRINT"`) is weaker than
+ * excluding the container — sprint-board.tsx does this and falls back to ALL
+ * intervals when a project runs no SPRINTs, which puts the PI back in the
+ * pool. Milder than the bug this guards, but real.
+ */
+function inMemoryOffender(source: string): boolean {
+  const src = stripComments(source);
+  if (!IN_MEMORY.test(src)) return false;
+  const usesPicker =
+    src.includes("defaultCeremonyInterval") ||
+    src.includes("ceremonySelectableIntervals") ||
+    src.includes("isProgramIncrement") ||
+    src.includes("PROGRAM_INCREMENT") ||
+    src.includes("intervalKind");
+  return !usesPicker;
+}
+
+/** Does this source query ACTIVE intervals through Prisma without excluding PIs? */
+function prismaOffender(source: string): boolean {
+  const src = stripComments(source);
+  if (!PRISMA_INTERVAL.test(src)) return false;
+  if (!/status:\s*["']ACTIVE["']/.test(src)) return false;
+  return !src.includes("PROGRAM_INCREMENT");
+}
+
 function sourceFiles(): string[] {
   return ROOTS.flatMap((r) => {
     try {
@@ -79,23 +119,7 @@ describe("choosing the ACTIVE interval never picks the Program Increment", () =>
 
     for (const file of sourceFiles()) {
       if (ALLOWED[file]) continue;
-      const src = readFileSync(file, "utf8");
-      if (!IN_MEMORY.test(src)) continue;
-
-      // Permitted when the file goes through the shared picker, or filters the
-      // container out itself.
-      // `intervalKind` counts as narrowing, so a file that filters kinds itself
-      // is not an offender. NOTE that an allowlist (`kind === "SPRINT"`) is
-      // weaker than excluding the container — sprint-board.tsx does this and
-      // falls back to ALL intervals when a project runs no SPRINTs, which puts
-      // the PI back in the pool. Milder than the bug this guards, but real.
-      const usesPicker =
-        src.includes("defaultCeremonyInterval") ||
-        src.includes("ceremonySelectableIntervals") ||
-        src.includes("isProgramIncrement") ||
-        src.includes("PROGRAM_INCREMENT") ||
-        src.includes("intervalKind");
-      if (!usesPicker) offenders.push(file);
+      if (inMemoryOffender(readFileSync(file, "utf8"))) offenders.push(file);
     }
 
     expect(offenders, `use defaultCeremonyInterval() from @/lib/intervals/ceremony-intervals`).toEqual([]);
@@ -106,10 +130,7 @@ describe("choosing the ACTIVE interval never picks the Program Increment", () =>
 
     for (const file of sourceFiles()) {
       if (ALLOWED[file]) continue;
-      const src = readFileSync(file, "utf8");
-      if (!PRISMA_INTERVAL.test(src)) continue;
-      if (!/status:\s*["']ACTIVE["']/.test(src)) continue;
-      if (!src.includes("PROGRAM_INCREMENT")) offenders.push(file);
+      if (prismaOffender(readFileSync(file, "utf8"))) offenders.push(file);
     }
 
     expect(
@@ -122,9 +143,40 @@ describe("choosing the ACTIVE interval never picks the Program Increment", () =>
     // A stale exemption is worse than none: it reads as "reviewed and fine"
     // for a file that may no longer contain the code that was reviewed.
     for (const [file, reason] of Object.entries(ALLOWED)) {
-      const src = readFileSync(file, "utf8");
+      const src = stripComments(readFileSync(file, "utf8"));
       const matches = IN_MEMORY.test(src) || PRISMA_INTERVAL.test(src);
       expect(matches, `${file} no longer matches — drop it from ALLOWED (${reason})`).toBe(true);
     }
+  });
+});
+
+// The rules themselves, on sources written to sit either side of them. Every
+// offender case has a twin that differs only in where the exclusion is
+// written, so a rule that passes on a comment fails here.
+describe("the rules read code, not comments", () => {
+  const prismaQuery = (exclusion: string) =>
+    `const s = await prisma.interval.findFirst({ where: { projectId, status: "ACTIVE", ${exclusion} } });`;
+  const inMemory = (extra: string) => `${extra}\nconst active = intervals.find((i) => i.status === "ACTIVE");`;
+
+  it("a Prisma query that excludes the PI in code passes", () => {
+    expect(prismaOffender(prismaQuery(`intervalKind: { not: "PROGRAM_INCREMENT" }`))).toBe(false);
+  });
+
+  it("the same query with the exclusion only in a comment is an offender", () => {
+    expect(prismaOffender(prismaQuery(`// intervalKind: { not: "PROGRAM_INCREMENT" }\n`))).toBe(true);
+    expect(prismaOffender(prismaQuery(`/* PROGRAM_INCREMENT */`))).toBe(true);
+  });
+
+  it("an in-memory find that narrows kinds in code passes", () => {
+    expect(inMemoryOffender(inMemory(`const sprints = all.filter((c) => !isProgramIncrement(c.intervalKind));`))).toBe(false);
+  });
+
+  it("the same find with the narrowing only in a comment is an offender", () => {
+    expect(inMemoryOffender(inMemory(`// skips isProgramIncrement via defaultCeremonyInterval`))).toBe(true);
+    expect(inMemoryOffender(inMemory(`/** intervalKind is checked upstream */`))).toBe(true);
+  });
+
+  it("a URL in a string is code, not a comment", () => {
+    expect(stripComments(`const u = "https://x.test/PROGRAM_INCREMENT";`)).toContain("PROGRAM_INCREMENT");
   });
 });

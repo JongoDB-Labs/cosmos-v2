@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { endMemberCredentialsIn } from "@/lib/members/credentials.server";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * Platform-admin "delete a user account" — implemented as an in-place
@@ -98,10 +99,10 @@ export async function deleteUserAccount(params: {
     });
     await tx.teamsConversation.deleteMany({ where: { userId } });
     const allowlistEntries = await tx.allowedEmail.deleteMany({
-      where: { email: { equals: emailLower, mode: "insensitive" } },
+      where: { email: { equals: escapeLike(emailLower), mode: "insensitive" } },
     });
     const invitations = await tx.invitation.deleteMany({
-      where: { email: { equals: emailLower, mode: "insensitive" } },
+      where: { email: { equals: escapeLike(emailLower), mode: "insensitive" } },
     });
 
     // 2) Neutralize credentials + presence, anonymize identity, free the email.

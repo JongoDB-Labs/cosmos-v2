@@ -22,7 +22,7 @@ const { getAuthContext, prisma, logAudit } = vi.hoisted(() => ({
     organization: { findUnique: vi.fn() },
     workRole: { findFirst: vi.fn() },
     orgMember: { findMany: vi.fn() },
-    orgMemberWorkRole: { deleteMany: vi.fn(), createMany: vi.fn() },
+    orgMemberWorkRole: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     $transaction: vi.fn(),
   },
   logAudit: vi.fn(),
@@ -74,6 +74,8 @@ beforeEach(() => {
   prisma.organization.findUnique.mockResolvedValue({ id: ORG_ID, slug: "acme" });
   // Member validation: the assignee is a genuine member of THIS org.
   prisma.orgMember.findMany.mockResolvedValue([{ id: ASSIGNEE_ID }]);
+  // Nobody holds the role yet, so setting the roster adds the assignee.
+  prisma.orgMemberWorkRole.findMany.mockResolvedValue([]);
   prisma.$transaction.mockResolvedValue([{ count: 1 }, { count: 1 }]);
   logAudit.mockResolvedValue(undefined);
 });
