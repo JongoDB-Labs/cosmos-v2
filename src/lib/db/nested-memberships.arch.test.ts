@@ -49,6 +49,14 @@ const ALLOWED: Record<string, { sites: number; reason: string }> = {
       "The argument to resolveSenderOrg, built from this file's two reads, which " +
       "the scan accepts as filtered. A third read here would make the count 2.",
   },
+  "src/lib/rbac/foreign-refs.ts": {
+    sites: 1,
+    reason:
+      "The `memberOrFormer` rule: a count that checks a written id names someone the " +
+      "org has had as a member, removed or not, for a write that carries history " +
+      "forward (a merge keeps a removed member's assignment). It returns no rows and " +
+      "grants nothing; requests that name a person use the `member` rule.",
+  },
 };
 
 function walk(dir: string): string[] {
