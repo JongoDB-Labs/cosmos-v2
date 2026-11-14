@@ -27,6 +27,8 @@ vi.mock("@/lib/db/client", () => ({
       }],
     },
     user: { findMany: async () => [] },
+    // No projects, so no channel is hidden by one.
+    project: { findMany: async () => [] },
   },
 }));
 

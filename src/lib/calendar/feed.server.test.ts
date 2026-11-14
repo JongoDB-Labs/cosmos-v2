@@ -2,29 +2,39 @@
 // meetings, re-checks everything on every fetch, and never lets a classified
 // title out, because the calendar provider's servers are what fetch it.
 import { describe, it, expect, afterAll } from "vitest";
+import { randomUUID } from "node:crypto";
+import type { OrgRole } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
+import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 import { renderFeed } from "./feed.server";
 import { newFeedToken } from "./feed-token";
-import { withCalendarFeedsEnabled } from "./feed-settings";
+import type { FeedOptions } from "./feed-events";
+import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
 
 const NOW = new Date("2026-10-22T12:00:00Z");
 const ORIGIN = "https://example.com";
+const unfold = (ics: string) => ics.replace(/\r\n /g, "");
 
 describe("renderFeed (e2e DB)", () => {
   const orgIds: string[] = [];
+  const userIds: string[] = [];
   afterAll(async () => {
     await prisma.organization.deleteMany({ where: { id: { in: orgIds } } }).catch(() => undefined);
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } }).catch(() => undefined);
   });
 
-  async function setup({ enabled = true } = {}) {
+  async function setup({ enabled = true, role = "MEMBER" as OrgRole, options = {} as Partial<FeedOptions> } = {}) {
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const owner = await prisma.user.findFirstOrThrow({ where: { email: "alice@test.local" } });
-    const org = await prisma.organization.create({
-      data: { name: `cf ${stamp}`, slug: `cf-${stamp}`, settings: withCalendarFeedsEnabled({}, enabled) as object },
-    });
+    // Our own person: the seeded users are shared by every DB spec running at once.
+    const owner = await prisma.user.create({ data: { email: `cf-${stamp}@feeds.test`, displayName: `Feed owner ${stamp}` } });
+    userIds.push(owner.id);
+    const org = await prisma.organization.create({ data: { name: `cf ${stamp}`, slug: `cf-${stamp}` } });
     orgIds.push(org.id);
-    await prisma.orgMember.create({ data: { orgId: org.id, userId: owner.id, role: "MEMBER" } });
+    // The org's switch, written the way the settings route writes it.
+    await patchOrgSettings(org.id, { merge: { key: "calendarFeeds", fields: { enabled } } });
+    await prisma.orgMember.create({ data: { orgId: org.id, userId: owner.id, role } });
     const mkProject = async (key: string) => {
       const project = await prisma.project.create({ data: { orgId: org.id, name: key, key: `${key}${stamp.slice(-3).toUpperCase()}` } });
       await ensureFixtureStatuses(project.id);
@@ -54,9 +64,13 @@ describe("renderFeed (e2e DB)", () => {
       data: { orgId: org.id, title: "Sprint review", meetingDate: new Date("2026-10-24T15:00:00Z"), meetingType: "STANDUP", createdById: owner.id },
     });
     await prisma.meetingAttendee.create({ data: { meetingId: meeting.id, userId: owner.id } });
-    const { token, tokenHash } = newFeedToken();
-    const feed = await prisma.calendarFeed.create({ data: { orgId: org.id, userId: owner.id, tokenHash, options: {} } });
-    return { org, owner, token, feed, open };
+    const mkFeed = async (idpConnId: string | null = null) => {
+      const { token, tokenHash } = newFeedToken();
+      const feed = await prisma.calendarFeed.create({ data: { orgId: org.id, userId: owner.id, tokenHash, options, idpConnId } });
+      return { token, feed };
+    };
+    const { token, feed } = await mkFeed();
+    return { org, owner, token, feed, open, secret, mkFeed };
   }
 
   it("serves my dated work and meetings in the window, and nothing else", async () => {
@@ -72,7 +86,7 @@ describe("renderFeed (e2e DB)", () => {
 
   it("never lets a marked or classified title out, whatever the options", async () => {
     const { token } = await setup();
-    const ics = (await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics.replace(/\r\n /g, "");
+    const ics = unfold((await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics);
     expect(ics).not.toMatch(/payroll|PRVCY|Quietly classified/);
     // Both still occupy their day, as busy.
     expect(ics.match(/SUMMARY:Busy/g)).toHaveLength(2);
@@ -97,11 +111,181 @@ describe("renderFeed (e2e DB)", () => {
     expect(after).toContain("SUMMARY:Sprint review"); // the deny is that project's only
   });
 
+  it("leaves out a work item the person may not read, by the rule the work-item list uses", async () => {
+    const { org, owner, token, open } = await setup();
+    const ics = async () => unfold((await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics);
+    expect(await ics()).toMatch(/SUMMARY:OP\w*-1 Ship the exporter/); // the positive control
+    await prisma.orgMember.updateMany({
+      where: { orgId: org.id, userId: owner.id },
+      data: { abacRules: { rules: [{ effect: "deny", actions: ["ITEM_READ"], conditions: [{ attr: "projectId", op: "eq", value: open.id }] }] } },
+    });
+    const after = await ics();
+    expect(after).not.toContain("Ship the exporter");
+    // The deny is that project's only: the other project's item keeps its day.
+    expect(after).toContain("DTSTART;VALUE=DATE:20261102");
+    expect(after).toContain("SUMMARY:Sprint review");
+  });
+
   it("is byte-identical across fetches when nothing changed (ETag-stable)", async () => {
     const { token } = await setup();
     const a = await renderFeed(token, { origin: ORIGIN, now: NOW });
     const b = await renderFeed(token, { origin: ORIGIN, now: new Date(NOW.getTime() + 60_000) });
     expect(b!.ics).toBe(a!.ics);
+  });
+
+  it("holds an owner's link to the org's restrictions: no break-glass for a link", async () => {
+    const { org, owner, token, open } = await setup({ role: "OWNER", options: { intervals: true } });
+    const member = await prisma.orgMember.findFirstOrThrow({ where: { orgId: org.id, userId: owner.id } });
+    await prisma.projectMember.create({ data: { projectId: open.id, orgMemberId: member.id, role: "MEMBER" } });
+    await prisma.interval.create({
+      data: { orgId: org.id, projectId: open.id, number: 9, name: "Sprint 9", startDate: new Date("2026-10-20T00:00:00Z"), endDate: new Date("2026-11-02T00:00:00Z") },
+    });
+    const ics = async () => unfold((await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics);
+    // The positive control: with no restriction, the owner's link carries the sprint.
+    const before = await ics();
+    expect(before).toMatch(/SUMMARY:OP\w*: Sprint 9/);
+
+    // An unconditional restriction takes SPRINT_READ from everyone. The owner's
+    // own session keeps it (its break-glass); their link must not.
+    await prisma.orgSecuritySettings.create({
+      data: { orgId: org.id, actionRestrictions: { rules: [{ effect: "deny", actions: ["SPRINT_READ"], conditions: [] }] } },
+    });
+    const after = await ics();
+    expect(after).not.toContain("Sprint 9");
+    expect(after).toContain("SUMMARY:Sprint review"); // only what was restricted went
+
+    // Lifted again, the link is as it was.
+    await prisma.orgSecuritySettings.update({ where: { orgId: org.id }, data: { actionRestrictions: {} } });
+    expect(await ics()).toBe(before);
+  });
+
+  it("leaves out a sprint the person may not read by the sprint API's own rule (a deny on one project)", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const org = await prisma.organization.create({ data: { name: `cfa ${stamp}`, slug: `cfa-${stamp}` } });
+    orgIds.push(org.id);
+    await patchOrgSettings(org.id, { merge: { key: "calendarFeeds", fields: { enabled: true } } });
+    const project = async (key: string) =>
+      prisma.project.create({ data: { orgId: org.id, name: key, key: `${key}${stamp.slice(-3).toUpperCase()}` } });
+    const denied = await project("DN");
+    const open = await project("OK");
+    for (const [p, name] of [[denied, "Denied sprint"], [open, "Open sprint"]] as const) {
+      await prisma.interval.create({
+        data: { orgId: org.id, projectId: p.id, number: 1, name, startDate: new Date("2026-10-20T00:00:00Z"), endDate: new Date("2026-11-02T00:00:00Z") },
+      });
+    }
+    // A rule a member's own policy can carry: no sprints on one project.
+    const rule = { rules: [{ effect: "deny", actions: ["SPRINT_READ"], conditions: [{ attr: "projectId", op: "eq", value: denied.id }] }] };
+    const person = async (key: string, abacRules?: object) => {
+      const user = await prisma.user.create({ data: { email: `cfa-${key}-${stamp}@feeds.test`, displayName: `Sprint ${key} ${stamp}` } });
+      userIds.push(user.id);
+      const member = await prisma.orgMember.create({ data: { orgId: org.id, userId: user.id, role: "MEMBER", ...(abacRules && { abacRules }) } });
+      for (const p of [denied, open]) await prisma.projectMember.create({ data: { projectId: p.id, orgMemberId: member.id, role: "MEMBER" } });
+      const { token, tokenHash } = newFeedToken();
+      await prisma.calendarFeed.create({
+        data: { orgId: org.id, userId: user.id, tokenHash, options: { workItems: false, meetings: false, intervals: true, busyOnly: false } },
+      });
+      const ics = unfold((await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics);
+      const ctx = (await loadMemberAuthContext(org.id, user.id))!;
+      return { ics, api: { denied: await canReadInProject(ctx, denied.id, "SPRINT_READ"), open: await canReadInProject(ctx, open.id, "SPRINT_READ") } };
+    };
+
+    // The control: no rule, both sprints, and the sprint API agrees.
+    const control = await person("control");
+    expect(control.api).toEqual({ denied: true, open: true });
+    expect(control.ics).toContain("Denied sprint");
+    expect(control.ics).toContain("Open sprint");
+
+    // The rule: the sprint API refuses that project, so the feed leaves its sprint out.
+    const ruled = await person("ruled", rule);
+    expect(ruled.api).toEqual({ denied: false, open: true });
+    expect(ruled.ics).not.toContain("Denied sprint");
+    expect(ruled.ics).toContain("Open sprint");
+  });
+
+  it("where the org requires single sign-on, serves only a link made through the org's IdP", async () => {
+    const { org, token: madeWithoutIdp, mkFeed } = await setup();
+    // Single sign-on can only be required of a GOV-class org (sso-enforcement).
+    expect((await prisma.organization.findUniqueOrThrow({ where: { id: org.id }, select: { tenantClass: true } })).tenantClass).toBe("GOV");
+    const conn = await prisma.idpConnection.create({
+      data: { orgId: org.id, issuerUrl: "https://idp.example.test", clientId: "c", clientSecretEnc: "not-opened-by-these-tests", enabled: true },
+    });
+    const { token: viaIdp } = await mkFeed(conn.id);
+    // Made through a connection that is no longer the org's (one since replaced).
+    const { token: viaOther } = await mkFeed(randomUUID());
+    const serves = async (t: string) => (await renderFeed(t, { origin: ORIGIN, now: NOW })) !== null;
+
+    // Connected but not required: every link works, as before.
+    expect([await serves(madeWithoutIdp), await serves(viaIdp), await serves(viaOther)]).toEqual([true, true, true]);
+
+    await prisma.idpConnection.update({ where: { id: conn.id }, data: { enforced: true } });
+    expect(await serves(viaIdp)).toBe(true);
+    // Fails closed: no recorded sign-in, or another connection's, is refused.
+    expect(await serves(madeWithoutIdp)).toBe(false);
+    expect(await serves(viaOther)).toBe(false);
+
+    await prisma.idpConnection.update({ where: { id: conn.id }, data: { enforced: false } });
+    expect([await serves(madeWithoutIdp), await serves(viaIdp), await serves(viaOther)]).toEqual([true, true, true]);
+  });
+
+  it("gives a Teams meeting its join link, never on a busy row", async () => {
+    const { org, owner, token, secret, mkFeed } = await setup();
+    const meet = async (title: string, join: string, extra: Record<string, unknown> = {}) => {
+      const m = await prisma.syncMeeting.create({
+        data: { orgId: org.id, title, meetingDate: new Date("2026-10-26T15:00:00Z"), createdById: owner.id, teamsJoinUrl: join, ...extra },
+      });
+      await prisma.meetingAttendee.create({ data: { meetingId: m.id, userId: owner.id } });
+      return `UID:meeting-${m.id}@`;
+    };
+    const teams = await meet("Teams sync", "https://teams.example.test/l/meetup-join/open", { teamsHostId: owner.id });
+    // The premise the feed reads the column on: the database drops a join link
+    // written without a host, so a meeting that isn't a Teams one never has one.
+    const stale = await meet("Was on Teams", "https://teams.example.test/l/meetup-join/stale");
+    const classified = await meet("Classified sync", "https://teams.example.test/l/meetup-join/secret", { teamsHostId: owner.id, projectId: secret.id });
+
+    const ics = unfold((await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics);
+    // Every meeting is in the feed; only the one shown in full gets the link.
+    for (const uid of [teams, stale, classified]) expect(ics).toContain(uid);
+    expect(ics).toContain("DESCRIPTION:Join the Teams meeting: https://teams.example.test/l/meetup-join/open");
+    expect(ics.match(/meetup-join/g)).toHaveLength(1);
+    expect(ics).not.toContain("Classified sync");
+
+    const busy = await mkFeed();
+    await prisma.calendarFeed.update({ where: { id: busy.feed.id }, data: { options: { busyOnly: true } } });
+    const busyIcs = unfold((await renderFeed(busy.token, { origin: ORIGIN, now: NOW }))!.ics);
+    expect(busyIcs).toContain(teams); // the positive control: the meeting is there, as busy
+    expect(busyIcs).not.toContain("meetup-join");
+  });
+
+  it("gives a meeting its video link, both lines with a Teams one, and never on a busy row", async () => {
+    const { org, owner, token, secret } = await setup();
+    const meet = async (title: string, data: Record<string, unknown>) => {
+      const m = await prisma.syncMeeting.create({
+        data: { orgId: org.id, title, meetingDate: new Date("2026-10-27T15:00:00Z"), createdById: owner.id, ...data },
+      });
+      await prisma.meetingAttendee.create({ data: { meetingId: m.id, userId: owner.id } });
+      return `UID:meeting-${m.id}@`;
+    };
+    const video = await meet("Video sync", { meetingUrl: "https://video.example.test/j/open" });
+    const both = await meet("Both sync", {
+      meetingUrl: "https://video.example.test/j/both",
+      teamsJoinUrl: "https://teams.example.test/l/meetup-join/both", teamsHostId: owner.id,
+    });
+    const classified = await meet("Classified video", { meetingUrl: "https://video.example.test/j/secret", projectId: secret.id });
+    // A marking in the link itself makes the row busy, as the Outlook sync judges it.
+    const markedLink = await meet("Plain title", { meetingUrl: "https://video.example.test/j/x?t=CUI//SP-PRVCY" });
+
+    const ics = unfold((await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics);
+    for (const uid of [video, both, classified, markedLink]) expect(ics).toContain(uid);
+    expect(ics).toContain("DESCRIPTION:Join: https://video.example.test/j/open");
+    // Two lines, as the Outlook sync writes them; ICS escapes the line break.
+    expect(ics).toContain(
+      "DESCRIPTION:Join: https://video.example.test/j/both\\nJoin the Teams meeting: https://teams.example.test/l/meetup-join/both",
+    );
+    expect(ics).toContain("SUMMARY:Video sync"); // the positive control for the marked link's title
+    expect(ics).not.toContain("j/secret");
+    expect(ics).not.toContain("Classified video");
+    expect(ics).not.toContain("SP-PRVCY");
+    expect(ics).not.toContain("Plain title");
   });
 
   it("serves nothing once the org turns feeds off, the link is revoked, or the person leaves", async () => {

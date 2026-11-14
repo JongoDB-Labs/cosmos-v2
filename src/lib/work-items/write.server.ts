@@ -35,7 +35,7 @@ import {
   type WriteMeta,
   type WriteMetaOrCaller,
 } from "@/lib/work-items/events.server";
-import { foreignRef, refMessage } from "@/lib/rbac/foreign-refs";
+import { foreignRef, refMessage, type Refs } from "@/lib/rbac/foreign-refs";
 import { ProblemError } from "@/lib/openapi/problem";
 
 /** The root client or an interactive-transaction client. */
@@ -190,7 +190,9 @@ export function snapshotItems(
  * how many rows matched.
  *
  * Throws `StatusFieldWriteError` if `data` names a status field: a status
- * change goes through `applyWorkItemChange`, which owns its consequences.
+ * change goes through `applyWorkItemChange`, which owns its consequences. And
+ * a 400 `ProblemError`, writing nothing, if it points at a row outside an
+ * item's org or project (`assertUpdateRefs`).
  */
 export async function updateWorkItems(
   db: WorkItemDb,
@@ -201,6 +203,61 @@ export async function updateWorkItems(
   const statusFields = STATUS_FIELDS.filter((f) => f in data);
   if (statusFields.length > 0) throw new StatusFieldWriteError(statusFields);
   return updateWorkItemsUnchecked(db, ids, data, meta);
+}
+
+/** An id an update writes: the value itself, or the `{ set }` form of it. */
+function writtenId(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  const set = value && typeof value === "object" ? (value as { set?: unknown }).set : undefined;
+  return typeof set === "string" ? set : null;
+}
+
+/** The rows an update points at, by the rule each is held to; null when it names none. */
+function updateRefs(data: Prisma.WorkItemUncheckedUpdateManyInput): Refs | null {
+  const refs: Refs = {
+    workItem: [writtenId(data.parentId), writtenId(data.mergedIntoId)],
+    interval: writtenId(data.intervalId),
+    team: writtenId(data.teamId),
+    workItemType: writtenId(data.workItemTypeId),
+    // Not `member`: a merge or a split carries an assignment forward, and the
+    // org keeps a removed member's assignments. Requests that name a person
+    // are held to current members by their own check (assertAssigneesInOrg).
+    memberOrFormer: [writtenId(data.assigneeId), writtenId(data.createdById)],
+    project: writtenId(data.projectId),
+  };
+  const names = Object.values(refs).some((v) => (Array.isArray(v) ? v.some(Boolean) : !!v));
+  return names ? refs : null;
+}
+
+/**
+ * The backstop for an update, as `createWorkItemRow` has one for a create:
+ * every row the data points at must be in each item's own org, and a project's
+ * row (parent, sprint, team) in the item's project, or the one the data moves
+ * it to. Callers that take these ids from a request check them first, for a
+ * friendlier answer; this holds whichever caller built `data`.
+ *
+ * Cost: nothing when the data names no row. Otherwise one query for the
+ * projects the items are in, then one count per kind named, per project:
+ * never a query per item, however many the update covers.
+ */
+async function assertUpdateRefs(
+  db: WorkItemDb,
+  ids: readonly string[],
+  data: Prisma.WorkItemUncheckedUpdateManyInput,
+): Promise<void> {
+  const refs = updateRefs(data);
+  if (!refs) return;
+  const movedTo = writtenId(data.projectId);
+  const scopes = await db.workItem.findMany({
+    where: { id: { in: [...ids] } },
+    select: { orgId: true, projectId: true },
+    distinct: ["orgId", "projectId"],
+  });
+  for (const row of scopes) {
+    const scope = { orgId: row.orgId, projectId: movedTo ?? row.projectId };
+    const foreign = await foreignRef(db, scope, refs);
+    if (foreign) throw new ProblemError(400, "invalid_request", refMessage(foreign, scope));
+  }
 }
 
 /**
@@ -214,8 +271,10 @@ export async function updateWorkItemsUnchecked(
   meta: WriteMetaOrCaller = PLUGIN_WRITE,
 ): Promise<number> {
   if (ids.length === 0) return 0;
-  const write = async (tx: WorkItemDb) =>
-    (await tx.workItem.updateMany({ where: { id: { in: [...ids] } }, data })).count;
+  const write = async (tx: WorkItemDb) => {
+    await assertUpdateRefs(tx, ids, data);
+    return (await tx.workItem.updateMany({ where: { id: { in: [...ids] } }, data })).count;
+  };
   if (meta === RECORDED_BY_CALLER) return write(db);
   const fields = Object.keys(data).filter((k) => data[k as keyof typeof data] !== undefined);
   return inTransaction(db, async (tx) => {

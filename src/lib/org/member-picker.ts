@@ -90,3 +90,30 @@ export function filterMemberOptions(
   if (!q) return [...options];
   return options.filter((o) => matchesMemberQuery(o, q));
 }
+
+/**
+ * The mark on a member an assignee picker lists who can't see the project:
+ * they won't be told about the assignment, and couldn't open the item.
+ */
+export const CANT_SEE_PROJECT = "Can't see this project";
+
+/**
+ * Picker options, each member who can't see the project (`cantSee`, the
+ * server's answer for this project) marked with `CANT_SEE_PROJECT` under
+ * their name. Unchanged while the answer isn't known.
+ */
+export function markCantSeeProject(options: readonly MemberOption[], cantSee: ReadonlySet<string> | null): (MemberOption & { description?: string })[] {
+  if (!cantSee?.size) return [...options];
+  return options.map((o) => (cantSee.has(o.value) ? { ...o, description: CANT_SEE_PROJECT } : o));
+}
+
+/**
+ * What to say when an assignment names people who can't see the project, or
+ * null when it names none: the assigner's only signal, since the assignees
+ * themselves hear nothing.
+ */
+export function cantSeeProjectWarning(names: readonly string[]): string | null {
+  if (names.length === 0) return null;
+  const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `${who} can't see this project, so they can't open this item and won't be notified.`;
+}

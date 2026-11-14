@@ -19,10 +19,11 @@ export interface SearchableOption {
    */
   searchText?: string;
   /**
-   * A one-line explanation rendered under the label, muted. Only for lists
-   * whose entries need it — a field catalogue, say, where `Ancestor` means
-   * nothing without "any item above this one, at any depth". Rows without one
-   * render exactly as before.
+   * A one-line explanation rendered under the label, muted, by both pickers.
+   * Only for lists whose entries need it — a field catalogue, say, where
+   * `Ancestor` means nothing without "any item above this one, at any depth",
+   * or an assignee who can't see the project. Rows without one render exactly
+   * as before.
    */
   description?: string;
 }

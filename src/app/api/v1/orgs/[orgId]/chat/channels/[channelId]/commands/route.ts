@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // An API key never holds it (no scope grants it).
     requirePermission(ctx, Permission.CHAT_USE);
 
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
     if (!canSeeChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       return new Response("Not found", { status: 404 });

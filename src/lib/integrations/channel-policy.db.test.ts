@@ -46,11 +46,12 @@ async function postsAround(run: () => Promise<void>, control: () => Promise<void
 async function complete(projectId: string, title: string) {
   const item = await createFixtureWorkItem({ orgId, projectId, workItemTypeId: typeId, createdById: ownerId, title, columnKey: "todo" });
   await runAfterCommit({
-    orgId, projectId, actorId: ownerId, source: "API", fields: ["columnKey"], textChanged: false, columnTouched: true, assigneeId: undefined,
+    orgId, projectId, actorId: ownerId, source: "API", fields: ["columnKey"], textChanged: false, columnTouched: true,
     items: [{
       id: item.id, ticketNumber: item.ticketNumber,
-      before: { title, columnKey: "todo", assigneeId: null, completedAt: null },
+      before: { title, columnKey: "todo", completedAt: null },
       after: { title, description: "", columnKey: "done", completedAt: new Date() },
+      assigned: [],
     }],
   });
 }

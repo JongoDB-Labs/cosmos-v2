@@ -37,12 +37,12 @@ const isEmpty = (v: unknown) => v === null || v === undefined || v === "";
 /** Deeper than any real hierarchy; stops a walk over pre-existing bad data. */
 const MAX_DEPTH = 50;
 
-/** `id` and its ancestors, nearest first, up to MAX_DEPTH. */
-async function lineage(tx: Tx, id: string | null): Promise<string[]> {
+/** `id` and its ancestors in the org, nearest first, up to MAX_DEPTH. */
+async function lineage(tx: Tx, orgId: string, id: string | null): Promise<string[]> {
   const out: string[] = [];
   for (let cur = id; cur && out.length < MAX_DEPTH && !out.includes(cur); ) {
     out.push(cur);
-    cur = (await tx.workItem.findUnique({ where: { id: cur }, select: { parentId: true } }))?.parentId ?? null;
+    cur = (await tx.workItem.findFirst({ where: { id: cur, orgId }, select: { parentId: true } }))?.parentId ?? null;
   }
   return out;
 }
@@ -70,14 +70,17 @@ export async function mergeWorkItems(
   // sub-items before the cancel below, and a bulk move taking the same rows in
   // the other order would otherwise deadlock with it.
   const cancelled = await ensureCancelledStatus(tx, projectId);
-  const subItems = await tx.workItem.findMany({ where: { parentId: aId }, select: { id: true } });
+  // Sub-items in this project only: one elsewhere (left by an older, unchecked
+  // write) stays where it is, rather than taking a parent from another project,
+  // which the writer refuses.
+  const subItems = await tx.workItem.findMany({ where: { parentId: aId, orgId, projectId }, select: { id: true } });
   await lockInOrder(
     tx,
     projectId,
     await hardWipColumns(tx, projectId, [cancelled]),
     [aId, bId, ...(a.parentId ? [a.parentId] : []), ...(b.parentId ? [b.parentId] : []), ...subItems.map((c) => c.id)],
   );
-  const project = await tx.project.findUniqueOrThrow({ where: { id: projectId }, select: { key: true } });
+  const project = await tx.project.findFirstOrThrow({ where: { id: projectId, orgId }, select: { key: true } });
   const ref = (n: number) => `${project.key}-${n}`;
 
   // ── Fields: fill the survivor's gaps, never overwrite ──────────────────────
@@ -94,8 +97,8 @@ export async function mergeWorkItems(
   }
   // The hierarchy must stay a tree. `aLine` is the duplicate's parent and its
   // ancestors; `bAbove` is everything above the survivor.
-  const aLine = await lineage(tx, a.parentId);
-  const bAbove = new Set(await lineage(tx, b.parentId));
+  const aLine = await lineage(tx, orgId, a.parentId);
+  const bAbove = new Set(await lineage(tx, orgId, b.parentId));
   // Take the duplicate's parent only if the survivor isn't above it (it would
   // become a child of its own descendant).
   if (!b.parentId && a.parentId && !aLine.includes(bId)) fill.parentId = a.parentId;
@@ -119,8 +122,11 @@ export async function mergeWorkItems(
   if (Object.keys(fill).length) await updateWorkItems(tx, [bId], fill, meta);
 
   // ── Tracked work moves to the survivor ─────────────────────────────────────
-  const comments = await tx.comment.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
-  const timeEntries = await tx.timeEntry.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
+  // Only this org's rows: a row of another org that points at the duplicate
+  // (an older, unchecked write could leave one) is not this merge's to move.
+  // Rows with no org of their own are held to it through their parent row.
+  const comments = await tx.comment.updateMany({ where: { workItemId: aId, orgId }, data: { workItemId: bId } });
+  const timeEntries = await tx.timeEntry.updateMany({ where: { workItemId: aId, orgId }, data: { workItemId: bId } });
   // Sub-items move under the survivor, except the one on the survivor's own
   // path up (the survivor itself, or the ancestor of it that hangs off the
   // duplicate): moving that under the survivor would make a loop. It takes the
@@ -128,22 +134,22 @@ export async function mergeWorkItems(
   // would loop, when it becomes top-level.
   const onPath = [bId, ...bAbove];
   const movedChildren = await tx.workItem.findMany({
-    where: { parentId: aId, id: { notIn: onPath } },
+    where: { parentId: aId, orgId, projectId, id: { notIn: onPath } },
     select: { id: true },
   });
   const children = { count: await updateWorkItems(tx, movedChildren.map((c) => c.id), { parentId: bId }, meta) };
-  const lifted = await tx.workItem.findFirst({ where: { parentId: aId, id: { in: onPath } }, select: { id: true } });
+  const lifted = await tx.workItem.findFirst({ where: { parentId: aId, orgId, projectId, id: { in: onPath } }, select: { id: true } });
   if (lifted) {
     const safeParent = a.parentId && !aLine.includes(lifted.id) && !aLine.includes(bId) ? a.parentId : null;
     await updateWorkItems(tx, [lifted.id], { parentId: safeParent }, meta);
   }
-  const attachments = await tx.document.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
-  await tx.retroActionItem.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
-  await tx.feedbackItem.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
-  await tx.goalLink.updateMany({ where: { workItemId: aId }, data: { workItemId: bId } });
+  const attachments = await tx.document.updateMany({ where: { workItemId: aId, orgId }, data: { workItemId: bId } });
+  await tx.retroActionItem.updateMany({ where: { workItemId: aId, ceremony: { orgId } }, data: { workItemId: bId } });
+  await tx.feedbackItem.updateMany({ where: { workItemId: aId, orgId }, data: { workItemId: bId } });
+  await tx.goalLink.updateMany({ where: { workItemId: aId, goal: { orgId } }, data: { workItemId: bId } });
 
   // Unique per item: copy what the survivor lacks, then drop the duplicate's.
-  const watchers = await tx.workItemWatcher.findMany({ where: { workItemId: aId } });
+  const watchers = await tx.workItemWatcher.findMany({ where: { workItemId: aId, orgId } });
   await tx.workItemWatcher.createMany({
     data: watchers.map((w) => ({ orgId, workItemId: bId, userId: w.userId })),
     skipDuplicates: true,
@@ -157,14 +163,14 @@ export async function mergeWorkItems(
       createMany: (a: object) => Promise<unknown>;
       deleteMany: (a: object) => Promise<unknown>;
     };
-    const rows = await delegate.findMany({ where: { workItemId: aId } });
+    const rows = await delegate.findMany({ where: { workItemId: aId, orgId } });
     await delegate.createMany({
       data: rows.map((r) => ({ orgId, [key]: r[key], workItemId: bId })),
       skipDuplicates: true,
     });
-    await delegate.deleteMany({ where: { workItemId: aId } });
+    await delegate.deleteMany({ where: { workItemId: aId, orgId } });
   }
-  const milestoneRows = await tx.milestoneLink.findMany({ where: { workItemId: { in: [aId, bId] } } });
+  const milestoneRows = await tx.milestoneLink.findMany({ where: { workItemId: { in: [aId, bId] }, milestone: { orgId } } });
   const bMilestones = new Set(milestoneRows.filter((m) => m.workItemId === bId).map((m) => m.milestoneId));
   for (const m of milestoneRows.filter((r) => r.workItemId === aId)) {
     if (bMilestones.has(m.milestoneId)) await tx.milestoneLink.delete({ where: { id: m.id } });
@@ -174,7 +180,7 @@ export async function mergeWorkItems(
   // Dependency links: re-point each end at the survivor, dropping any that
   // would become a self-link or repeat one the survivor already has.
   const links = await tx.workItemLink.findMany({
-    where: { OR: [{ sourceItemId: { in: [aId, bId] } }, { targetItemId: { in: [aId, bId] } }] },
+    where: { orgId, OR: [{ sourceItemId: { in: [aId, bId] } }, { targetItemId: { in: [aId, bId] } }] },
   });
   const sig = (s: string, t: string, type: string) => `${s}>${t}:${type}`;
   const have = new Set(

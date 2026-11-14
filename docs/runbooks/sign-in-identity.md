@@ -57,8 +57,11 @@ with it.
    Without either, a first Microsoft sign-in can't find an existing account. The
    person sees "Your administrator needs to finish setting up Microsoft sign-in",
    and can still sign in another way and connect Microsoft from their profile.
-   The server logs a warning at start while this is unset, and another while the
-   tenant accepts any Microsoft tenant.
+   While `MICROSOFT_TRUSTED_DOMAINS` is unset, the server says at start that
+   linking rests on `xms_edov`. It can't see the app registration, so it can't
+   tell whether the claim is sent: a refused sign-in logs
+   `[auth:microsoft] sign-in refused: ms_setup_incomplete` when it isn't. The
+   server also warns at start while the tenant accepts any Microsoft tenant.
 2. **SSO.** Each org that uses SSO should list its domains in Settings →
    Security → allowed domains. Without them the IdP can still sign people in,
    but it can't link to an existing account or give a new one a real address.

@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * Undo the account an email/password invitation provisioned, when revoking it.
@@ -44,7 +45,7 @@ export async function revokeProvisionedAccount(
   const user = await tx.user.findFirst({
     // isBot mirrors every other credential lookup in this codebase: a synthetic
     // chat bot is nobody's invitee and must never be reachable by this path.
-    where: { email: { equals: params.email, mode: "insensitive" }, isBot: false },
+    where: { email: { equals: escapeLike(params.email), mode: "insensitive" }, isBot: false },
     select: {
       id: true,
       lastActiveAt: true,
@@ -67,7 +68,7 @@ export async function revokeProvisionedAccount(
   // Another org's pending invite would be relying on this account existing.
   const otherPending = await tx.invitation.count({
     where: {
-      email: { equals: params.email, mode: "insensitive" },
+      email: { equals: escapeLike(params.email), mode: "insensitive" },
       id: { not: params.invitationId },
     },
   });

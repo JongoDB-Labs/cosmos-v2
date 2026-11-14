@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
+import { Permission } from "@/lib/rbac/permissions";
 import { ProblemError } from "@/lib/openapi/problem";
 import { createFixtureWorkItem, ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 import { REF_KINDS, assertRefsInScope, foreignRef, refsError, withoutForeign, type RefKind } from "./foreign-refs";
@@ -33,6 +34,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.workItem.deleteMany({ where: { orgId: { in: [orgA, orgB] } } }).catch(() => undefined);
   await prisma.workItemType.deleteMany({ where: { orgId: { in: [orgA, orgB] } } }).catch(() => undefined);
+  await prisma.theme.deleteMany({ where: { orgId: { in: [orgA, orgB] } } }).catch(() => undefined);
   await prisma.organization.deleteMany({ where: { id: { in: [orgA, orgB] } } }).catch(() => undefined);
   await prisma.user.deleteMany({ where: { id: { in: [user, ...people] } } }).catch(() => undefined);
 });
@@ -72,10 +74,14 @@ const MAKE: Record<RefKind, (orgId: string, projectId: string) => Promise<{ id: 
   kpi: (orgId, projectId) => prisma.kpi.create({ data: { orgId, projectId, name: next() } }),
   board: (orgId, projectId) => prisma.board.create({ data: { orgId, projectId, name: next(), type: "KANBAN" } }),
   member: (orgId) => person(orgId),
+  memberOrFormer: (orgId) => person(orgId),
+  theme: (orgId) => prisma.theme.create({ data: { orgId, slug: `refs-${next()}`, name: "Th" } }),
 };
 
 /** Kinds that don't live in a project, so another project of the org is fine. */
-const ORG_LEVEL: ReadonlySet<RefKind> = new Set(["partner", "product", "client", "label", "project", "invoice", "projectTemplate", "workItemType", "member"]);
+const ORG_LEVEL: ReadonlySet<RefKind> = new Set([
+  "partner", "product", "client", "label", "project", "invoice", "projectTemplate", "workItemType", "member", "memberOrFormer", "theme",
+]);
 
 describe.each(REF_KINDS)("%s", (kind) => {
   it("passes the org's own row, and refuses another org's", async () => {
@@ -145,6 +151,40 @@ describe("the helper's other forms", () => {
     // Even through the client that does not filter removed members by default.
     expect(await foreignRef(prismaUnfiltered, { orgId: orgA }, { member: former.id })).toBe("member");
     expect(await foreignRef(prismaUnfiltered, { orgId: orgA }, { member: current.id })).toBeNull();
+  });
+
+  it("memberOrFormer keeps a person the org removed, and still refuses another org's", async () => {
+    const former = await person(orgA, new Date());
+    const theirs = await person(orgB);
+    expect(await foreignRef(prisma, { orgId: orgA }, { memberOrFormer: former.id })).toBeNull();
+    expect(await foreignRef(prisma, { orgId: orgA }, { member: former.id })).toBe("member");
+    expect(await refsError({ orgId: orgA }, { memberOrFormer: theirs.id })).toBe("That person isn't a member of this organization.");
+  });
+
+  it("a built-in theme is every org's", async () => {
+    const builtIn = await prisma.theme.create({ data: { orgId: null, slug: `refs-${next()}`, name: "Built-in" } });
+    try {
+      expect(await foreignRef(prisma, { orgId: orgA }, { theme: builtIn.id })).toBeNull();
+    } finally {
+      await prisma.theme.delete({ where: { id: builtIn.id } });
+    }
+  });
+
+  it("with a viewer, a board on a team they are not on is refused, and a shared one passes", async () => {
+    const viewer: AuthContext = {
+      userId: user, orgId: orgA, orgRole: "MEMBER", permissions: Permission.PROJECT_READ | Permission.BOARD_READ,
+      basePermissions: Permission.PROJECT_READ | Permission.BOARD_READ, abacRules: [],
+    };
+    const team = await prisma.team.create({ data: { orgId: orgA, projectId: p1, name: next() } });
+    const teamBoard = await prisma.board.create({ data: { orgId: orgA, projectId: p1, teamId: team.id, name: next(), type: "KANBAN" } });
+    const shared = await MAKE.board(orgA, p1);
+    expect(await foreignRef(prisma, { orgId: orgA, viewer }, { board: teamBoard.id })).toBe("board");
+    expect(await foreignRef(prisma, { orgId: orgA, viewer }, { board: shared.id })).toBeNull();
+    // Without a viewer the org and project are the only bounds.
+    expect(await foreignRef(prisma, { orgId: orgA, projectId: p1 }, { board: teamBoard.id })).toBeNull();
+    // A role without BOARD_READ may not name even a shared one.
+    const noRead = { ...viewer, permissions: Permission.PROJECT_READ, basePermissions: Permission.PROJECT_READ };
+    expect(await foreignRef(prisma, { orgId: orgA, viewer: noRead }, { board: shared.id })).toBe("board");
   });
 
   it("withoutForeign drops a to-one relation from another org, and keeps the org's own", () => {

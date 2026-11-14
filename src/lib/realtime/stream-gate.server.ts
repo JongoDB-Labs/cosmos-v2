@@ -3,6 +3,7 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
+import { visibleChannelWhere } from "@/lib/chat/access";
 import { streamDecision, type StreamAudience, type StreamEvent } from "./stream-access";
 import { parseTopic } from "./topics";
 
@@ -28,6 +29,13 @@ export interface StreamGate {
   refreshIfStale(): Promise<void>;
   /** The member was removed, or the session ended: close the stream. */
   readonly closed: boolean;
+  /**
+   * The chat channels whose topics the stream should be subscribed to now: the
+   * audience's channels, as of the last recompute. The stream re-reads this
+   * after each `admit` and `refreshIfStale`, so a channel joined while it is
+   * open is heard from then on, and one the member can no longer read is let go.
+   */
+  readonly channels: ReadonlySet<string>;
 }
 
 /**
@@ -37,7 +45,8 @@ export interface StreamGate {
  * from the database: every AUDIENCE_TTL_MS, at once when an event says this
  * member's own role or work roles changed or that they joined or left a chat
  * channel, and when an event names a project created after the connection
- * opened. A member removed from the org closes,
+ * opened. Each recompute also re-reads which chat channels the member may hear
+ * (`channels`), which the stream follows. A member removed from the org closes,
  * and so does a connection whose credential `stillValid` no longer accepts (a
  * signed-out, revoked, expired or idle session), checked at each recompute.
  *
@@ -93,6 +102,9 @@ export async function openStreamGate(
     get closed() {
       return closed;
     },
+    get channels() {
+      return audience.channels;
+    },
     refreshIfStale,
     async admit(event) {
       if (closed) return false;
@@ -123,10 +135,12 @@ async function audienceFor(ctx: AuthContext): Promise<StreamAudience> {
   const [readable, all, channels] = await Promise.all([
     getReadableProjectIds(ctx),
     prisma.project.findMany({ where: { orgId: ctx.orgId }, select: { id: true } }),
-    // The same set the stream route subscribes to when it opens.
+    // The channels the stream subscribes to (`channels` above): the member's,
+    // less any whose project they can't see (lib/chat/access.ts), as the
+    // channel list leaves those out.
     chat
       ? prisma.chatChannelMember.findMany({
-          where: { userId: ctx.userId, channel: { orgId: ctx.orgId, archivedAt: null } },
+          where: { userId: ctx.userId, channel: { orgId: ctx.orgId, archivedAt: null, AND: [await visibleChannelWhere(ctx)] } },
           select: { channelId: true },
         })
       : [],

@@ -10,7 +10,7 @@
 // boundary between them, which a single-actor fixture cannot show.
 import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { listNotes, createNote } from "./notes";
+import { listNotes, createNote, shareNote } from "./notes";
 import { memberToolCtx } from "@/lib/testing/tool-auth";
 import type { ToolContext } from "@/lib/ai/executors/_ctx";
 
@@ -39,7 +39,10 @@ describe("list_notes visibility (e2e DB)", () => {
     // Through the TOOL, so the default visibility is whatever create_note
     // really applies rather than whatever this spec assumes.
     await createNote({ title: "alice-private" }, mine);
-    await createNote({ title: "alice-org", visibility: "ORG" }, mine);
+    // create_note always saves private; sharing is share_note (confirm-class
+    // in the agent loop, called here as the executor the yes runs).
+    const shared = (await createNote({ title: "alice-org" }, mine)) as { id: string };
+    expect(await shareNote({ noteId: shared.id, visibility: "ORG" }, mine)).toMatchObject({ updated: true, visibility: "ORG" });
     await createNote({ title: "bob-private" }, theirs);
   });
 

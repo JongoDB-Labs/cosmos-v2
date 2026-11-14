@@ -5,10 +5,12 @@ import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { emailDomainListed } from "@/lib/auth/allowed-domains";
 import { isInternalAdmin } from "@/lib/internal/access";
 import { logAudit } from "@/lib/audit";
-import { deleteMemberKeysIn } from "@/lib/auth/api-key-manage.server";
+import { endMemberCredentialsIn } from "@/lib/members/credentials.server";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
 import { openSecret } from "@/lib/crypto/vault";
+import { fetchPublicUrl } from "@/lib/security/outbound-post.server";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * In-app OIDC Relying Party — the security core. cosmos remains the single
@@ -106,6 +108,43 @@ export type SsoLoginResult =
 
 const configCache = new Map<string, Promise<oidc.Configuration>>();
 
+/** openid-client's own default deadline for one request, kept. */
+const IDP_TIMEOUT_MS = 30_000;
+
+/** A request body as openid-client builds one for the calls Cosmos makes. */
+function idpRequestBody(body: oidc.CustomFetchOptions["body"]): string | undefined {
+  if (body == null) return undefined;
+  if (typeof body === "string") return body;
+  if (body instanceof URLSearchParams) return body.toString();
+  // Only fetchProtectedResource sends anything else, and Cosmos never calls it.
+  throw new TypeError("SSO request body is not a form or a string");
+}
+
+/**
+ * How openid-client sends every request for a connection: discovery here, then
+ * whatever endpoint the discovery document names (token, userinfo, JWKS), since
+ * the Configuration that discovery returns keeps this for all its requests. Each
+ * one goes through the outbound guard (security/outbound-post.server.ts), like
+ * every URL Cosmos didn't choose itself: it may reach a private address only
+ * inside the operator's SSO_ALLOW_PRIVATE_CIDRS, never link-local or cloud
+ * metadata, connects to the address it checked, and follows no redirect. An IdP
+ * on a private network is a real deployment: its operator lists its range there.
+ * That list is SSO's alone. OUTBOUND_ALLOW_PRIVATE_CIDRS, which opens ranges to
+ * the endpoints org admins configure, never opens an issuer, and an issuer's
+ * range never opens to them.
+ */
+const idpFetch: oidc.CustomFetch = (url, options) =>
+  fetchPublicUrl(
+    url,
+    { method: options.method, headers: options.headers, body: idpRequestBody(options.body) },
+    {
+      allowOperatorPrivate: true,
+      operatorRanges: "SSO_ALLOW_PRIVATE_CIDRS",
+      signal: options.signal,
+      timeoutMs: IDP_TIMEOUT_MS,
+    },
+  );
+
 /**
  * Discover + configure the RP for a connection. Cached per (issuer, clientId)
  * so repeated logins don't re-fetch the discovery document. The client secret
@@ -122,7 +161,9 @@ export function getOidcConfig(conn: IdpConnection): Promise<oidc.Configuration> 
   // into permitting an http issuer for discovery + token requests. It exists for
   // (a) in-boundary / air-gapped issuers reached over an isolated internal network
   // without public TLS, and (b) the throwaway dex Docker-acceptance stack. It is
-  // DEFAULT-OFF and must never be set for an internet-facing tenant.
+  // DEFAULT-OFF and must never be set for an internet-facing tenant. It says
+  // nothing about addresses: an issuer on a private network also needs its range
+  // in SSO_ALLOW_PRIVATE_CIDRS (idpFetch above).
   const allowInsecure = process.env.SSO_ALLOW_INSECURE_ISSUER === "1";
   const promise = oidc
     .discovery(
@@ -130,7 +171,7 @@ export function getOidcConfig(conn: IdpConnection): Promise<oidc.Configuration> 
       conn.clientId,
       undefined,
       oidc.ClientSecretPost(clientSecret),
-      allowInsecure ? { execute: [oidc.allowInsecureRequests] } : undefined,
+      { [oidc.customFetch]: idpFetch, ...(allowInsecure ? { execute: [oidc.allowInsecureRequests] } : {}) },
     )
     .catch((err) => {
       // Don't cache a failed discovery — let the next attempt retry.
@@ -144,6 +185,30 @@ export function getOidcConfig(conn: IdpConnection): Promise<oidc.Configuration> 
 /** Test seam: drop cached discovery configs (e.g. on connection rotation). */
 export function clearOidcConfigCache(): void {
   configCache.clear();
+}
+
+/** Any URL's query string and fragment, which can carry an authorization code. */
+const URL_QUERY = /(\bhttps?:\/\/[^\s?#"'<>]*)[?#][^\s"'<>]*/gi;
+
+/**
+ * An SSO failure for a log line: each Error in the cause chain, by name, code
+ * and message (with any URL's query string cut off), so a refused address or a
+ * bad token shows behind openid-client's "something went wrong". Nothing else
+ * an error carries: openid-client attaches the token response (access, ID and
+ * refresh tokens), the callback's parameters (the authorization code) or the
+ * IdP's error body as a `cause` that isn't an Error, and the chain stops there.
+ */
+export function describeSsoError(err: unknown): { name: string; code?: string; message: string }[] {
+  const chain: { name: string; code?: string; message: string }[] = [];
+  for (let e: unknown = err; e instanceof Error && chain.length < 8; e = e.cause) {
+    const code = (e as { code?: unknown }).code;
+    chain.push({
+      name: e.name,
+      ...(typeof code === "string" ? { code } : {}),
+      message: e.message.replace(URL_QUERY, "$1?[removed]"),
+    });
+  }
+  return chain;
 }
 
 // ─────────────────────────────────────────────
@@ -337,7 +402,7 @@ export async function completeSsoLogin(
     const holders = claims.email
       ? await prisma.user.findMany({
           where: {
-            email: { equals: claims.email, mode: "insensitive" },
+            email: { equals: escapeLike(claims.email), mode: "insensitive" },
             isBot: false,
             deactivatedAt: null,
           },
@@ -366,7 +431,7 @@ export async function completeSsoLogin(
         prisma.invitation.findFirst({
           where: {
             orgId: org.id,
-            email: { equals: claims.email, mode: "insensitive" },
+            email: { equals: escapeLike(claims.email), mode: "insensitive" },
             expiresAt: { gt: new Date() },
           },
           select: { id: true },
@@ -454,11 +519,12 @@ export async function completeSsoLogin(
     create: { orgId: org.id, userId, role },
   };
   if (existingMember?.removedAt != null) {
-    // Reinstating brings the membership back, never the API keys made before
-    // the removal: any left on the row go in the same transaction.
+    // Reinstating brings the membership back, never the API keys or calendar
+    // links made before the removal: any left on the row end in the same
+    // transaction.
     await prismaUnfiltered.$transaction(async (tx) => {
       const member = await tx.orgMember.upsert({ ...membership, select: { id: true } });
-      await deleteMemberKeysIn(tx, {
+      await endMemberCredentialsIn(tx, {
         orgId: org.id,
         userId,
         memberId: member.id,
@@ -494,7 +560,7 @@ export async function completeSsoLogin(
     const pendingInvites = await prisma.invitation.findMany({
       where: {
         orgId: org.id,
-        email: { equals: claims.email, mode: "insensitive" },
+        email: { equals: escapeLike(claims.email), mode: "insensitive" },
         expiresAt: { gt: new Date() },
       },
     });

@@ -60,7 +60,10 @@ The driver hits cosmos directly at `http://cosmos:3000` and sets
 that matches dex's registered `redirectURI`. dex's issuer is `http://dex:5556/dex`
 (resolvable in-network by both cosmos and the driver). dex over http requires
 `SSO_ALLOW_INSECURE_ISSUER=1` on the cosmos service (set in the dex override;
-default-off everywhere else).
+default-off everywhere else). `dex` resolves to an address on the compose
+network, which is private, so the override must also set
+`SSO_ALLOW_PRIVATE_CIDRS` to that network's range (see
+`docker network inspect cosmos-v2_default`); without it discovery is refused.
 
 ## Observed result (2026-06-06)
 

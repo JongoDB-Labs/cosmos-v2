@@ -68,7 +68,98 @@ const RELEASES: Release[] = [
     ],
   },
   {
-    version: "2.561.5",
+    version: "2.561.11",
+    date: "2026-11-14",
+    title: "Single sign-on checks where it connects, and the Microsoft setup note says only what's known",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Single sign-on now connects to an organization's identity provider under the same address rules as every other outside URL: never to link-local or cloud metadata addresses, and to a private address only inside the ranges the instance's operator lists in SSO_ALLOW_PRIVATE_CIDRS, a new list for identity providers alone. That covers the discovery request and every later request to the provider. OUTBOUND_ALLOW_PRIVATE_CIDRS stays the list for the endpoints org admins configure, and neither list opens a range to the other side. An operator whose identity provider is on a private network must list its range in SSO_ALLOW_PRIVATE_CIDRS, or sign-in through it fails.",
+      },
+      {
+        kind: "improvement",
+        text: "The Helm chart can now set SSO_ALLOW_PRIVATE_CIDRS through the sso.allowPrivateCidrs value, and OUTBOUND_ALLOW_PRIVATE_CIDRS through the outbound.allowPrivateCidrs value. Both are empty by default, so existing installs render unchanged.",
+      },
+      {
+        kind: "fix",
+        text: "When MICROSOFT_TRUSTED_DOMAINS is unset, the note the server logs at start no longer tells you to add the xms_edov claim as if it were missing. The server can't see the app registration, so the note now says what linking rests on, and to act only if sign-ins are refused for it.",
+      },
+    ],
+  },
+  {
+    version: "2.561.10",
+    date: "2026-11-14",
+    title: "Boards answer the same way through the app and the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening, renaming or deleting a board in a project you cannot see now says the board was not found, the same answer as for a board that does not exist. Changing its columns already did; the rest said access was denied.",
+      },
+      {
+        kind: "improvement",
+        text: "The assistant now says which boards you made, the same way the board list in the app does, without naming who made the others. It reads a project's boards from the same list the app shows, so the two cannot disagree about which boards you can see.",
+      },
+    ],
+  },
+  {
+    version: "2.561.9",
+    date: "2026-11-14",
+    title: "Everyone you assign is told",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Giving a work item several assignees at once, as its Assignees picker does, now tells each person newly added. Before, none of them were told. Nobody already assigned is told again, including someone moved to the front, and you're never told about your own change.",
+      },
+      {
+        kind: "fix",
+        text: "A mention in a note now follows who can read the note, the same people the note itself lets in.",
+      },
+      {
+        kind: "fix",
+        text: "Outlook Calendar now keeps a meeting only for the people its page lets in, including any access policy on reading meetings.",
+      },
+    ],
+  },
+  {
+    version: "2.561.8",
+    date: "2026-11-14",
+    title: "Know when an assignee can't see the project",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "In a work item's Assignees picker, anyone who can't see the item's project is marked \"Can't see this project\". Assigning one of them still works, and now says that they can't open the item and won't be notified. Assign to, on the Work Items page, says the same in its confirmation.",
+      },
+      {
+        kind: "fix",
+        text: "A meeting invitation now reaches only people who can see the meeting, the same people its page lets in. Before, someone added to a meeting in a project they couldn't see was still told about it.",
+      },
+    ],
+  },
+  {
+    version: "2.561.7",
+    date: "2026-11-14",
+    title: "A project's chat channel follows who can see the project",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A chat channel tied to a project that only its team can see is now shown only to people who can see that project. Others no longer find it in their channel list, in Browse channels or in chat search, and can't join it, read it or post to it, even if they were added to it before.",
+      },
+      {
+        kind: "fix",
+        text: "Someone who loses access to the project loses its channel too, and gets it back when they can see the project again. Until then they get no notifications or unread counts from it, its messages don't appear as mention backlinks for them, and Cosmo won't answer them in it.",
+      },
+      {
+        kind: "fix",
+        text: "A channel you join while chat is open now shows new messages straight away, without reloading the page. A project channel you can no longer see stops sending you messages within a minute.",
+      },
+      {
+        kind: "fix",
+        text: "The duplicate-message check, which keeps a message resent after a dropped connection from posting twice, now matches the channel and author too.",
+      },
+    ],
+  },
+  {
+    version: "2.561.6",
     date: "2026-11-14",
     title: "Restrictions and removals apply consistently",
     highlights: [
@@ -95,6 +186,141 @@ const RELEASES: Release[] = [
       {
         kind: "fix",
         text: "When the team page can\u2019t send a member a password reset because their access is beyond yours, it now says so, instead of \u201cCouldn\u2019t send the reset email.\u201d",
+      },
+    ],
+  },
+  {
+    version: "2.561.5",
+    date: "2026-11-14",
+    title: "Links between records stay inside your organization",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A widget in a board template can now only sit under another widget of the same template.",
+      },
+      {
+        kind: "fix",
+        text: "Your default board must now be a board you can open, and your theme must be one of your organization's themes or a built-in one.",
+      },
+      {
+        kind: "fix",
+        text: "Sprint capacity can now only be set for current members of your organization.",
+      },
+      {
+        kind: "fix",
+        text: "Every change to a work item now checks that its parent, sprint and team are in the item's own project, and its type and assignee in its organization, whichever screen, import or automation made the change.",
+      },
+      {
+        kind: "fix",
+        text: "Merging two work items now moves only your organization's comments, time, files, links and sub-items, and leaves a sub-item in another project where it is.",
+      },
+    ],
+  },
+  {
+    version: "2.561.4",
+    date: "2026-11-14",
+    title: "Cosmo follows the sprint and Program Increment rules, and asks before sharing",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmo can now start a sprint inside a running Program Increment. It used to count the Program Increment as another active sprint and refuse.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now follows the same Program Increment rules as the sprint pages. It won't start a Program Increment by hand, it won't complete one while a sprint inside it is unfinished, and starting a sprint inside a Program Increment starts the Program Increment too.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now asks for your yes before it lets more people see a note. New notes it writes start private. Letting fewer people see a note needs no yes.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo now asks for your yes before it invites anyone to a Google Calendar event. New events it creates invite no one at first. Taking someone off an event needs no yes.",
+      },
+      {
+        kind: "fix",
+        text: "A Program Increment can no longer be completed while a sprint inside it is unfinished, whether from its Complete button or through Cosmo. The message names the sprints still open.",
+      },
+      {
+        kind: "fix",
+        text: "Starting a sprint while moving it into another Program Increment now starts the Program Increment it moves into. It used to start the one the sprint was leaving.",
+      },
+      {
+        kind: "fix",
+        text: "A project's manager can now change and complete its sprints through Cosmo, as they already could in the app.",
+      },
+      {
+        kind: "fix",
+        text: "Access rules on notes now apply to Cosmo too. A person your admin has barred from editing or deleting a note can't edit it, share it or delete it through Cosmo either.",
+      },
+      {
+        kind: "fix",
+        text: "Access rules on changing or completing a sprint now apply on the sprint pages and through Cosmo alike. The sprint pages used to ignore them.",
+      },
+    ],
+  },
+  {
+    version: "2.561.3",
+    date: "2026-11-14",
+    title: "Address and name lookups match exactly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Signing in with a password, asking for a password reset, single sign-on, invitations, account requests and the sign-in allowlist now find an account by its exact email address, ignoring case only. The same goes for project keys and organization names in links, for label, role, partner and status names, for matching rows on import, and for `=` on text fields in queries.",
+      },
+    ],
+  },
+  {
+    version: "2.561.2",
+    date: "2026-11-14",
+    title: "Search finds % and _ as text, and retro writes are audited",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching for % or _ in the command palette (⌘K) or the @-mention picker finds only names that contain that character. Before, either one matched every name of every kind. The same goes for the workflow simulator's item picker, the assistant's searches, and the API's search filter on CRM contacts, partners, products and a project's work items. In chat search, from:% and in:_ now look for those characters in a name too, instead of matching every author or channel.",
+      },
+      {
+        kind: "fix",
+        text: "The command palette (⌘K) and the @-mention picker run the same search, and now share one rate limit, as the Issues search has. Ordinary typing stays well inside it.",
+      },
+      {
+        kind: "fix",
+        text: "A retro action item can't be given to someone whose account is deactivated. Editing an action already refused them; adding one now does too.",
+      },
+      {
+        kind: "fix",
+        text: "Adding, editing and deleting retro notes and action items now shows in the audit log, with who did it and when. The text of a note or action stays out of the log.",
+      },
+    ],
+  },
+  {
+    version: "2.561.1",
+    date: "2026-11-14",
+    title: "Calendar feed links follow single sign-on and member removal, and show join links",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Where your organization requires single sign-on, a calendar feed link works only if you made it after signing in through the organization's single sign-on, as for an API key. Links made before, or through another sign-in, stop updating, and Settings, Preferences says so under each one. Sign in through single sign-on and create a new link there.",
+      },
+      {
+        kind: "fix",
+        text: "Removing someone from your organization now revokes their calendar feed links, as it already deleted their API keys. Adding them back, or their signing in again through single sign-on, doesn't bring the old links back. Deleting someone's account does the same in every organization they belong to. Turning on Require MFA revokes everyone's calendar feed links, and the save message says how many.",
+      },
+      {
+        kind: "fix",
+        text: "A calendar feed link is held to the organization's access restrictions for everyone, owners included. An owner's own session can still undo a restriction, but their link no longer gets past one.",
+      },
+      {
+        kind: "fix",
+        text: "Calendar feed links with sprints switched on now work. Until now such a link served nothing. A link shows only the sprints its owner may read: a rule that hides one project's sprints from someone hides them from their link too.",
+      },
+      {
+        kind: "improvement",
+        text: "A meeting in your calendar feed now carries its join links in the event's description: its video link, and its Teams link when it has one. Meetings the feed shows only as busy never do.",
+      },
+      {
+        kind: "fix",
+        text: "On a phone, screen readers now name the settings section picker, and the Revoke button on a calendar link has enough contrast to read.",
       },
     ],
   },
