@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { searchEntities } from "@/lib/mentions/registry.server";
 import { ENTITY_ORDER } from "@/lib/mentions/refs";
 
@@ -34,6 +35,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!q || q.trim().length === 0) {
       return success([]);
     }
+
+    // One search fans out to every entity type, so it gets the Issues
+    // search's budget (work-items/query: 30, then 3 a second). The palette
+    // sends one per 300 ms pause in typing, and a 429 keeps what it shows.
+    const limited = checkRateLimit(request, "search", ctx.userId, { capacity: 30, refillPerSecond: 3 });
+    if (limited) return limited;
 
     const hits = await searchEntities({
       ctx,

@@ -114,6 +114,7 @@ import {
 } from "./executors/ceremonies";
 import { listBoards, getBoardTool, createBoardTool, updateBoardTool, setBoardColumns, deleteBoardTool } from "./executors/boards";
 import { listDocuments } from "./executors/documents";
+import { escapeLike } from "@/lib/query/like";
 import {
   createCrmContact,
   updateCrmContact,
@@ -853,7 +854,7 @@ async function queryWorkItems(input: Record<string, unknown>, ctx: ToolContext) 
   if (input.intervalId) where.intervalId = input.intervalId as string;
   if (input.workItemTypeId) where.workItemTypeId = input.workItemTypeId as string;
   if (input.parentId) where.parentId = input.parentId as string;
-  if (input.query) where.title = { contains: input.query as string, mode: "insensitive" };
+  if (input.query) where.title = { contains: escapeLike(input.query as string), mode: "insensitive" };
   if (input.teamId) {
     // Only a team in a project this query may already read (COSMOS-222).
     const team = await teamFilter(
@@ -945,7 +946,7 @@ async function queryCrm(input: Record<string, unknown>, ctx: ToolContext) {
   // passing "lead"/"Lead" still matches (mirrors the contacts GET route).
   if (input.stage)
     where.stage = canonicalizeStageFilter(input.stage as string);
-  if (input.query) where.name = { contains: input.query as string, mode: "insensitive" };
+  if (input.query) where.name = { contains: escapeLike(input.query as string), mode: "insensitive" };
 
   const contacts = await prisma.crmContact.findMany({
     where,

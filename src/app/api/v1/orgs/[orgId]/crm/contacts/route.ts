@@ -13,6 +13,7 @@ import {
   DEFAULT_CRM_STAGE,
 } from "@/lib/crm/stages";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
+import { escapeLike } from "@/lib/query/like";
 
 const createContactSchema = z.object({
   name: z.string().min(1).max(200),
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       where: {
         orgId,
         ...(stage ? { stage: canonicalizeStageFilter(stage) } : {}),
-        ...(search ? { name: { contains: search, mode: "insensitive" } } : {}),
+        ...(search ? { name: { contains: escapeLike(search), mode: "insensitive" } } : {}),
       },
       orderBy: { createdAt: "desc" },
     });

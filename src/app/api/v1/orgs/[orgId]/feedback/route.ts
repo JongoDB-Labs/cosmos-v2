@@ -11,6 +11,7 @@ import { hasPermission } from "@/lib/rbac/permissions";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
 import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { escapeLike } from "@/lib/query/like";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             : { OR: [{ status: { not: "MERGED" } }, { authorId: ctx.userId }] }),
         ...(source ? { source } : {}),
         // Prefix match, so a tour id alone returns every step's feedback.
-        ...(sourceRef ? { sourceRef: { startsWith: sourceRef } } : {}),
+        ...(sourceRef ? { sourceRef: { startsWith: escapeLike(sourceRef) } } : {}),
       },
       orderBy: [{ voteCount: "desc" }, { createdAt: "desc" }],
       take: 200,
