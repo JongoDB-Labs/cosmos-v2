@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.557.1",
+    date: "2026-11-13",
+    title: "Action restrictions hold for admins in more places",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A restriction with no conditions now also holds against an organization admin in three more places. Under a restriction on sharing filters with the whole organization, an admin can no longer edit, delete or take over other people's saved filters, or open their private ones. Under a restriction on approving time, an admin can no longer edit or remove other people's time entries. Under a restriction on deleting work, an admin can no longer have Cosmo delete other people's comments, which the comment's own delete button already refused. Admins keep their own filters, time and comments, and the owner's own sign-in can still do all of this.",
+      },
+    ],
+  },
+  {
     version: "2.557.0",
     date: "2026-11-13",
     title: "Every member can create their own API keys",

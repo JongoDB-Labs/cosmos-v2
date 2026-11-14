@@ -356,7 +356,9 @@ describe("PUT /time-entries/[entryId] — the response redacts the rate too", ()
   });
 
   it("an admin without FINANCE_READ editing someone else's entry gets it back without the rate", async () => {
-    getAuthContext.mockResolvedValue({ ...ctxWith(bits("TIME_READ", "TIME_UPDATE")), orgRole: OrgRole.ADMIN });
+    // An admin holds FINANCE_READ by role, so one without it is an admin an
+    // org restriction took it from, holding the rest of the role's bits.
+    getAuthContext.mockResolvedValue({ ...ctxWith(RolePermissions.ADMIN & ~Permission.FINANCE_READ), orgRole: OrgRole.ADMIN });
     const res = await PUT(putRequest({ hours: 3 }), { params });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -365,9 +367,7 @@ describe("PUT /time-entries/[entryId] — the response redacts the rate too", ()
   });
 
   it("with FINANCE_READ the rate comes back", async () => {
-    getAuthContext.mockResolvedValue({
-      ...ctxWith(bits("TIME_READ", "TIME_UPDATE", "FINANCE_READ")), orgRole: OrgRole.ADMIN,
-    });
+    getAuthContext.mockResolvedValue({ ...ctxWith(RolePermissions.ADMIN), orgRole: OrgRole.ADMIN });
     const body = await (await PUT(putRequest({ hours: 3 }), { params })).json();
     expect(body.rate).toBe("225");
   });

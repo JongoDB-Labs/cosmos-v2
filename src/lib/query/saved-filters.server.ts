@@ -55,8 +55,14 @@ export async function viewerScope(ctx: AuthContext): Promise<ViewerScope> {
     readable,
     teams: new Map(rows.map((r) => [r.team.id, r.team.projectId])),
     // An admin edits and deletes anyone's saved filter. A key never does: no
-    // scope grants FILTER_SHARE_ORG (lib/rbac/key-role.ts).
-    isAdmin: isOrgAdministrator(ctx.orgRole) && roleCountsFor(ctx, Permission.FILTER_SHARE_ORG),
+    // scope grants FILTER_SHARE_ORG (lib/rbac/key-role.ts). Nor does an admin
+    // an unconditional org restriction took FILTER_SHARE_ORG from: admins hold
+    // it by role, so only such a restriction makes the bit check fail, and the
+    // role must not hand it back (lib/rbac/effective-permissions.ts).
+    isAdmin:
+      isOrgAdministrator(ctx.orgRole) &&
+      roleCountsFor(ctx, Permission.FILTER_SHARE_ORG) &&
+      hasPermission(ctx.permissions, Permission.FILTER_SHARE_ORG),
   };
 }
 
