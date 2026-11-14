@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
+import { HELD_WORK_ROLES, currentAccessRefusal, heldBeyondRole } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
@@ -17,7 +18,10 @@ type RouteParams = { params: Promise<{ orgId: string; memberId: string }> };
  * Sends the same self-service reset email (signed, single-use, time-limited link)
  * to the member — but only for an email/password account. A Google/SSO-only member
  * (no passwordHash) has nothing to reset, so we return `{ sent: false, reason:
- * "sso" }` and the UI shows a clear message. Requires ORG_MANAGE_MEMBERS.
+ * "sso" }` and the UI shows a clear message. Requires ORG_MANAGE_MEMBERS, and
+ * the same ceiling as changing or removing the member: it acts on their account,
+ * so the caller may send one only to someone whose current access they could
+ * have granted.
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
@@ -33,6 +37,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { id: memberId },
       select: {
         orgId: true,
+        role: true,
+        permissions: true,
+        workRoles: HELD_WORK_ROLES,
         user: {
           select: {
             id: true,
@@ -47,6 +54,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!member || member.orgId !== orgId) {
       return new Response("Not found", { status: 404 });
+    }
+    // The ceiling on current role, as in the member PUT and DELETE: without it a
+    // member who manages members through a work role could send password resets
+    // to admins and owners. See grant-ceiling.ts.
+    const current = currentAccessRefusal(ctx, member.role, heldBeyondRole(member));
+    if (current) {
+      return new Response(JSON.stringify({ error: current }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const user = member.user;

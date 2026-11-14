@@ -1,7 +1,11 @@
 import { prisma } from "@/lib/db/client";
-import { resolvePermissions } from "@/lib/rbac/check";
+import {
+  MEMBER_MASK_FIELDS,
+  memberPermissions,
+  orgRestrictions,
+} from "@/lib/rbac/effective-permissions";
 import { supervisorUserIdsOf } from "@/lib/org/supervisors";
-import { Permission, hasPermission, maskFromDb } from "@/lib/rbac/permissions";
+import { Permission, hasPermission } from "@/lib/rbac/permissions";
 
 /**
  * Who a submitted timesheet is handed to.
@@ -79,33 +83,30 @@ export function routeFor(params: {
 /**
  * Every user in the org who may approve a timesheet.
  *
- * Folds work-role grants in, exactly as `loadEffectivePermissions` does for a
- * single actor. Skipping them would produce a queue that disagrees with the
- * authority check: someone granted TIME_APPROVE through a work-role could
- * approve a sheet they were never shown.
+ * Computed by `memberPermissions`, the same fold `loadEffectivePermissions`
+ * makes for a single actor: work-role grants in, the org's restrictions out.
+ * Skipping the grants would produce a queue that disagrees with the authority
+ * check: someone granted TIME_APPROVE through a work-role could approve a sheet
+ * they were never shown. Skipping the restrictions did the opposite: someone the
+ * org had stopped from approving time was still handed timesheets, and still
+ * offered as a supervisor.
  *
- * One query rather than N calls to `loadEffectivePermissions`, because this
- * runs on every submit.
+ * One member query rather than N calls to `loadEffectivePermissions`, because
+ * this runs on every submit.
  */
 export async function approversInOrg(orgId: string): Promise<string[]> {
-  const members = await prisma.orgMember.findMany({
-    where: { orgId },
-    select: {
-      userId: true,
-      role: true,
-      permissions: true,
-      workRoles: { select: { workRole: { select: { grants: true } } } },
-    },
-  });
+  const [members, restrictions] = await Promise.all([
+    prisma.orgMember.findMany({
+      where: { orgId },
+      select: { userId: true, ...MEMBER_MASK_FIELDS },
+    }),
+    orgRestrictions(orgId),
+  ]);
 
   return members
-    .filter((m) => {
-      let effective = resolvePermissions(m.role, maskFromDb(m.permissions));
-      for (const assignment of m.workRoles) {
-        effective |= maskFromDb(assignment.workRole.grants);
-      }
-      return hasPermission(effective, Permission.TIME_APPROVE);
-    })
+    .filter((m) =>
+      hasPermission(memberPermissions(m, restrictions), Permission.TIME_APPROVE),
+    )
     .map((m) => m.userId);
 }
 

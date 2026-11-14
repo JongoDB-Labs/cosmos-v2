@@ -28,7 +28,7 @@ vi.mock("@/lib/integrations/invitation-email", () => ({
 
 import { prisma } from "@/lib/db/client";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
-import { parsePasswordResetToken } from "@/lib/auth/password-reset";
+import { createPasswordResetToken, parsePasswordResetToken } from "@/lib/auth/password-reset";
 import { POST as requestReset } from "./request/route";
 import { maskEmail } from "@/lib/auth/mask-email";
 import { POST as confirmReset } from "./confirm/route";
@@ -312,6 +312,58 @@ describe("self-service password reset leaves an outcome trail", () => {
     expect(sentEmails).toHaveLength(0);
     // Nowhere to attribute it: no membership, no pending invitation.
     expect(await prisma.auditLog.count({ where: { orgId } })).toBe(before);
+  });
+});
+
+/**
+ * Each org's admins answer "did anyone reset this person's password?" from
+ * their own audit log, so the completed reset is recorded in EVERY org the
+ * account belongs to. It used to go to the first membership only, which left
+ * every other org blind. An org the person was removed from gets no row: the
+ * membership is kept for history, and a nested membership read does not hide
+ * it the way a direct orgMember query does.
+ */
+describe("a completed reset is recorded in every organization the account belongs to", () => {
+  const stamp = Math.random().toString(36).slice(2, 8);
+  const email = `zz-pwr-multi-${stamp}@example.com`;
+  const orgs = { removed: "", first: "", second: "" };
+  let userId = "";
+
+  beforeAll(async () => {
+    userId = (
+      await prisma.user.create({
+        data: { email, displayName: "PWR multi", passwordHash: hashPassword(OLD_PASSWORD), passwordSetAt: new Date() },
+      })
+    ).id;
+    // The removed membership is created first, so a read that keeps it in
+    // order would reach it first.
+    for (const which of ["removed", "first", "second"] as const) {
+      const orgId = (
+        await prisma.organization.create({ data: { name: `pwr ${which} ${stamp}`, slug: `zzpwm-${which}-${stamp}` } })
+      ).id;
+      orgs[which] = orgId;
+      await prisma.orgMember.create({
+        data: { orgId, userId, role: "MEMBER", permissions: "0", ...(which === "removed" ? { removedAt: new Date() } : {}) },
+      });
+    }
+  });
+  afterAll(async () => {
+    await prisma.organization.deleteMany({ where: { id: { in: Object.values(orgs) } } }).catch(() => undefined);
+    await prisma.user.deleteMany({ where: { id: userId } }).catch(() => undefined);
+  });
+
+  it("writes auth.password_reset.completed in each active org, and none in the org they left", async () => {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const token = createPasswordResetToken(user);
+    expect((await confirmReset(req({ token, newPassword: NEW_PASSWORD }))).status).toBe(200);
+
+    const completed = async (orgId: string) =>
+      prisma.auditLog.count({ where: { orgId, action: "auth.password_reset.completed", entityId: userId } });
+    expect({
+      first: await completed(orgs.first),
+      second: await completed(orgs.second),
+      removed: await completed(orgs.removed),
+    }).toEqual({ first: 1, second: 1, removed: 0 });
   });
 });
 

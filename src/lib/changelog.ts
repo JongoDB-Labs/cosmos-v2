@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.560.6",
+    date: "2026-11-14",
+    title: "Restrictions on approving time reach routing and supervisors",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When your organization restricts approving time, the people it restricts are no longer sent timesheets to approve and are no longer offered as supervisors. Someone already named as a supervisor stays listed so you can remove them.",
+      },
+      {
+        kind: "fix",
+        text: "Sending a member a password reset now has the same limit as changing or removing them: you can send one only to someone whose access you could have granted. A member who manages members through a work role can no longer send one to an admin or an owner.",
+      },
+      {
+        kind: "fix",
+        text: "A completed password reset is now recorded in the audit log of every organization the account belongs to, not only the first. An organization the person has left gets no record.",
+      },
+    ],
+  },
+  {
     version: "2.560.4",
     date: "2026-11-14",
     title: "Exports show only what you could read in the app",
