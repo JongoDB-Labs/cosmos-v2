@@ -49,7 +49,7 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.560.1",
+    version: "2.560.5",
     date: "2026-11-14",
     title: "Cosmo follows the sprint and Program Increment rules, and asks before sharing",
     highlights: [
