@@ -15,6 +15,7 @@ import {
   NO_INTERVAL,
   UNASSIGNED,
 } from "./filter";
+import { escapeLike } from "@/lib/query/like";
 
 export interface BuildWhereArgs {
   orgId: string;
@@ -168,8 +169,8 @@ export function buildWorkItemWhere(args: BuildWhereArgs): Prisma.WorkItemWhereIn
   if (text) {
     and.push({
       OR: [
-        { title: { contains: text, mode: "insensitive" } },
-        { description: { contains: text, mode: "insensitive" } },
+        { title: { contains: escapeLike(text), mode: "insensitive" } },
+        { description: { contains: escapeLike(text), mode: "insensitive" } },
       ],
     });
   }

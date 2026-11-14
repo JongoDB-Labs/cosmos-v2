@@ -40,6 +40,9 @@ export function useEntitySearch(
       const r = await fetch(
         `/api/v1/orgs/${orgId}/mentions/search?${p.toString()}`,
       );
+      // Rate-limited (one budget with ⌘K): not "no matches". Thrown, it isn't
+      // cached; the last results stay up while React Query asks again.
+      if (r.status === 429) throw new Error("Search is rate-limited");
       if (!r.ok) return [];
       const j = await r.json();
       return Array.isArray(j) ? (j as ResolvedEntity[]) : [];

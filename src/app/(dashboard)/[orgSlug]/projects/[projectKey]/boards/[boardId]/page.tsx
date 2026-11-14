@@ -4,6 +4,7 @@ import { canReadProject } from "@/lib/rbac/project-access";
 import { redirect, notFound } from "next/navigation";
 import { isBoardVisible } from "@/lib/rbac/board-access";
 import { BoardRenderer } from "./board-renderer";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = {
   params: Promise<{
@@ -22,7 +23,7 @@ export default async function BoardPage({ params }: PageParams) {
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
       archived: false,
     },
     select: { id: true, key: true },
