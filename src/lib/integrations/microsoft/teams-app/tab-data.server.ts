@@ -9,6 +9,7 @@ import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { isWorkItemDone, type DoneStateColumn } from "@/lib/work-items/done-state";
 import { statusLabel } from "./cards";
 import type { TeamsUser } from "./identity.server";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * COSMOS-202 T1 d: what the Teams tabs show, read as the Teams user's own
@@ -112,7 +113,7 @@ async function tabProjectIds(u: TeamsUser): Promise<string[]> {
 export async function projectWork(u: TeamsUser, origin: string, projectKey: string): Promise<TabView | null> {
   const readable = await tabProjectIds(u);
   const project = await prisma.project.findFirst({
-    where: { orgId: u.orgId, id: { in: readable }, key: { equals: projectKey, mode: "insensitive" }, archived: false },
+    where: { orgId: u.orgId, id: { in: readable }, key: { equals: escapeLike(projectKey), mode: "insensitive" }, archived: false },
     select: { id: true, name: true, key: true },
   });
   if (!project) return null;

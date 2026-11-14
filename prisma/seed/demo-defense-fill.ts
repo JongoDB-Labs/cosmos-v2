@@ -23,6 +23,7 @@ import {
   type PermissionKey,
 } from "../../src/lib/rbac/permissions";
 import { createHash } from "node:crypto";
+import { escapeLike } from "../../src/lib/query/like";
 
 // Prefer .env.local's DATABASE_URL explicitly so host runs don't fall back to
 // .env's in-container `cosmos-postgres` hostname.
@@ -57,7 +58,7 @@ const shaBytes = (s: string): Buffer<ArrayBuffer> =>
 const grant = (...keys: PermissionKey[]) => keys.reduce((acc, k) => acc | P[k], 0n);
 
 async function userByEmail(email: string) {
-  const u = await prisma.user.findFirst({ where: { email: { equals: email.trim(), mode: "insensitive" } }, select: { id: true } });
+  const u = await prisma.user.findFirst({ where: { email: { equals: escapeLike(email.trim()), mode: "insensitive" } }, select: { id: true } });
   if (!u) throw new Error(`Expected user "${email}" to exist (run demo-defense.ts + demo-defense-extra.ts first).`);
   return u.id;
 }

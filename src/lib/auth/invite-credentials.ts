@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { hashPassword } from "@/lib/auth/password";
 import { generateTempPassword } from "@/lib/auth/temp-password";
 import { ConflictError } from "@/lib/rbac/check";
+import { escapeLike } from "@/lib/query/like";
 
 /** Valid values for Invitation.signInMethod / the invite API. */
 export const SIGN_IN_METHODS = ["oauth", "email_password"] as const;
@@ -53,7 +54,7 @@ export async function provisionEmailPasswordInvite(params: {
   const email = params.email.trim().toLowerCase();
 
   const existing = await db.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
+    where: { email: { equals: escapeLike(email), mode: "insensitive" } },
     select: { id: true },
   });
 

@@ -5,10 +5,11 @@ import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { emailDomainListed } from "@/lib/auth/allowed-domains";
 import { isInternalAdmin } from "@/lib/internal/access";
 import { logAudit } from "@/lib/audit";
-import { deleteMemberKeysIn } from "@/lib/auth/api-key-manage.server";
+import { endMemberCredentialsIn } from "@/lib/members/credentials.server";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
 import { openSecret } from "@/lib/crypto/vault";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * In-app OIDC Relying Party — the security core. cosmos remains the single
@@ -337,7 +338,7 @@ export async function completeSsoLogin(
     const holders = claims.email
       ? await prisma.user.findMany({
           where: {
-            email: { equals: claims.email, mode: "insensitive" },
+            email: { equals: escapeLike(claims.email), mode: "insensitive" },
             isBot: false,
             deactivatedAt: null,
           },
@@ -366,7 +367,7 @@ export async function completeSsoLogin(
         prisma.invitation.findFirst({
           where: {
             orgId: org.id,
-            email: { equals: claims.email, mode: "insensitive" },
+            email: { equals: escapeLike(claims.email), mode: "insensitive" },
             expiresAt: { gt: new Date() },
           },
           select: { id: true },
@@ -454,11 +455,12 @@ export async function completeSsoLogin(
     create: { orgId: org.id, userId, role },
   };
   if (existingMember?.removedAt != null) {
-    // Reinstating brings the membership back, never the API keys made before
-    // the removal: any left on the row go in the same transaction.
+    // Reinstating brings the membership back, never the API keys or calendar
+    // links made before the removal: any left on the row end in the same
+    // transaction.
     await prismaUnfiltered.$transaction(async (tx) => {
       const member = await tx.orgMember.upsert({ ...membership, select: { id: true } });
-      await deleteMemberKeysIn(tx, {
+      await endMemberCredentialsIn(tx, {
         orgId: org.id,
         userId,
         memberId: member.id,
@@ -494,7 +496,7 @@ export async function completeSsoLogin(
     const pendingInvites = await prisma.invitation.findMany({
       where: {
         orgId: org.id,
-        email: { equals: claims.email, mode: "insensitive" },
+        email: { equals: escapeLike(claims.email), mode: "insensitive" },
         expiresAt: { gt: new Date() },
       },
     });

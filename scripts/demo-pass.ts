@@ -27,6 +27,7 @@ import { sendPasswordInviteEmail } from "../src/lib/integrations/invitation-emai
 import { revokeProvisionedAccount } from "../src/lib/auth/revoke-invitation";
 import { isTransactionalEmailConfigured } from "../src/lib/integrations/email-sender";
 import { OrgRole } from "@prisma/client";
+import { escapeLike } from "../src/lib/query/like";
 
 type Args = Record<string, string | undefined>;
 
@@ -96,7 +97,7 @@ async function create(args: Args) {
   if (!Number.isFinite(days) || days <= 0 || days > 90) die("--days must be between 1 and 90");
 
   const existing = await prisma.user.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
+    where: { email: { equals: escapeLike(email), mode: "insensitive" } },
     select: { id: true },
   });
   if (existing) {
@@ -194,7 +195,7 @@ async function revoke(args: Args) {
   if (!email) die("--email <address> is required");
 
   const invitation = await prisma.invitation.findFirst({
-    where: { orgId: org.id, email: { equals: email, mode: "insensitive" } },
+    where: { orgId: org.id, email: { equals: escapeLike(email), mode: "insensitive" } },
     select: { id: true },
   });
 
