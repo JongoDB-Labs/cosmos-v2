@@ -5,6 +5,7 @@ import { redirect, notFound } from "next/navigation";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
 import { TemplateGallery } from "@/components/boards/template-gallery";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = {
   params: Promise<{ orgSlug: string; projectKey: string }>;
@@ -19,7 +20,7 @@ export default async function NewBoardPage({ params }: PageParams) {
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
       archived: false,
     },
     select: { id: true, key: true, enabledFeatures: true, settings: true },

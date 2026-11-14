@@ -12,7 +12,8 @@
 // difference between wired and working.
 import { describe, it, expect, beforeAll } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { executeCql } from "../execute.server";
+import { executeCql, predicateCql } from "../execute.server";
+import { UNDECIDED, matches } from "../evaluate";
 import { seedWorld, type World } from "./cql-fixture";
 
 const NOW = new Date("2026-10-15T15:00:00Z");
@@ -36,6 +37,7 @@ describe("CQL reaches imported + cancellation metadata (e2e DB)", () => {
     // natural home for the note.
     await set("p1-child", { cancelNote: "Programme restructured" });
     await set("p1-done", { externalSource: "jira", externalKey: "ACME-1", externalId: "10042", sourceStatus: "In Review" });
+    await set("p1-coowned", { externalKey: "ACME_2" });
   });
 
   /** Matching item KEYS (the fixture names rows `<key>-<stamp>`). */
@@ -64,6 +66,23 @@ describe("CQL reaches imported + cancellation metadata (e2e DB)", () => {
   it("cancelNote filters, alongside the reason that was already filterable", async () => {
     expect(await keys('cancelNote ~ "restructured"')).toEqual(["p1-child"]);
     expect(await keys("cancelReason = OBE")).toContain("p1-child");
+  });
+
+  it("= on a text field matches the exact value, ignoring case, and the board's interpreter agrees", async () => {
+    expect(await keys('externalKey = "ACME_1"')).toEqual([]);
+    expect(await keys('externalKey = "acme_2"')).toEqual(["p1-coowned"]);
+    expect(await keys('externalKey = "acme-1"')).toEqual(["p1-done"]);
+    const rows = JSON.parse(JSON.stringify(await prisma.workItem.findMany({ where: { id: { in: [ids["p1-done"], ids["p1-coowned"]] } } })));
+    expect(rows).toHaveLength(2);
+    for (const cql of ['externalKey = "ACME_1"', 'externalKey = "acme_2"', 'externalKey = "acme-1"']) {
+      const { where } = await predicateCql(w.ctx(), { cql }, { now: NOW });
+      const db = new Set((await executeCql(w.ctx(), { cql }, { now: NOW, pageSize: 100 })).data.map((x) => x.id));
+      for (const row of rows) {
+        const got = matches(where, row);
+        expect(got, `${cql} on ${row.title}`).not.toBe(UNDECIDED);
+        expect(got, `${cql} on ${row.title}`).toBe(db.has(row.id));
+      }
+    }
   });
 
   it("IS EMPTY distinguishes an unset column from a set one", async () => {

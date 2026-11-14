@@ -5,6 +5,7 @@ import { redirect, notFound } from "next/navigation";
 import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
 import { ClinBurnTracker } from "@/components/pm-dashboard/clin-burn-tracker";
 import { ClinEvmPanel } from "@/components/pm-dashboard/clin-evm-panel";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -14,7 +15,7 @@ export default async function ClinsPage({ params }: PageParams) {
   if (!ctx) redirect("/");
 
   const project = await prisma.project.findFirst({
-    where: { orgId: ctx.orgId, key: { equals: projectKey, mode: "insensitive" }, archived: false },
+    where: { orgId: ctx.orgId, key: { equals: escapeLike(projectKey), mode: "insensitive" }, archived: false },
     select: { id: true },
   });
   if (!project || !(await canReadProject(ctx, project.id))) notFound();

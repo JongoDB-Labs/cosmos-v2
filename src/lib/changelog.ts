@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.560.8",
+    date: "2026-11-14",
+    title: "Address and name lookups match exactly",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Signing in with a password, asking for a password reset, single sign-on, invitations, account requests and the sign-in allowlist now find an account by its exact email address, ignoring case only. The same goes for project keys and organization names in links, for label, role, partner and status names, for matching rows on import, and for `=` on text fields in queries.",
+      },
+    ],
+  },
+  {
     version: "2.560.4",
     date: "2026-11-14",
     title: "Exports show only what you could read in the app",

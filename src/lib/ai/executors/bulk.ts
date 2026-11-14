@@ -12,6 +12,7 @@ import { assertProjectManage, assertProjectRead, loadAuthContext, type ToolConte
 import type { AuthContext } from "@/lib/rbac/check";
 import { cqlOrg, diagnosticsForModel } from "./cql";
 import { BULK_TOOL_MAX } from "../tools/bulk";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * bulk_update_work_items — one change (status, assignee, sprint, labels,
@@ -230,7 +231,7 @@ export async function bulkUpdateWorkItems(input: Record<string, unknown>, ctx: T
         where: {
           projectId,
           archivedAt: null,
-          OR: [{ key: d.status }, { name: { equals: d.status, mode: "insensitive" } }],
+          OR: [{ key: d.status }, { name: { equals: escapeLike(d.status), mode: "insensitive" } }],
         },
         select: { key: true },
       });

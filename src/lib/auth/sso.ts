@@ -9,6 +9,7 @@ import { deleteMemberKeysIn } from "@/lib/auth/api-key-manage.server";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
 import { openSecret } from "@/lib/crypto/vault";
+import { escapeLike } from "@/lib/query/like";
 
 /**
  * In-app OIDC Relying Party — the security core. cosmos remains the single
@@ -337,7 +338,7 @@ export async function completeSsoLogin(
     const holders = claims.email
       ? await prisma.user.findMany({
           where: {
-            email: { equals: claims.email, mode: "insensitive" },
+            email: { equals: escapeLike(claims.email), mode: "insensitive" },
             isBot: false,
             deactivatedAt: null,
           },
@@ -366,7 +367,7 @@ export async function completeSsoLogin(
         prisma.invitation.findFirst({
           where: {
             orgId: org.id,
-            email: { equals: claims.email, mode: "insensitive" },
+            email: { equals: escapeLike(claims.email), mode: "insensitive" },
             expiresAt: { gt: new Date() },
           },
           select: { id: true },
@@ -494,7 +495,7 @@ export async function completeSsoLogin(
     const pendingInvites = await prisma.invitation.findMany({
       where: {
         orgId: org.id,
-        email: { equals: claims.email, mode: "insensitive" },
+        email: { equals: escapeLike(claims.email), mode: "insensitive" },
         expiresAt: { gt: new Date() },
       },
     });

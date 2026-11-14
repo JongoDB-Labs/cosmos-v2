@@ -8,6 +8,7 @@ import { rendersSavedWidgets } from "@/lib/boards/board-types";
 import { readBuilderWidgets } from "@/lib/boards/widget-data";
 import { BoardBuilder } from "@/components/boards/builder/board-builder";
 import type { Board } from "@/types/models";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = {
   params: Promise<{
@@ -28,7 +29,7 @@ export default async function BuilderPage({ params, searchParams }: PageParams) 
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
       archived: false,
     },
     select: { id: true, key: true, projectTemplateId: true },

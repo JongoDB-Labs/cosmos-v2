@@ -5,6 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { Prisma } from "@prisma/client";
+import { escapeLike } from "@/lib/query/like";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -48,7 +49,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const org = await prisma.organization.findFirst({
       where: UUID_RE.test(orgId)
         ? { id: orgId }
-        : { slug: { equals: orgId, mode: "insensitive" } },
+        : { slug: { equals: escapeLike(orgId), mode: "insensitive" } },
       select: { id: true, slug: true },
     });
     if (!org) return new Response("Not found", { status: 404 });
@@ -64,7 +65,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         orgId: org.id,
         ...(UUID_RE.test(projectId)
           ? { id: projectId }
-          : { key: { equals: projectId, mode: "insensitive" } }),
+          : { key: { equals: escapeLike(projectId), mode: "insensitive" } }),
         archived: false,
       },
       select: { id: true },

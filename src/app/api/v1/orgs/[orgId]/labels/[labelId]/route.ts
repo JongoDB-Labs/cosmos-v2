@@ -7,6 +7,7 @@ import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-help
 import { logAudit } from "@/lib/audit";
 import { recomputeTagMirror } from "@/lib/work-items/labels";
 import { z } from "zod";
+import { escapeLike } from "@/lib/query/like";
 
 const updateLabelSchema = z.object({
   name: z.string().min(1).max(60).optional(),
@@ -58,7 +59,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
       if (nextName && nextName.toLowerCase() !== existing.name.toLowerCase()) {
         const clash = await tx.label.findFirst({
-          where: { orgId, name: { equals: nextName, mode: "insensitive" } },
+          where: { orgId, name: { equals: escapeLike(nextName), mode: "insensitive" } },
         });
 
         if (clash && clash.id !== labelId) {

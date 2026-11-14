@@ -25,6 +25,7 @@ import { makePrismaClient } from "./shared/prisma-client";
 import { resolveDbUrl } from "./shared/env-local";
 // password.ts imports only node:crypto — no app-dependency chain, safe under tsx.
 import { hashPassword, passwordPolicyError } from "../../src/lib/auth/password";
+import { escapeLike } from "../../src/lib/query/like";
 
 // ── Config (all overridable via env) ─────────────────────────────────────────
 const ORG_NAME = (process.env.ORG_NAME ?? "Acme Inc").trim();
@@ -63,7 +64,7 @@ async function findOrCreateUser(email: string, displayName: string) {
   const normalized = email.trim();
   // User.email is NOT unique — match case-insensitively, never blind-create.
   const existing = await prisma.user.findFirst({
-    where: { email: { equals: normalized, mode: "insensitive" } },
+    where: { email: { equals: escapeLike(normalized), mode: "insensitive" } },
   });
   if (existing) return existing;
   return prisma.user.create({ data: { email: normalized, displayName, avatarUrl: null } });

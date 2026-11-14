@@ -7,6 +7,7 @@ import { ProjectSettingsClient } from "./project-settings-client";
 import { MentionedIn } from "@/components/mentions/mentioned-in";
 import { ProjectFeeTerms } from "@/components/finance/project-fee-terms";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import { escapeLike } from "@/lib/query/like";
 
 type PageParams = { params: Promise<{ orgSlug: string; projectKey: string }> };
 
@@ -18,7 +19,7 @@ export default async function ProjectSettingsPage({ params }: PageParams) {
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
     },
     select: {
       id: true,
