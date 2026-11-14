@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
+import { programManagementHref, type ProgramView } from "./program-views";
 
 export interface PickerProject {
   /** Project key (PRJ-style), which is what goes in the URL. */
@@ -25,28 +26,29 @@ export function ProjectPicker({
   orgSlug,
   projects,
   selectedKey,
+  view = "overview",
 }: {
   orgSlug: string;
   projects: PickerProject[];
   selectedKey: string | null;
+  /** Kept when the project changes, so picking one on the calendar stays on
+   *  the calendar. */
+  view?: ProgramView;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   return (
-    <label className="flex items-center gap-2 text-sm">
+    <label className="flex min-w-0 max-w-full items-center gap-2 text-sm">
       <span className="text-[var(--text-muted)]">Project</span>
       <select
         value={selectedKey ?? ""}
         disabled={pending}
         onChange={(e) => {
-          const next = e.target.value;
-          const href = next
-            ? `/${orgSlug}/program-management?project=${encodeURIComponent(next)}`
-            : `/${orgSlug}/program-management`;
+          const href = programManagementHref(orgSlug, view, e.target.value || null);
           startTransition(() => router.push(href));
         }}
-        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-60"
+        className="h-9 min-w-0 max-w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-60"
       >
         <option value="">All projects</option>
         {projects.map((p) => (

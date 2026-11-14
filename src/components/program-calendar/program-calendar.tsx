@@ -6,12 +6,22 @@ import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { CalendarToolbar, type CalendarViewMode, type SortKey, type CustomFilters } from "./calendar-toolbar";
-import { MonthGrid, type CalendarEvent } from "./month-grid";
+import { MonthGrid, VISIBLE_LANES, type CalendarEvent } from "./month-grid";
 import { TimeGrid } from "./time-grid";
 import { EventDialog, type EventDraft } from "./event-dialog";
 import type { ChipCategory } from "./event-chip";
+import { OverlayLegend, OverlayToggles, useOverlayToggles, type OverlayToggleSpec } from "./overlay-toggles";
 import { monthGridWindow, weekWindow, dayWindow, DAY_MS, utcMidnight } from "@/lib/program-calendar/time";
 import { weekDays } from "@/lib/program-calendar/layout";
+import {
+  agileItems,
+  DUE_CAP,
+  milestoneItems,
+  OVERLAY_STYLES,
+  type AgilePayload,
+  type CalendarMilestone,
+  type OverlayKind,
+} from "@/lib/program-calendar/overlays";
 
 interface ApiEvent {
   id: string;
@@ -32,6 +42,26 @@ interface ApiEvent {
   ownerMember: { id: string; user: { displayName: string } } | null;
 }
 
+/**
+ * What turns the calendar's overlays on. Program Management passes it; the
+ * project tab does not, and renders exactly as it did before overlays existed.
+ */
+export interface CalendarOverlays {
+  /** Where this viewer's toggles are remembered (`togglesStorageKey`). */
+  storageKey: string;
+  /** For the links on overlay chips. */
+  orgSlug: string;
+  /** Already limited, by the page, to the projects the viewer may read. */
+  milestones: CalendarMilestone[];
+}
+
+/** Lanes per week the Agile overlay adds, under the events' own three: room
+ *  for a Program Increment, a sprint and a release. The events keep their
+ *  three either way (see `eventLanes` below), so the two never crowd each other
+ *  out of a week; what does not fit is "+N more", which opens the Day view,
+ *  where every item on the day is drawn. */
+const AGILE_EXTRA_LANES = 3;
+
 /** `yyyy-mm-dd` from a UTC instant — never the local getters, which would
  *  shift the date for readers west of UTC. */
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
@@ -48,15 +78,21 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10);
 export function ProgramCalendar({
   orgId,
   projectId,
+  includeOrgEvents = false,
   canCreate,
   owners,
   deliverables,
+  overlays,
 }: {
   orgId: string;
+  /** Show this project's events, and file a new event under it. */
   projectId?: string;
+  /** With `projectId`, also show the org-level events (those with no project). */
+  includeOrgEvents?: boolean;
   canCreate: boolean;
   owners: { key: string; label: string }[];
   deliverables: { id: string; name: string }[];
+  overlays?: CalendarOverlays;
 }) {
   const [view, setView] = useState<CalendarViewMode>("month");
   const [anchor, setAnchor] = useState(() => utcMidnight(new Date()));
@@ -69,6 +105,10 @@ export function ProgramCalendar({
     hasDeliverable: false,
   });
   const [draft, setDraft] = useState<EventDraft | null>(null);
+  const { toggles, toggle } = useOverlayToggles(overlays?.storageKey);
+  // Without overlays the calendar is its events, always on.
+  const eventsOn = !overlays || toggles.events;
+  const agileOn = !!overlays && toggles.agile;
 
   const window = useMemo(() => {
     if (view === "month") return monthGridWindow(anchor);
@@ -84,11 +124,12 @@ export function ProgramCalendar({
     if (selectedCategories.length) p.set("categoryIds", selectedCategories.join(","));
     if (selectedOwners.length) p.set("ownerKeys", selectedOwners.join(","));
     if (projectId) p.set("projectId", projectId);
+    if (projectId && includeOrgEvents) p.set("includeOrgEvents", "true");
     if (filters.showOnDashboardOnly) p.set("showOnDashboardOnly", "true");
     if (filters.customerAttending) p.set("customerAttending", "true");
     if (filters.hasDeliverable) p.set("hasDeliverable", "true");
     return p.toString();
-  }, [window, selectedCategories, selectedOwners, filters, projectId]);
+  }, [window, selectedCategories, selectedOwners, filters, projectId, includeOrgEvents]);
 
   // Through useOrgQueryKey so switching org serves a different cache namespace.
   const eventsKey = useOrgQueryKey("program-events", params);
@@ -101,6 +142,7 @@ export function ProgramCalendar({
     // assertion, not a check, so declaring one here type-checked cleanly and
     // rendered an empty calendar against a correct 200 response.
     queryFn: () => jsonFetch<ApiEvent[]>(`/api/v1/orgs/${orgId}/program-events?${params}`),
+    enabled: eventsOn,
   });
 
   const categoriesQuery = useQuery({
@@ -111,24 +153,63 @@ export function ProgramCalendar({
       ),
   });
 
+  // The Agile overlay is not filtered by category or owner (those are program
+  // events' fields), so its key carries only the window and the project.
+  const agileParams = useMemo(() => {
+    const p = new URLSearchParams({ from: window.from.toISOString(), to: window.to.toISOString() });
+    if (projectId) p.set("projectId", projectId);
+    return p.toString();
+  }, [window, projectId]);
+  const agileKey = useOrgQueryKey("program-calendar-agile", agileParams);
+  const agileQuery = useQuery({
+    queryKey: agileKey,
+    queryFn: () => jsonFetch<AgilePayload>(`/api/v1/orgs/${orgId}/program-calendar/agile?${agileParams}`),
+    enabled: agileOn,
+  });
+
   const categories: ChipCategory[] = categoriesQuery.data ?? [];
   const categoryCounts = useMemo(
     () => Object.fromEntries((categoriesQuery.data ?? []).map((c) => [c.id, c.count])),
     [categoriesQuery.data],
   );
 
-  const events: CalendarEvent[] = useMemo(
+  // A switched-off query keeps its last data in the cache, so "off" has to be
+  // applied here too, not only by not fetching.
+  const programEvents: CalendarEvent[] = useMemo(
     () =>
-      (eventsQuery.data ?? []).map((e) => ({
-        id: e.id,
-        title: e.title,
-        startsAt: new Date(e.startsAt),
-        endsAt: new Date(e.endsAt),
-        allDay: e.allDay,
-        timeZone: e.timeZone,
-        category: e.category,
-      })),
-    [eventsQuery.data],
+      eventsOn
+        ? (eventsQuery.data ?? []).map((e) => ({
+            id: e.id,
+            title: e.title,
+            startsAt: new Date(e.startsAt),
+            endsAt: new Date(e.endsAt),
+            allDay: e.allDay,
+            timeZone: e.timeZone,
+            category: e.category,
+          }))
+        : [],
+    [eventsOn, eventsQuery.data],
+  );
+
+  // Milestones arrive as the page's whole list, so they are cut to the window
+  // here; the Agile rows were already cut by the server, on the same overlap.
+  const milestones: CalendarEvent[] = useMemo(
+    () =>
+      overlays && eventsOn
+        ? milestoneItems(overlays.milestones, overlays.orgSlug).filter(
+            (m) => m.startsAt < window.to && m.endsAt > window.from,
+          )
+        : [],
+    [overlays, eventsOn, window],
+  );
+  const agile: CalendarEvent[] = useMemo(
+    () => (overlays && agileOn && agileQuery.data ? agileItems(agileQuery.data, overlays.orgSlug) : []),
+    [overlays, agileOn, agileQuery.data],
+  );
+
+  const events: CalendarEvent[] = useMemo(
+    () => [...programEvents, ...milestones, ...agile],
+    [programEvents, milestones, agile],
   );
 
   const ownerLanes = useMemo(() => {
@@ -143,9 +224,50 @@ export function ProgramCalendar({
     }));
   }, [eventsQuery.data, owners]);
 
+  const toggleSpecs: OverlayToggleSpec[] = [
+    {
+      key: "events",
+      label: "Events",
+      swatchRgb: OVERLAY_STYLES.milestone.tintRgb,
+      count: eventsOn && eventsQuery.data ? eventsQuery.data.length + milestones.length : null,
+      loading: eventsOn && eventsQuery.isFetching,
+    },
+    {
+      key: "agile",
+      label: "Agile",
+      swatchRgb: OVERLAY_STYLES.sprint.tintRgb,
+      count: agileOn && agileQuery.data ? agile.length : null,
+      loading: agileOn && agileQuery.isFetching,
+    },
+  ];
+
+  const legendKinds: OverlayKind[] = [
+    ...(overlays && eventsOn ? (["milestone"] as const) : []),
+    ...(agileOn ? (["increment", "sprint", "release", "due"] as const) : []),
+  ];
+
+  // Anything the viewer is NOT being shown, said in words. A failed overlay
+  // must never look like an empty one.
+  const notes: string[] = [];
+  if (overlays) {
+    if (eventsOn && eventsQuery.isError) notes.push(`Program events could not be loaded: ${eventsQuery.error.message}`);
+    if (agileOn && agileQuery.isError) notes.push(`The Agile overlay could not be loaded: ${agileQuery.error.message}`);
+    if (agileOn && agileQuery.data?.dueCapped) {
+      notes.push(
+        `Only the first ${DUE_CAP} work items due in this period are shown. Pick a project above to see the rest.`,
+      );
+    }
+    if (!toggles.events && !toggles.agile) notes.push("Every overlay is off. Turn one on to fill the calendar.");
+  }
+
+  const visibleLanes = agileOn ? VISIBLE_LANES + AGILE_EXTRA_LANES : VISIBLE_LANES;
+
   const save = useOrgMutation({
     mutationFn: async (d: EventDraft) => {
-      const body = draftToBody(d);
+      // A NEW event goes under the picked project, so it stays in the view it
+      // was made in. An edit leaves the event's project as it is: with org
+      // events shown, an org-level event edited here must not move.
+      const body = draftToBody(d, d.id ? undefined : projectId);
       const url = d.id
         ? `/api/v1/orgs/${orgId}/program-events/${d.id}`
         : `/api/v1/orgs/${orgId}/program-events`;
@@ -268,6 +390,10 @@ export function ProgramCalendar({
         onFilters={setFilters}
         onNew={() => setDraft(newDraftOn(anchor))}
         canCreate={canCreate}
+        overlays={
+          overlays ? <OverlayToggles specs={toggleSpecs} toggles={toggles} onToggle={toggle} /> : undefined
+        }
+        eventFiltersOff={!eventsOn}
       />
 
       <div className="overflow-x-auto border-t">
@@ -277,6 +403,8 @@ export function ProgramCalendar({
             to={window.to}
             month={anchor.getUTCMonth()}
             events={events}
+            visibleLanes={visibleLanes}
+            eventLanes={overlays ? VISIBLE_LANES : undefined}
             onSelect={openExisting}
             onAddOn={canCreate ? (d) => setDraft(newDraftOn(d)) : undefined}
             onShowDay={(d) => {
@@ -292,6 +420,8 @@ export function ProgramCalendar({
           />
         )}
       </div>
+
+      {overlays ? <OverlayLegend kinds={legendKinds} notes={notes} /> : null}
 
       <EventDialog
         open={draft !== null}
@@ -309,8 +439,9 @@ export function ProgramCalendar({
 }
 
 /** Form values to the API body. The single place a date STRING becomes an
- *  instant, so the all-day rule is applied once. */
-export function draftToBody(d: EventDraft) {
+ *  instant, so the all-day rule is applied once. `projectId` is sent only when
+ *  given; leaving it out of an edit keeps the event's project unchanged. */
+export function draftToBody(d: EventDraft, projectId?: string) {
   const startsAt = d.allDay
     ? `${d.startDate}T00:00:00.000Z`
     : new Date(`${d.startDate}T${d.startTime}:00`).toISOString();
@@ -333,5 +464,6 @@ export function draftToBody(d: EventDraft) {
     customerAttending: d.customerAttending,
     description: d.description,
     showOnDashboard: d.showOnDashboard,
+    ...(projectId ? { projectId } : {}),
   };
 }

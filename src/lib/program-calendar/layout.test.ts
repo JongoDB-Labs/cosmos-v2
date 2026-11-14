@@ -83,6 +83,52 @@ describe("lanes keep overlapping events apart", () => {
   });
 });
 
+describe("overlays keep out of the calendar's own events' way", () => {
+  // Without a rank the longest bar wins lane 0, so a sprint covering the whole
+  // week would push every one-day program event down a lane, and with three
+  // visible lanes, a busy day's events into "+N more" behind the cadence.
+  it("a lower rank is placed first even when it is shorter", () => {
+    const event = { ...ev("event", 2, 1), rank: 0 };
+    const sprint = { ...ev("sprint", 0, 7), rank: 1 };
+    const { placed } = packWeek([sprint, event], WEEK);
+    expect(placed.find((p) => p.event.id === "event")!.lane).toBe(0);
+    expect(placed.find((p) => p.event.id === "sprint")!.lane).toBe(1);
+  });
+
+  it("an overflowing day hides the higher rank, not the event", () => {
+    const events = [0, 1, 2].map((i) => ({ ...ev(`due-${i}`, 3, 1), rank: 3 }));
+    const { placed, overflow } = packWeek([...events, { ...ev("event", 3, 1), rank: 0 }], WEEK, 2);
+    expect(placed.map((p) => p.event.id)).toContain("event");
+    expect(overflow[3]).toBe(2);
+  });
+
+  it("control: with equal ranks, the longest bar still goes first", () => {
+    const { placed } = packWeek([{ ...ev("short", 0, 2), rank: 1 }, { ...ev("long", 1, 5), rank: 1 }], WEEK);
+    expect(placed.find((p) => p.event.id === "long")!.lane).toBe(0);
+  });
+
+  // Found driving the page: four events on one Tuesday took four lanes, and
+  // the week's sprint, packed after them, never showed in its own week.
+  const busyTuesday = () => [
+    ...[0, 1, 2, 3].map((i) => ({ ...ev(`event-${i}`, 2, 1), rank: 0 })),
+    { ...ev("sprint", 0, 7), rank: 1 },
+  ];
+  const eventsKeepThree = (e: { rank?: number }) => ((e.rank ?? 0) === 0 ? 3 : 4);
+
+  it("with a lane limit, a busy day's fourth event goes to \"+1 more\" and the sprint keeps a lane", () => {
+    const { placed, overflow } = packWeek(busyTuesday(), WEEK, 4, eventsKeepThree);
+    expect(placed.find((p) => p.event.id === "sprint")?.lane).toBe(3);
+    expect(placed.filter((p) => p.event.id.startsWith("event-"))).toHaveLength(3);
+    expect(overflow[2]).toBe(1);
+  });
+
+  it("control: without the limit, the same week hides the sprint on every day", () => {
+    const { placed, overflow } = packWeek(busyTuesday(), WEEK, 4);
+    expect(placed.find((p) => p.event.id === "sprint")).toBeUndefined();
+    expect(overflow).toEqual([1, 1, 1, 1, 1, 1, 1]);
+  });
+});
+
 describe("overflow counts what did not fit", () => {
   it("pushes beyond the lane cap into per-day counts", () => {
     const events = [ev("a", 2, 1), ev("b", 2, 1), ev("c", 2, 1), ev("d", 2, 1), ev("e", 2, 1)];

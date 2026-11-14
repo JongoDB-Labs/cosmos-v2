@@ -31,3 +31,31 @@ describe("PageShell walkthrough anchors", () => {
     expect(container.querySelector("[data-tour]")).toBeNull();
   });
 });
+
+describe("PageShell actions", () => {
+  const actionsOf = (c: HTMLElement) => c.querySelector("h1")!.parentElement!.nextElementSibling as HTMLElement;
+
+  it("with wrapActions, the actions may drop below the title and wrap among themselves", () => {
+    const { container } = render(
+      <PageShell title="Program Management" wrapActions actions={<button>Overview</button>}>
+        <p>body</p>
+      </PageShell>,
+    );
+    const row = container.querySelector("h1")!.parentElement!.parentElement!;
+    expect(row.className).toContain("flex-wrap");
+    expect(container.querySelector("h1")!.parentElement!.className).toContain("basis-64");
+    expect(actionsOf(container).className).toContain("flex-wrap");
+    expect(actionsOf(container).className).not.toContain("shrink-0");
+  });
+
+  it("control: without it, the layout is the one every other page has", () => {
+    const { container } = render(
+      <PageShell title="Bills" actions={<button>New bill</button>}>
+        <p>body</p>
+      </PageShell>,
+    );
+    const row = container.querySelector("h1")!.parentElement!.parentElement!;
+    expect(row.className).not.toContain("flex-wrap");
+    expect(actionsOf(container).className).toContain("shrink-0");
+  });
+});

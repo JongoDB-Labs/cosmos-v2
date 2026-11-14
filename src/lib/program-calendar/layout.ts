@@ -21,6 +21,12 @@ export interface PackableEvent {
   id: string;
   startsAt: Date;
   endsAt: Date;
+  /**
+   * Packing priority when several kinds share a week: lower is placed first,
+   * and so keeps the upper lanes. Absent means 0, so a calendar of program
+   * events alone packs exactly as it always has.
+   */
+  rank?: number;
 }
 
 export interface PlacedEvent<T extends PackableEvent> {
@@ -48,11 +54,16 @@ export interface WeekLayout<T extends PackableEvent> {
 /**
  * @param weekStart UTC midnight of the week's first day.
  * @param maxLanes  Visible lanes; anything beyond becomes "+k more".
+ * @param laneLimit Optional, per event: the lanes it may use, below `maxLanes`.
+ *   With overlays on, program events keep their usual three, so a busy day's
+ *   fourth event goes to "+k more" instead of pushing every sprint in the week
+ *   out of sight. Without it, every event may use every lane.
  */
 export function packWeek<T extends PackableEvent>(
   events: T[],
   weekStart: Date,
   maxLanes = 3,
+  laneLimit?: (event: T) => number,
 ): WeekLayout<T> {
   const weekFrom = utcMidnight(weekStart).getTime();
   const weekTo = weekFrom + 7 * DAY_MS;
@@ -80,10 +91,13 @@ export function packWeek<T extends PackableEvent>(
     });
   }
 
-  // Longest first, then earliest, then by id so the order is stable across
-  // renders — an unstable sort here makes bars jump lanes on every refetch.
+  // Rank first, so an overlay never pushes the calendar's own events down
+  // into "+N more"; then longest, then earliest, then by id so the order is
+  // stable across renders — an unstable sort here makes bars jump lanes on
+  // every refetch.
   spans.sort(
     (a, b) =>
+      (a.event.rank ?? 0) - (b.event.rank ?? 0) ||
       b.span - a.span ||
       a.from - b.from ||
       (a.event.id < b.event.id ? -1 : a.event.id > b.event.id ? 1 : 0),
@@ -107,7 +121,7 @@ export function packWeek<T extends PackableEvent>(
       if (free) break;
     }
 
-    if (lane >= maxLanes) {
+    if (lane >= Math.min(maxLanes, laneLimit?.(s.event) ?? maxLanes)) {
       // Does not fit: it becomes part of the overflow count on each day it
       // would have covered, so "+2 more" on a Thursday really means two more
       // things happen on Thursday.

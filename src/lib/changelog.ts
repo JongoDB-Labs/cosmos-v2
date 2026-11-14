@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.558.0",
+    date: "2026-11-13",
+    title: "A calendar in Program Management, with overlays you switch on and off",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Program Management has a Calendar view beside the overview. It shows program events from every project you can see, and follows the page's project picker. With a project picked, you see that project's events and the ones for the whole organization, and a new event is filed under that project. The Categories, Owners and Filters menus work as they do on a project's calendar.",
+      },
+      {
+        kind: "feature",
+        text: "Two overlays, each on or off by itself: Events shows program events and milestones, and Agile shows Program Increments, sprints, releases and the dates work items are due. Your choice is remembered in this browser.",
+      },
+      {
+        kind: "improvement",
+        text: "Sprints, Program Increments and work items appear only from projects you can read. Each overlay item links to its own page, and carries an icon and a spoken label as well as a colour.",
+      },
+      {
+        kind: "fix",
+        text: "The Day and Week views of the program calendar now show every all-day item on a day. Only the first three were shown before.",
+      },
+    ],
+  },
+  {
     version: "2.557.1",
     date: "2026-11-13",
     title: "Action restrictions hold for admins in more places",

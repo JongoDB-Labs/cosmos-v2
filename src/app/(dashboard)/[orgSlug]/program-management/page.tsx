@@ -7,9 +7,13 @@ import { loadMilestonesWithDerived } from "@/lib/pm/schedule";
 import { loadKpisWithDerived } from "@/lib/pm/kpi-derive";
 import { loadClinsWithBurn } from "@/lib/pm/burn";
 import { canViewPage } from "@/lib/nav/page-access";
-import { getVisibleProjectIds } from "@/lib/rbac/project-access";
+import { getVisibleProjectIds, hiddenProjectIds } from "@/lib/rbac/project-access";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { moneyGate } from "@/lib/rbac/money-fields";
+import { hasPermission, Permission } from "@/lib/rbac/permissions";
+import type { AuthContext } from "@/lib/rbac/check";
+import { ProgramCalendar } from "@/components/program-calendar/program-calendar";
+import { togglesStorageKey } from "@/lib/program-calendar/overlays";
 import { NoPageAccess } from "@/components/ui/no-page-access";
 import { PageShell, pageShellBoxClassName, type PageShellProps } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,10 +28,11 @@ import {
 } from "@/lib/pm/embed";
 import { ProjectPicker } from "./project-picker";
 import { EmbeddedDashboard } from "./embedded-dashboard";
+import { ProgramViews, parseProgramView, type ProgramView } from "./program-views";
 
 type PageParams = {
   params: Promise<{ orgSlug: string }>;
-  searchParams: Promise<{ project?: string }>;
+  searchParams: Promise<{ project?: string; view?: string }>;
 };
 
 /**
@@ -44,6 +49,10 @@ type PageParams = {
  * Scope is a project picker, not a URL segment, because the question this page
  * answers ("how is the program doing") is asked of the portfolio as often as
  * of one project, and a segment forces a choice before the page can load.
+ *
+ * Two views, `?view=calendar` and the overview. The calendar is the program
+ * calendar that used to live on each project's PM Dashboard tab, brought here
+ * org-wide with its overlays. That tab is untouched; existing projects keep it.
  *
  * Cache Components: `params`, `searchParams` and the cookie read in
  * `getAuthContext` all live inside the <Suspense> boundary below. Awaiting any
@@ -73,14 +82,16 @@ export default function ProgramManagementPage({ params, searchParams }: PagePara
 async function ProgramManagementLoading({ params, searchParams }: PageParams) {
   await connection();
   const embedded = programManagementEmbedUrl() !== null;
+  const view = parseProgramView((await searchParams).view);
   return (
-    <Suspense fallback={<ProgramManagementSkeleton embedded={embedded} />}>
+    <Suspense fallback={<ProgramManagementSkeleton embedded={embedded} view={view} />}>
       <ProgramManagementContent params={params} searchParams={searchParams} />
     </Suspense>
   );
 }
 
-/** The page's width, read by the page and its skeleton alike so they cannot disagree. */
+/** The page's width, read by the page and its skeleton alike so they cannot
+ *  disagree. Per instance, not per view, so switching views never jumps. */
 function pageWidth(embedded: boolean): NonNullable<PageShellProps["maxWidth"]> {
   return embedded ? "full" : "7xl";
 }
@@ -93,6 +104,8 @@ function pageWidth(embedded: boolean): NonNullable<PageShellProps["maxWidth"]> {
  */
 export async function ProgramManagementContent({ params, searchParams }: PageParams) {
   const { orgSlug } = await params;
+  const query = await searchParams;
+  const view = parseProgramView(query.view);
   const ctx = await getAuthContext(orgSlug);
   if (!ctx) redirect("/");
 
@@ -105,6 +118,14 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
         <NoPageAccess what="program management" />
       </PageShell>
     );
+  }
+
+  // The calendar is built in on every instance, framed dashboard or not, so it
+  // is answered BEFORE the frame: an instance that shows an outside overview
+  // still has this calendar, and the same-site move below is about signing
+  // the frame in, which the calendar has no part in.
+  if (view === "calendar") {
+    return programCalendarView(ctx, orgSlug, query.project ?? null);
   }
 
   // An instance can show an outside dashboard here instead, while the
@@ -122,7 +143,13 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
     const there = here ? programManagementSameSiteOrigin(here) : null;
     if (there) redirect(`${there}/${encodeURIComponent(orgSlug)}/program-management`);
     return (
-      <PageShell tourAnchor="program-management" title="Program Management" maxWidth={pageWidth(true)}>
+      <PageShell
+        tourAnchor="program-management"
+        title="Program Management"
+        maxWidth={pageWidth(true)}
+        wrapActions
+        actions={<ProgramViews orgSlug={orgSlug} view="overview" projectKey={null} />}
+      >
         <EmbeddedDashboard src={embed.href} signInSrc={programManagementSignInUrl()?.href ?? embed.href} />
       </PageShell>
     );
@@ -134,43 +161,11 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
   });
   if (!org) notFound();
 
-  // Every project the viewer may see, narrowed exactly as the Projects list
-  // narrows it: a team-restricted project they are not on is absent from the
-  // picker AND from every total below, not merely hidden from the dropdown.
-  const all = await prisma.project.findMany({
-    where: { orgId: ctx.orgId },
-    orderBy: { name: "asc" },
-    select: { id: true, key: true, name: true },
-  });
-  // Then the org's allow/deny rules, which the visibility check above does not
-  // read: each register's own API refuses a project where a rule denies the
-  // viewer ANALYTICS_READ, so this roll-up leaves that project out too, and
-  // goals and milestones follow their own actions (OKR_READ, PROJECT_READ) as
-  // their APIs do. Without this a rule that hid one project's risks from the
-  // API still rolled them into the portfolio here.
-  const [visibleIds, analyticsIds, okrIds, projectReadIds] = await Promise.all([
-    getVisibleProjectIds(ctx, all.map((p) => p.id)),
-    getReadableProjectIds(ctx, "ANALYTICS_READ"),
-    getReadableProjectIds(ctx, "OKR_READ"),
-    getReadableProjectIds(ctx, "PROJECT_READ"),
-  ]);
-  const analyticsReadable = new Set(analyticsIds);
-  const visibleProjects = all.filter((p) => visibleIds.has(p.id) && analyticsReadable.has(p.id));
-
-  // An unknown or unreadable ?project= falls back to the whole portfolio
-  // rather than erroring: the key is in a URL people paste, and a project can
-  // be renamed, archived or put behind a team after the link was shared.
-  const requestedKey = (await searchParams).project ?? null;
-  const selected = requestedKey
-    ? (visibleProjects.find((p) => p.key === requestedKey) ?? null)
-    : null;
+  const { visibleProjects, selected, scopeIds, goalScopeIds, milestoneScopeIds } = await programScope(
+    ctx,
+    query.project ?? null,
+  );
   const selectedKey = selected?.key ?? null;
-
-  const scopeIds = selected ? [selected.id] : visibleProjects.map((p) => p.id);
-  const okrReadable = new Set(okrIds);
-  const goalScopeIds = scopeIds.filter((id) => okrReadable.has(id));
-  const projectReadable = new Set(projectReadIds);
-  const milestoneScopeIds = scopeIds.filter((id) => projectReadable.has(id));
 
   // Money is gated separately from the page. Reading that a program has
   // slipped is a different question from reading what it is worth, and the
@@ -248,8 +243,12 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
           ? `${selected.name} — schedule, risk and delivery`
           : `Every project in ${org.name} you can see — schedule, risk and delivery`
       }
+      wrapActions
       actions={
-        <ProjectPicker orgSlug={orgSlug} projects={visibleProjects} selectedKey={selectedKey} />
+        <>
+          <ProgramViews orgSlug={orgSlug} view="overview" projectKey={selectedKey} />
+          <ProjectPicker orgSlug={orgSlug} projects={visibleProjects} selectedKey={selectedKey} />
+        </>
       }
     >
       <UnderConstruction />
@@ -318,6 +317,150 @@ export async function ProgramManagementContent({ params, searchParams }: PagePar
 }
 
 /**
+ * The projects in scope, shared by both views so they cannot disagree about
+ * what the reader may see.
+ */
+async function programScope(ctx: AuthContext, requestedKey: string | null) {
+  // Every project the viewer may see, narrowed exactly as the Projects list
+  // narrows it: a team-restricted project they are not on is absent from the
+  // picker AND from every total below, not merely hidden from the dropdown.
+  const all = await prisma.project.findMany({
+    where: { orgId: ctx.orgId },
+    orderBy: { name: "asc" },
+    select: { id: true, key: true, name: true },
+  });
+  // Then the org's allow/deny rules, which the visibility check above does not
+  // read: each register's own API refuses a project where a rule denies the
+  // viewer ANALYTICS_READ, so this roll-up leaves that project out too, and
+  // goals and milestones follow their own actions (OKR_READ, PROJECT_READ) as
+  // their APIs do. Without this a rule that hid one project's risks from the
+  // API still rolled them into the portfolio here.
+  const [visibleIds, analyticsIds, okrIds, projectReadIds] = await Promise.all([
+    getVisibleProjectIds(ctx, all.map((p) => p.id)),
+    getReadableProjectIds(ctx, "ANALYTICS_READ"),
+    getReadableProjectIds(ctx, "OKR_READ"),
+    getReadableProjectIds(ctx, "PROJECT_READ"),
+  ]);
+  const analyticsReadable = new Set(analyticsIds);
+  const visibleProjects = all.filter((p) => visibleIds.has(p.id) && analyticsReadable.has(p.id));
+
+  // An unknown or unreadable ?project= falls back to the whole portfolio
+  // rather than erroring: the key is in a URL people paste, and a project can
+  // be renamed, archived or put behind a team after the link was shared.
+  const selected = requestedKey
+    ? (visibleProjects.find((p) => p.key === requestedKey) ?? null)
+    : null;
+
+  const scopeIds = selected ? [selected.id] : visibleProjects.map((p) => p.id);
+  const okrReadable = new Set(okrIds);
+  const projectReadable = new Set(projectReadIds);
+  return {
+    all,
+    analyticsIds,
+    visibleProjects,
+    selected,
+    scopeIds,
+    goalScopeIds: scopeIds.filter((id) => okrReadable.has(id)),
+    milestoneScopeIds: scopeIds.filter((id) => projectReadable.has(id)),
+  };
+}
+
+/**
+ * The program calendar, org-wide, with its overlays. A function the page
+ * calls, not a component it renders, so the page's tree is the calendar's and
+ * its test sees what the calendar is handed.
+ *
+ * Program events are read by the calendar itself, through the events API and
+ * its rule (BOARD_READ, and only events on projects the reader may see), and
+ * so is the Agile overlay, through its own route. What is loaded here is what
+ * the calendar is handed:
+ *
+ * - Milestones, by the overview's rule: the projects in scope that the reader
+ *   may read under PROJECT_READ, as the milestones API asks. The same loader
+ *   as the overview, so an auto-dated milestone sits on the date it shows there.
+ * - The event form's pickers, by the rules the project tab applies: teams on
+ *   projects the reader can see, members still in the org, and deliverables on
+ *   projects readable under ANALYTICS_READ, as the deliverables API asks.
+ */
+async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedKey: string | null) {
+  const embedded = programManagementEmbedUrl() !== null;
+  const [org, scope, hidden] = await Promise.all([
+    prisma.organization.findUnique({ where: { id: ctx.orgId }, select: { name: true } }),
+    programScope(ctx, requestedKey),
+    hiddenProjectIds(ctx),
+  ]);
+  if (!org) notFound();
+  const { all, analyticsIds, visibleProjects, selected, milestoneScopeIds } = scope;
+  const keyById = new Map(all.map((p) => [p.id, p.key]));
+
+  const [teams, members, deliverables, milestones] = await Promise.all([
+    prisma.team.findMany({
+      where: { orgId: ctx.orgId, ...(hidden.length ? { projectId: { notIn: hidden } } : {}) },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.orgMember.findMany({
+      where: { orgId: ctx.orgId, removedAt: null },
+      select: { id: true, user: { select: { displayName: true } } },
+      orderBy: { joinedAt: "asc" },
+    }),
+    prisma.deliverable.findMany({
+      // `Deliverable.projectId` is not nullable, so there is no org-level arm.
+      where: { orgId: ctx.orgId, projectId: { in: analyticsIds } },
+      select: { id: true, title: true },
+      orderBy: { title: "asc" },
+      take: 500,
+    }),
+    loadMilestonesWithDerived(ctx.orgId, milestoneScopeIds),
+  ]);
+
+  const owners = [
+    ...teams.map((t) => ({ key: `team:${t.id}`, label: t.name })),
+    ...members.map((m) => ({ key: `member:${m.id}`, label: m.user.displayName })),
+  ];
+  const selectedKey = selected?.key ?? null;
+
+  return (
+    <PageShell
+      tourAnchor="program-management"
+      title="Program Management"
+      maxWidth={pageWidth(embedded)}
+      description={
+        selected
+          ? `${selected.name} — program calendar`
+          : `Program calendar for every project in ${org.name} you can see`
+      }
+      wrapActions
+      actions={
+        <>
+          <ProgramViews orgSlug={orgSlug} view="calendar" projectKey={selectedKey} />
+          <ProjectPicker orgSlug={orgSlug} projects={visibleProjects} selectedKey={selectedKey} view="calendar" />
+        </>
+      }
+    >
+      <ProgramCalendar
+        orgId={ctx.orgId}
+        projectId={selected?.id}
+        includeOrgEvents
+        canCreate={hasPermission(ctx.permissions, Permission.BOARD_UPDATE)}
+        owners={owners}
+        deliverables={deliverables.map((d) => ({ id: d.id, name: d.title }))}
+        overlays={{
+          storageKey: togglesStorageKey(ctx.orgId, ctx.userId),
+          orgSlug,
+          milestones: milestones.map((m) => ({
+            id: m.id,
+            title: m.title,
+            dueDate: m.dueDate.toISOString(),
+            projectKey: keyById.get(m.projectId) ?? "",
+          })),
+        }}
+      />
+    </PageShell>
+  );
+}
+
+/**
  * Says plainly that this page is mid-migration. It is here because the page
  * already shows real figures: without it, a reader has no way to tell that the
  * registers behind these panels are about to be rebuilt, and would reasonably
@@ -351,11 +494,31 @@ function UnderConstruction() {
  * like the content for each mode: the framed dashboard has only a title, a
  * toolbar and the frame, so its skeleton promises no picker and no panels.
  */
-function ProgramManagementSkeleton({ embedded }: { embedded: boolean }) {
+function ProgramManagementSkeleton({ embedded, view }: { embedded: boolean; view: ProgramView }) {
+  if (view === "calendar") {
+    return (
+      <div className={pageShellBoxClassName(pageWidth(embedded))}>
+        <div className="mb-5 flex items-start justify-between gap-4 md:mb-8">
+          <div className="min-w-0">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="mt-2 h-4 w-96" />
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Skeleton className="h-8 w-44" />
+            <Skeleton className="h-9 w-56" />
+          </div>
+        </div>
+        <Skeleton className="h-[640px] w-full rounded-lg" />
+      </div>
+    );
+  }
   if (embedded) {
     return (
       <div className={pageShellBoxClassName(pageWidth(true))}>
-        <Skeleton className="mb-5 h-8 w-64 md:mb-8" />
+        <div className="mb-5 flex items-start justify-between gap-4 md:mb-8">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-8 w-44" />
+        </div>
         <div className="flex flex-col gap-3">
           <div className="flex justify-end gap-2">
             <Skeleton className="h-7 w-7" />
@@ -374,7 +537,10 @@ function ProgramManagementSkeleton({ embedded }: { embedded: boolean }) {
           <Skeleton className="h-8 w-64" />
           <Skeleton className="mt-2 h-4 w-96" />
         </div>
-        <Skeleton className="h-9 w-56" />
+        <div className="flex shrink-0 items-center gap-2">
+          <Skeleton className="h-8 w-44" />
+          <Skeleton className="h-9 w-56" />
+        </div>
       </div>
       <Skeleton className="mb-6 h-20 w-full rounded-[var(--radius)]" />
       <div className="grid gap-4 md:grid-cols-3">

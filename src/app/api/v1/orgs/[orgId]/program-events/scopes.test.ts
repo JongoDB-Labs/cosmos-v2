@@ -23,6 +23,7 @@ import {
   listEventCategories,
   createEventCategory,
 } from "../event-categories/route.contract";
+import { listAgileOverlay } from "../program-calendar/agile/route.contract";
 
 const CONTRACTS = [
   ["listProgramEvents", listProgramEvents],
@@ -32,6 +33,7 @@ const CONTRACTS = [
   ["deleteProgramEvent", deleteProgramEvent],
   ["listEventCategories", listEventCategories],
   ["createEventCategory", createEventCategory],
+  ["listAgileOverlay", listAgileOverlay],
 ] as const;
 
 const apiKey = (scopes: string[]) =>

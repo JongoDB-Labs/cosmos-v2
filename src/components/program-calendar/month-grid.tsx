@@ -6,6 +6,7 @@ import { EventChip, type ChipCategory } from "./event-chip";
 import { packWeek, weekDays, weeksIn } from "@/lib/program-calendar/layout";
 import { DAY_MS, utcMidnight } from "@/lib/program-calendar/time";
 import { useUtcToday } from "./use-utc-today";
+import type { OverlayKind } from "@/lib/program-calendar/overlays";
 
 export interface CalendarEvent {
   id: string;
@@ -15,10 +16,18 @@ export interface CalendarEvent {
   allDay: boolean;
   timeZone: string;
   category: ChipCategory;
+  /** Set on an overlay record (a sprint, a milestone...); absent on a program event. */
+  kind?: OverlayKind;
+  /** Lane priority; see `packWeek`. */
+  rank?: number;
+  /** An overlay record's own page. */
+  href?: string;
+  /** Tooltip text, when it should say more than the title. */
+  description?: string;
 }
 
 const WEEKDAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-const VISIBLE_LANES = 3;
+export const VISIBLE_LANES = 3;
 
 /**
  * The month view.
@@ -43,6 +52,8 @@ export function MonthGrid({
   onSelect,
   onAddOn,
   onShowDay,
+  visibleLanes = VISIBLE_LANES,
+  eventLanes,
 }: {
   /** Start of the padded grid window (a Sunday, UTC midnight). */
   from: Date;
@@ -54,6 +65,12 @@ export function MonthGrid({
   onSelect?: (id: string) => void;
   onAddOn?: (day: Date) => void;
   onShowDay?: (day: Date) => void;
+  /** Event lanes drawn per week before the rest become "+N more". Overlays
+   *  raise it, so turning one on does not hide the events already shown. */
+  visibleLanes?: number;
+  /** Lanes the calendar's own events (rank 0) may take, when fewer than
+   *  `visibleLanes`: the rest are kept for the overlays under them. */
+  eventLanes?: number;
 }) {
   const weeks = useMemo(() => weeksIn(from, to), [from, to]);
   const today = useUtcToday();
@@ -69,7 +86,12 @@ export function MonthGrid({
       </div>
 
       {weeks.map((weekStart) => {
-        const { placed, overflow, laneCount } = packWeek(events, weekStart, VISIBLE_LANES);
+        const { placed, overflow, laneCount } = packWeek(
+          events,
+          weekStart,
+          visibleLanes,
+          eventLanes === undefined ? undefined : (e) => ((e.rank ?? 0) === 0 ? eventLanes : visibleLanes),
+        );
         const days = weekDays(weekStart);
         const lanes = Math.max(laneCount, 1);
 
@@ -138,6 +160,9 @@ export function MonthGrid({
                 timeZone={p.event.timeZone}
                 continuesBefore={p.continuesBefore}
                 continuesAfter={p.continuesAfter}
+                kind={p.event.kind}
+                href={p.event.href}
+                description={p.event.description}
                 onClick={() => onSelect?.(p.event.id)}
                 style={{ gridColumn: `${p.startCol} / span ${p.span}`, gridRow: p.lane + 2 }}
               />

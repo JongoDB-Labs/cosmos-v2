@@ -290,3 +290,40 @@ describe("owner lanes", () => {
     expect(ids(unassigned)).toContain(evOrg);
   });
 });
+
+describe("a picked project, with the org's own events", () => {
+  const nov = [utc(2026, 11, 1), utc(2026, 12, 1)] as const;
+
+  it("lists that project's events and the org-level ones, and not another project's", async () => {
+    const rows = await listProgramEvents(ctxFor(insider), ...nov, { projectId: openProj, includeOrgEvents: true });
+    expect(ids(rows)).toContain(evOpen);
+    expect(ids(rows)).toContain(evOrg);
+    expect(ids(rows)).toContain(evSpanning);
+    // Visible to this reader, but filed under a different project.
+    expect(ids(rows)).not.toContain(evRestricted);
+  });
+
+  it("control: `projectId` alone still means only that project", async () => {
+    const rows = await listProgramEvents(ctxFor(insider), ...nov, { projectId: openProj });
+    expect(ids(rows)).toEqual([evOpen]);
+  });
+
+  it("does not widen what the reader may see: a hidden project's events stay hidden", async () => {
+    const rows = await listProgramEvents(ctxFor(outsider), ...nov, { projectId: restricted, includeOrgEvents: true });
+    expect(ids(rows)).not.toContain(evRestricted);
+    expect(ids(rows)).toContain(evOrg);
+  });
+
+  it("an event made with a project picked belongs to it and is listed in that view", async () => {
+    const made = await createProgramEvent(ctxFor(insider), insider, {
+      title: "Made under a project", categoryId: catA, projectId: openProj,
+      startsAt: utc(2026, 11, 16), endsAt: utc(2026, 11, 16), allDay: true,
+    });
+    expect(made.projectId).toBe(openProj);
+    const here = await listProgramEvents(ctxFor(insider), ...nov, { projectId: openProj, includeOrgEvents: true });
+    expect(ids(here)).toContain(made.id);
+    // Control: it is the project's, not org-level, so another project's view leaves it out.
+    const there = await listProgramEvents(ctxFor(insider), ...nov, { projectId: restricted, includeOrgEvents: true });
+    expect(ids(there)).not.toContain(made.id);
+  });
+});
