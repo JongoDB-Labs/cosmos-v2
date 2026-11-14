@@ -1,23 +1,28 @@
 import { prisma } from "@/lib/db/client";
-import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
-import { OrgRole } from "@prisma/client";
+import { escapeLike } from "@/lib/query/like";
+import { addOrReinstateMember, membershipRow } from "@/lib/members/add-member.server";
 
 /**
- * Consume all pending, unexpired invitations addressed to `email`: create the
- * org membership, assign the work-roles chosen at invite time, auto-join
- * #general, then delete the invite. Shared by the Google + Microsoft sign-in
- * callbacks (previously duplicated, and without work-role assignment).
+ * Consume all pending, unexpired invitations addressed to `email`: let the
+ * person in (someone removed gets their own membership back, as when an admin
+ * re-adds them), assign the work-roles chosen at invite time, then delete the
+ * invite. Shared by the Google, Microsoft and password sign-ins.
  *
- * Best-effort per invite — a race ("already a member") or a since-deleted
- * work-role is skipped, never fatal to the sign-in.
+ * `email` matches an invitation's exact address, ignoring case: the OAuth
+ * sign-ins pass the account's stored address, which may carry capitals.
+ *
+ * Best-effort per invite: someone who is already a member just has the invite
+ * cleared, and a since-deleted work-role is skipped. Any other failure is
+ * logged and leaves the invitation for their next sign-in; it never fails the
+ * sign-in.
  */
 export async function consumePendingInvitations(
   userId: string,
   email: string,
 ): Promise<void> {
   const pending = await prisma.invitation.findMany({
-    where: { email, expiresAt: { gt: new Date() } },
+    where: { email: { equals: escapeLike(email), mode: "insensitive" }, expiresAt: { gt: new Date() } },
   });
 
   for (const invite of pending) {
@@ -34,15 +39,31 @@ export async function consumePendingInvitations(
       continue;
     }
 
-    const newMember = await prisma.orgMember
-      .create({
-        data: { orgId: invite.orgId, userId, role: invite.role },
-      })
-      .catch(() => undefined); // race: already a member is fine
+    // The grant ceiling ran when the invitation was created or resent, counting
+    // what reinstating a removed membership hands back (retainedGrantsFor).
+    let joined: Awaited<ReturnType<typeof addOrReinstateMember>>;
+    try {
+      joined = await addOrReinstateMember({
+        orgId: invite.orgId,
+        userId,
+        role: invite.role,
+        existing: await membershipRow(invite.orgId, userId),
+        actorUserId: userId,
+        auditMetadata: { invitationId: invite.id },
+      });
+    } catch (err) {
+      console.error(
+        "[invitations] could not accept an invitation; it stays for the next sign-in",
+        { orgId: invite.orgId, invitationId: invite.id, userId },
+        err,
+      );
+      continue;
+    }
 
-    if (newMember) {
+    if (joined) {
       // Apply the work-roles selected at invite time — only those that still
       // exist in this org (a role may have been deleted since the invite).
+      const memberId = joined.member.id;
       const wrIds = Array.isArray(invite.workRoleIds) ? invite.workRoleIds : [];
       if (wrIds.length > 0) {
         const validRoles = await prisma.workRole.findMany({
@@ -53,27 +74,13 @@ export async function consumePendingInvitations(
           await prisma.orgMemberWorkRole
             .createMany({
               data: validRoles.map((r) => ({
-                orgMemberId: newMember.id,
+                orgMemberId: memberId,
                 workRoleId: r.id,
               })),
               skipDuplicates: true,
             })
             .catch(() => undefined);
         }
-      }
-
-      try {
-        await autoJoinGeneral(
-          newMember.orgId,
-          newMember.userId,
-          newMember.role === OrgRole.OWNER || newMember.role === OrgRole.ADMIN,
-        );
-      } catch (err) {
-        console.warn(
-          "[chat] failed to auto-join invited member to #general",
-          { orgId: newMember.orgId, userId },
-          err,
-        );
       }
     }
 

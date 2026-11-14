@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { sendInvitationEmail } from "@/lib/integrations/invitation-email";
 import { revokeProvisionedAccount } from "@/lib/auth/revoke-invitation";
+import { retainedGrantsFor } from "@/lib/members/add-member.server";
 
 /**
  * Revoke (DELETE) or resend (POST) a pending invitation — the lifecycle the
@@ -107,12 +108,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // Resending extends the invitation's life, including one that had expired,
     // so it is a grant like creating one: the same ceiling applies to the role
-    // and work roles it carries. Otherwise an admin could revive an owner's
-    // lapsed OWNER invitation.
+    // and work roles it carries, and to what accepting it would reinstate for
+    // someone removed (createOrgInvitation counts that too). Otherwise an admin
+    // could revive an owner's lapsed OWNER invitation.
     assertCanGrantOrgRole(
       ctx,
       existing.role,
-      await invitedWorkRoleGrants(orgId, existing.workRoleIds),
+      (await invitedWorkRoleGrants(orgId, existing.workRoleIds)) |
+        (await retainedGrantsFor(orgId, existing.email)),
     );
 
     // Resend = refresh the 7-day window + re-send the email (same token).

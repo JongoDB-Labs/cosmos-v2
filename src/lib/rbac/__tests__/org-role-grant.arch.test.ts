@@ -31,6 +31,9 @@
 //    away, editing or deleting one is the ceiling on current role's
 //    (currentWorkRoleRefusal), counted without the org's restrictions.
 //  - Comments and strings are not calls, so prose can't satisfy the guard.
+//  - A call to a shared helper that writes access for its caller
+//    (HELPER_WRITES) counts as that write in the calling function, so moving a
+//    write into a helper does not take its callers out of the guard.
 //
 // Exemptions are by file and function name, each with a reason, and a test
 // fails when one goes stale. The fixtures at the end show the guard failing on
@@ -70,6 +73,16 @@ const MODEL_WRITES: Record<string, Record<Kind, string[]>> = {
 const NESTED_RELATIONS = new Set(["members", "orgMembers", "workRoles", "invitations"]);
 const NESTED_GRANTS = new Set(["create", "createMany", "connectOrCreate", "upsert"]);
 
+/**
+ * Shared helpers that write access on their caller's behalf: a call counts as
+ * the write itself, in the calling function. The helper's own body is exempt
+ * by name below, since its callers are the ones held to the ceiling.
+ */
+const HELPER_WRITES: Record<string, Kind[]> = {
+  // lib/members/add-member.server.ts: creates a membership or reinstates a removed one.
+  addOrReinstateMember: ["grant", "change"],
+};
+
 /** Raw SQL against the same tables, through Prisma's raw query APIs. */
 const RAW_APIS = new Set(["$executeRaw", "$executeRawUnsafe", "$queryRaw", "$queryRawUnsafe", "sql"]);
 const RAW_WRITE =
@@ -102,7 +115,9 @@ const GRANT_ALLOWED: Record<string, string> = {
   "lib/auth/sso.ts#completeSsoLogin":
     "the role comes from the org's IdP group mapping, capped at ADMIN; IdP connections are configured by operators, not through the app, so no request-time granter exists",
   "lib/auth/consume-invitations.ts#consumePendingInvitations":
-    "applies the role chosen when the invitation was created or resent, and both of those run the ceiling",
+    "applies the role chosen when the invitation was created or resent; both of those run the ceiling, counting what reinstating a removed membership hands back (retainedGrantsFor)",
+  "lib/members/add-member.server.ts#addOrReinstateMember":
+    "the one write behind adding a member and accepting an invitation; a call to it counts as this write in its caller (HELPER_WRITES), so every caller is held to the ceiling instead",
   "lib/rbac/builtin-work-roles-seed.ts#seedBuiltinWorkRoles":
     "writes the platform's fixed catalog of built-in work roles into an org; it assigns them to nobody, and assigning one runs the ceiling",
 };
@@ -116,6 +131,8 @@ const CHANGE_ALLOWED: Record<string, string> = {
     "the person signing in consumes invitations addressed to their own verified email",
   "lib/internal/delete-user.ts#deleteUserAccount":
     "operator-only account deletion behind the internal admin gate, not an org role",
+  "lib/members/add-member.server.ts#addOrReinstateMember":
+    "reinstates a removed member for its caller; a call to it counts as this write in the caller (HELPER_WRITES)",
 };
 
 const ALLOWED: Record<Kind, Record<string, string>> = { grant: GRANT_ALLOWED, change: CHANGE_ALLOWED };
@@ -261,6 +278,7 @@ function analyse(source: string, fileName: string): Map<string, Unit> {
           if (writes?.[kind].includes(n.expression.name.text)) write(n, kind);
         }
       }
+      for (const kind of own(HELPER_WRITES, name) ?? []) write(n, kind);
       if (name && RAW_APIS.has(name)) for (const a of n.arguments) rawWrites(n, a.getText());
       const asserts = own(ASSERTS, name);
       if (asserts) {
@@ -370,6 +388,17 @@ describe("access writes run the ceiling", () => {
 
 describe("the guard flags each shape that got past it before (fixtures)", () => {
   const check = (src: string) => missing("fixture.ts", analyse(src, "fixture.ts"));
+
+  it("a call to a shared helper that writes access is that write in its caller", () => {
+    expect(check(`export async function POST() {
+      await addOrReinstateMember({ orgId, userId, role, existing, actorUserId });
+    }`)).toEqual(["fixture.ts#POST:change", "fixture.ts#POST:grant"]);
+    // The ceiling before it certifies the grant, as it does a direct write.
+    expect(check(`export async function POST() {
+      assertCanGrantOrgRole(ctx, role, held);
+      await addOrReinstateMember({ orgId, userId, role, existing, actorUserId });
+    }`)).toEqual(["fixture.ts#POST:change"]);
+  });
 
   it("a work-role assignment with no ceiling", () => {
     expect(check(`export async function PUT() {
