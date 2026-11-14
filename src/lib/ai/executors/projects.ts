@@ -4,7 +4,7 @@ import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { Permission } from "@/lib/rbac/permissions";
 import { IntervalKind, SprintStatus, type Prisma } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, assertProjectRead, loadAuthContext, serviceRefusal, type ToolContext } from "./_ctx";
+import { assertPermission, assertProjectManage, assertProjectRead, loadAuthContext, serviceRefusal, type ToolContext } from "./_ctx";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { DEFAULT_COLUMNS } from "@/lib/boards/default-columns";
 import { loadStatusCategories } from "@/lib/boards/status-categories.server";
@@ -324,26 +324,25 @@ const CYCLE_SELECT = {
 } as const;
 
 export async function updateInterval(input: Record<string, unknown>, ctx: ToolContext) {
-  const denied = await assertPermission(ctx, Permission.SPRINT_UPDATE);
-  if (denied) return denied;
-
   const parsed = updateIntervalSchema.safeParse(input);
   if (!parsed.success) {
     return { error: `Invalid input: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
   }
   const data = parsed.data;
 
+  // The PUT route's own gate, in its order: the project is visible, then
+  // requireProjectManage — the org-wide SPRINT_UPDATE bit, or MANAGER of this
+  // project. Asking for the bit alone refused a project's own manager here
+  // while the app let them in. Before the row is read, so a refusal says
+  // nothing about which intervals exist.
+  const refused = await assertProjectManage(ctx, data.projectId, Permission.SPRINT_UPDATE);
+  if (refused) return refused;
+
   const existing = await prisma.interval.findFirst({
     where: { id: data.intervalId, orgId: ctx.orgId, projectId: data.projectId },
     select: { id: true, projectId: true, intervalKind: true, parentId: true },
   });
   if (!existing) return { error: "Interval not found" };
-
-  // The org check above only proves the row EXISTS. Its project may be
-  // team-scoped and closed to this actor — see _ctx.ts. Same message either
-  // way, so a refusal never confirms the row is real.
-  const outOfScope = await assertProjectRead(ctx, existing.projectId, "SPRINT_UPDATE");
-  if (outOfScope) return { error: "Interval not found" };
 
   // The PUT route's own rules, through the same function: nesting, a PI is
   // never started by hand, one running sprint (a PI is not a competitor), a PI
@@ -401,37 +400,46 @@ export async function completeInterval(input: Record<string, unknown>, ctx: Tool
   if (outOfScope) return { error: "Interval not found" };
   if (interval.status !== "ACTIVE") return { error: "Only active intervals can be completed" };
 
-  const completed = await prisma.$transaction(async (tx) => {
-    const items = interval.workItems;
-    // The same report the Complete button records: done is the status's
-    // CATEGORY, and the carried ids are kept for the review board.
-    const statuses = await loadStatusCategories(tx, interval.projectId);
-    const incompleteItems = items.filter((i) => !isDoneStatus(i.columnKey, statuses));
-    const report = buildIntervalReport(items, new Date().toISOString(), statuses);
+  // The Program Increment rules, through the same function as both routes: a
+  // PI completes only once every interval inside it has.
+  let completed;
+  try {
+    completed = await writeIntervalChange(interval, { status: "COMPLETED" }, () => prisma.$transaction(async (tx) => {
+      const items = interval.workItems;
+      // The same report the Complete button records: done is the status's
+      // CATEGORY, and the carried ids are kept for the review board.
+      const statuses = await loadStatusCategories(tx, interval.projectId);
+      const incompleteItems = items.filter((i) => !isDoneStatus(i.columnKey, statuses));
+      const report = buildIntervalReport(items, new Date().toISOString(), statuses);
 
-    if (incompleteItems.length > 0) {
-      // Harden beyond the HTTP route (review finding): the destination interval is
-      // untrusted, LLM-reachable input — require it to exist in THIS org+project
-      // before re-pointing items at it; otherwise carry over to no interval.
-      let destination: string | null = null;
-      if (data.moveIncompleteToIntervalId) {
-        const dest = await tx.interval.findFirst({
-          where: { id: data.moveIncompleteToIntervalId, orgId: ctx.orgId, projectId: interval.projectId },
-          select: { id: true },
-        });
-        if (!dest) throw new Error("moveIncompleteToIntervalId is not an interval in this project");
-        destination = dest.id;
+      if (incompleteItems.length > 0) {
+        // Harden beyond the HTTP route (review finding): the destination interval is
+        // untrusted, LLM-reachable input — require it to exist in THIS org+project
+        // before re-pointing items at it; otherwise carry over to no interval.
+        let destination: string | null = null;
+        if (data.moveIncompleteToIntervalId) {
+          const dest = await tx.interval.findFirst({
+            where: { id: data.moveIncompleteToIntervalId, orgId: ctx.orgId, projectId: interval.projectId },
+            select: { id: true },
+          });
+          if (!dest) throw new Error("moveIncompleteToIntervalId is not an interval in this project");
+          destination = dest.id;
+        }
+        await updateWorkItems(tx, incompleteItems.map((i) => i.id), { intervalId: destination }, { actorId: ctx.userId, source: "AI" });
       }
-      await updateWorkItems(tx, incompleteItems.map((i) => i.id), { intervalId: destination }, { actorId: ctx.userId, source: "AI" });
-    }
 
-    const row = await tx.interval.update({
-      where: { id: interval.id },
-      data: { status: "COMPLETED", report: report as unknown as Prisma.InputJsonValue },
-      select: CYCLE_SELECT,
-    });
-    return { row, report };
-  });
+      const row = await tx.interval.update({
+        where: { id: interval.id },
+        data: { status: "COMPLETED", report: report as unknown as Prisma.InputJsonValue },
+        select: CYCLE_SELECT,
+      });
+      return { row, report };
+    }));
+  } catch (e) {
+    const refusal = serviceRefusal(e);
+    if (refusal) return refusal;
+    throw e;
+  }
 
   return { completed: true, id: completed.row.id, interval: completed.row, report: completed.report };
 }

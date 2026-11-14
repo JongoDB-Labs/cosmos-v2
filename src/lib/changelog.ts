@@ -69,6 +69,22 @@ const RELEASES: Release[] = [
         kind: "fix",
         text: "Cosmo now asks for your yes before it invites anyone to a Google Calendar event. New events it creates invite no one at first. Taking someone off an event needs no yes.",
       },
+      {
+        kind: "fix",
+        text: "A Program Increment can no longer be completed while a sprint inside it is unfinished, whether from its Complete button or through Cosmo. The message names the sprints still open.",
+      },
+      {
+        kind: "fix",
+        text: "Starting a sprint while moving it into another Program Increment now starts the Program Increment it moves into. It used to start the one the sprint was leaving.",
+      },
+      {
+        kind: "fix",
+        text: "A project's manager can now change its sprints through Cosmo, as they already could in the app.",
+      },
+      {
+        kind: "fix",
+        text: "Access rules on notes now apply to Cosmo too. A person your admin has barred from editing a note can't edit it or share it through Cosmo either.",
+      },
     ],
   },
   {

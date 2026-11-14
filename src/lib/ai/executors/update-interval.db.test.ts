@@ -7,9 +7,13 @@
 //   1. one sprint runs at a time, and a running PI is not a competitor;
 //   2. a PI is never started by hand;
 //   3. a PI completes only once every interval inside it has;
-//   4. starting a sprint starts the PI around it.
+//   4. starting a sprint starts the PI around it — the PI it ends up under,
+//      when the same change moves it.
 //
 // And the re-parent rules both had already, which moved into the same function.
+// Completing has its own door on each side (POST /intervals/{id}/complete and
+// complete_interval), and rule 3 holds there too. Last, who may change a
+// sprint at all: the agent asks the route's own question, requireProjectManage.
 //
 // The agent used to carry its own copy written before PIs existed, which
 // counted an active PI as a competitor and applied none of 2-4. Every case
@@ -27,9 +31,11 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 import { prisma } from "@/lib/db/client";
 import { memberToolCtx } from "@/lib/testing/tool-auth";
 import type { ToolContext } from "./_ctx";
-import { updateInterval } from "./projects";
+import { completeInterval, updateInterval } from "./projects";
 import { PUT as intervalRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/route";
+import { POST as completeRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/complete/route";
 import { PARENT_NOT_A_PI } from "@/lib/intervals/pi-lifecycle";
+import { Permission } from "@/lib/rbac/permissions";
 
 const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const k = stamp.slice(-4).toUpperCase();
@@ -90,6 +96,43 @@ async function world(status: Partial<Record<"pi" | "s1" | "s2" | "loose", Sprint
   const s2 = await iv(`Sprint B${projects}`, "SPRINT", status.s2, pi);
   const loose = await iv(`Sprint C${projects}`, "SPRINT", status.loose);
   return { projectId, pi, s1, s2, loose };
+}
+
+/** Completing, through each side's own door. */
+async function completeViaAgent(projectId: string, intervalId: string): Promise<Outcome> {
+  const out = (await completeInterval({ projectId, intervalId }, actor)) as { error?: string; completed?: boolean };
+  if (out.error !== undefined) return { refused: out.error };
+  expect(out.completed).toBe(true);
+  return { done: true };
+}
+
+async function completeViaRoute(projectId: string, intervalId: string): Promise<Outcome> {
+  getAuthContext.mockResolvedValue(actor.auth);
+  const res = await completeRoute(
+    new NextRequest("http://localhost/x", { method: "POST", body: "{}", headers: { "Content-Type": "application/json" } }),
+    { params: Promise.resolve({ orgId, projectId, intervalId }) } as never,
+  );
+  if (res.status === 200) return { done: true };
+  const body = (await res.json()) as { detail?: string; error?: string };
+  expect(res.status, JSON.stringify(body)).toBe(409);
+  return { refused: body.detail ?? body.error ?? "" };
+}
+
+const COMPLETE_DOORS = [
+  ["the agent", completeViaAgent],
+  ["the route", completeViaRoute],
+] as const;
+
+/** A second Program Increment in a world's project, to move a sprint into. */
+async function secondPi(projectId: string) {
+  return (
+    await prisma.interval.create({
+      data: {
+        orgId, projectId, number: 99, name: `PI two ${projects}`, intervalKind: "PROGRAM_INCREMENT", status: "PLANNED",
+        startDate: new Date("2026-10-01"), endDate: new Date("2026-12-31"),
+      },
+    })
+  ).id;
 }
 
 const statusOf = async (id: string) => (await prisma.interval.findUniqueOrThrow({ where: { id }, select: { status: true } })).status;
@@ -174,6 +217,29 @@ describe.each(DOORS)("an interval's status change through %s", (_door, change) =
     expect(await statusOf(w.pi)).toBe("PLANNED");
   });
 
+  // Rule 4 when the same change moves the sprint: the PI it lands in starts,
+  // the one it left does not.
+  it("starting a sprint while moving it into another PI starts that PI, not the one it left", async () => {
+    const w = await world();
+    const pi2 = await secondPi(w.projectId);
+    expect(await change(w.projectId, w.s1, { status: "ACTIVE", parentId: pi2 })).toEqual({ done: true });
+    expect(await statusOf(pi2)).toBe("ACTIVE");
+    expect(await statusOf(w.pi)).toBe("PLANNED");
+  });
+
+  it("starting a loose sprint while moving it into a PI starts that PI", async () => {
+    const w = await world();
+    expect(await change(w.projectId, w.loose, { status: "ACTIVE", parentId: w.pi })).toEqual({ done: true });
+    expect(await statusOf(w.pi)).toBe("ACTIVE");
+  });
+
+  it("starting a sprint while taking it out of its PI starts no PI", async () => {
+    const w = await world();
+    expect(await change(w.projectId, w.s1, { status: "ACTIVE", parentId: null })).toEqual({ done: true });
+    expect(await statusOf(w.s1)).toBe("ACTIVE");
+    expect(await statusOf(w.pi)).toBe("PLANNED");
+  });
+
   // The re-parent rules, which moved into the same function.
   it("refuses to nest a sprint under a sprint or under itself, and nests it under a PI", async () => {
     const w = await world();
@@ -187,5 +253,94 @@ describe.each(DOORS)("an interval's status change through %s", (_door, change) =
     // Control: the same door does nest it where the rules allow.
     expect(await change(w.projectId, w.loose, { parentId: w.pi })).toEqual({ done: true });
     expect(await parentOf(w.loose)).toBe(w.pi);
+  });
+});
+
+// Rule 3 on the complete doors. Completing used to check only that the
+// interval was ACTIVE, so an ACTIVE PI completed with its sprints still open.
+describe.each(COMPLETE_DOORS)("completing an interval through %s", (_door, complete) => {
+  it("refuses to complete a Program Increment with an unfinished sprint, naming it", async () => {
+    const w = await world({ pi: "ACTIVE", s1: "COMPLETED", s2: "ACTIVE" });
+    expect(await complete(w.projectId, w.pi)).toEqual({
+      refused: `This Program Increment still has unfinished iterations: Sprint B${projects}.`,
+    });
+    expect(await statusOf(w.pi)).toBe("ACTIVE");
+  });
+
+  it("completes a Program Increment once every sprint inside it is done", async () => {
+    const w = await world({ pi: "ACTIVE", s1: "COMPLETED", s2: "COMPLETED" });
+    expect(await complete(w.projectId, w.pi)).toEqual({ done: true });
+    expect(await statusOf(w.pi)).toBe("COMPLETED");
+  });
+
+  it("completes a running sprint while its sibling is still planned", async () => {
+    const w = await world({ pi: "ACTIVE", s1: "ACTIVE" });
+    expect(await complete(w.projectId, w.s1)).toEqual({ done: true });
+    expect(await statusOf(w.s1)).toBe("COMPLETED");
+  });
+});
+
+// Who may change a sprint. The route asks requireProjectManage: the org-wide
+// SPRINT_UPDATE bit, or MANAGER of this project. The agent asked for the bit
+// alone, so a project manager without it (an ordinary MEMBER) could rename
+// their own sprint in the app and not through Cosmo.
+describe("who may change a sprint", () => {
+  let projectId = "";
+  let sprintId = "";
+  let manager: ToolContext;
+  let member: ToolContext;
+
+  beforeAll(async () => {
+    projectId = (await prisma.project.create({ data: { orgId, name: "Gate", key: `GT${k}` } })).id;
+    sprintId = (
+      await prisma.interval.create({
+        data: { orgId, projectId, number: 1, name: "Gate sprint", intervalKind: "SPRINT", status: "PLANNED",
+          startDate: new Date("2026-07-01"), endDate: new Date("2026-07-14") },
+      })
+    ).id;
+    const join = async (name: string, projectRole: "MANAGER" | "MEMBER") => {
+      const u = await prisma.user.create({ data: { email: `${name}-${stamp}@example.com`, displayName: name } });
+      userIds.push(u.id);
+      const om = await prisma.orgMember.create({ data: { orgId, userId: u.id, role: "MEMBER" } });
+      await prisma.projectMember.create({ data: { projectId, orgMemberId: om.id, role: projectRole } });
+      return memberToolCtx(orgId, u.id);
+    };
+    manager = await join("pm", "MANAGER");
+    member = await join("dev", "MEMBER");
+  }, 120_000);
+
+  const nameOf = async () => (await prisma.interval.findUniqueOrThrow({ where: { id: sprintId }, select: { name: true } })).name;
+
+  async function routeStatus(who: ToolContext, name: string) {
+    getAuthContext.mockResolvedValue(who.auth);
+    const res = await intervalRoute(
+      new NextRequest("http://localhost/x", { method: "PUT", body: JSON.stringify({ name }), headers: { "Content-Type": "application/json" } }),
+      { params: Promise.resolve({ orgId, projectId, intervalId: sprintId }) } as never,
+    );
+    return res.status;
+  }
+  const agentSays = async (who: ToolContext, name: string) =>
+    (await updateInterval({ projectId, intervalId: sprintId, name }, who)) as { error?: string; updated?: boolean };
+
+  it("the fixture is what it claims: neither holds the org-wide bit", () => {
+    expect(manager.auth).toBeDefined();
+    expect(member.auth).toBeDefined();
+    expect(manager.auth!.orgRole).toBe("MEMBER");
+    expect(member.auth!.orgRole).toBe("MEMBER");
+    expect(manager.auth!.permissions & Permission.SPRINT_UPDATE).toBe(0n);
+    expect(member.auth!.permissions & Permission.SPRINT_UPDATE).toBe(0n);
+  });
+
+  it("refuses a project member who doesn't manage the project, through both", async () => {
+    expect(await routeStatus(member, "by the route")).toBe(403);
+    expect(await agentSays(member, "by the agent")).toEqual({ error: "You do not have permission to change this project" });
+    expect(await nameOf()).toBe("Gate sprint");
+  });
+
+  it("lets the project's manager change it, through both", async () => {
+    expect(await routeStatus(manager, "renamed by the route")).toBe(200);
+    expect(await nameOf()).toBe("renamed by the route");
+    expect(await agentSays(manager, "renamed by the agent")).toMatchObject({ updated: true });
+    expect(await nameOf()).toBe("renamed by the agent");
   });
 });

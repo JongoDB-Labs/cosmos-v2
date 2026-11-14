@@ -3,7 +3,8 @@ import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { Visibility } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, loadAuthContext, type ToolContext } from "./_ctx";
+import { assertPermission, loadAuthContext, serviceRefusal, type ToolContext } from "./_ctx";
+import { requireAccess } from "@/lib/abac/require-access";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 
 const createNoteSchema = z.object({
@@ -167,6 +168,25 @@ export async function createNote(
   };
 }
 
+/**
+ * PUT /notes/{id}'s own gate over one note: NOTE_UPDATE through `requireAccess`,
+ * with the note's author as `createdById`. That is what lets an access rule
+ * over the note bind (a member barred from editing their own notes, say). The
+ * agent asked only for the bit, so no such rule ever reached it.
+ */
+async function noteUpdateRefusal(ctx: ToolContext, authorId: string): Promise<{ error: string } | null> {
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  try {
+    await requireAccess(auth, "NOTE_UPDATE", { createdById: authorId });
+    return null;
+  } catch (e) {
+    const refusal = serviceRefusal(e);
+    if (refusal) return refusal;
+    throw e;
+  }
+}
+
 export async function updateNote(
   input: Record<string, unknown>,
   ctx: ToolContext
@@ -184,6 +204,8 @@ export async function updateNote(
     where: { id: data.noteId, orgId: ctx.orgId },
   });
   if (!existing) return { error: "Note not found" };
+  const ruled = await noteUpdateRefusal(ctx, existing.authorId);
+  if (ruled) return ruled;
   if (existing.authorId !== ctx.userId) {
     return { error: "Only the author can update this note" };
   }
@@ -236,6 +258,8 @@ export async function shareNote(
 
   const existing = await prisma.note.findFirst({ where: { id: noteId, orgId: ctx.orgId } });
   if (!existing) return { error: "Note not found" };
+  const ruled = await noteUpdateRefusal(ctx, existing.authorId);
+  if (ruled) return ruled;
   if (existing.authorId !== ctx.userId) {
     return { error: "Only the author can change who sees this note" };
   }

@@ -106,7 +106,7 @@ export const projectTools: ToolDefinition[] = [
   {
     name: "complete_interval",
     description:
-      "Complete an ACTIVE interval. Computes a completion report (velocity, completed vs incomplete items/points). Incomplete items move to `moveIncompleteToIntervalId` when supplied, otherwise return to the backlog (interval cleared).",
+      "Complete an ACTIVE interval. Computes a completion report (velocity, completed vs incomplete items/points). Incomplete items move to `moveIncompleteToIntervalId` when supplied, otherwise return to the backlog (interval cleared). A Program Increment can be completed only once every interval inside it is.",
     input_schema: {
       type: "object",
       properties: {

@@ -14,6 +14,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
+import { writeIntervalChange } from "@/lib/intervals/pi-lifecycle.server";
 
 const completeSchema = z.object({
   moveIncompleteToIntervalId: z.string().uuid().nullable().optional(),
@@ -54,7 +55,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // The sprint the unfinished items move into is one of this project's.
     await assertRefsInScope({ orgId, projectId }, { interval: data.moveIncompleteToIntervalId });
 
-    const completed = await prisma.$transaction(async (tx) => {
+    // The Program Increment rules, through the same function as PUT and the
+    // agent: a PI completes only once every interval inside it has.
+    const completed = await writeIntervalChange(interval, { status: "COMPLETED" }, () => prisma.$transaction(async (tx) => {
       const items = interval.workItems;
       // Done is the status's CATEGORY, so a team-named done lane counts.
       const statuses = await loadStatusCategories(tx, projectId);
@@ -83,7 +86,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
         include: { _count: { select: { workItems: true } } },
       });
-    });
+    }));
 
     await logAudit({
       orgId,
