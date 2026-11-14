@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
     if (message.deletedAt) return new Response("Gone", { status: 410 });
 
-    const { channel, member } = await loadChannelAndMembership(message.channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, message.channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (!canSeeChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       return new Response("Forbidden", { status: 403 });

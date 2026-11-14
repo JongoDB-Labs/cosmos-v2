@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.560.5",
+    date: "2026-11-14",
+    title: "A project's chat channel follows who can see the project",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A chat channel tied to a project that only its team can see is now shown only to people who can see that project. Others no longer find it in their channel list, in Browse channels or in chat search, and can't join it, read it or post to it, even if they were added to it before.",
+      },
+      {
+        kind: "fix",
+        text: "Someone who loses access to the project loses its channel too, and gets it back when they can see the project again. Until then they get no notifications or unread counts from it, its messages don't appear as mention backlinks for them, and Cosmo won't answer them in it.",
+      },
+      {
+        kind: "fix",
+        text: "A channel you join while chat is open now shows new messages straight away, without reloading the page. A project channel you can no longer see stops sending you messages within a minute.",
+      },
+      {
+        kind: "fix",
+        text: "The duplicate-message check, which keeps a message resent after a dropped connection from posting twice, now matches the channel and author too.",
+      },
+    ],
+  },
+  {
     version: "2.560.4",
     date: "2026-11-14",
     title: "Exports show only what you could read in the app",

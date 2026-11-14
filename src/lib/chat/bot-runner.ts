@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db/client";
 import { postServerMessage } from "@/lib/chat/system-message";
 import { fanOutChatMessage } from "@/lib/chat/notifications";
 import { formatAiContext } from "@/lib/chat/ai-context";
+import { channelProjectVisible } from "@/lib/chat/access";
 import { parseMentions } from "@/lib/chat/mentions";
 import { runAgentLoop } from "@/lib/ai/agent-loop";
 import { isNoModelCredentialError } from "@/lib/ai/egress";
@@ -155,6 +156,11 @@ export async function runChatBot(args: {
       select: { id: true, kind: true, name: true, orgId: true, projectId: true, topic: true },
     });
     if (!channel || channel.orgId !== args.orgId) return;
+    // The bot reads the channel's recent messages into the model on the
+    // invoker's behalf, so it runs only where the invoker may read them: not in
+    // a channel whose project they can't see. The routes that start a run have
+    // already refused such a caller; this holds for any caller.
+    if (!(await channelProjectVisible(args.invokerAuth, channel.projectId))) return;
     channelLite = { id: channel.id, kind: channel.kind, name: channel.name, orgId: channel.orgId };
 
     // The org's data-sensitivity class drives the egress gate (CUI/FOUO data is

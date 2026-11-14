@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { success, handleApiError } from "@/lib/api-helpers";
+import { channelProjectVisible } from "@/lib/chat/access";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
@@ -30,9 +31,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // Verify channel belongs to this org before letting the user mark-read.
     const channel = await prisma.chatChannel.findUnique({
       where: { id: channelId },
-      select: { orgId: true },
+      select: { orgId: true, projectId: true },
     });
-    if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
+    // A receipt shows the reader in the channel, so someone who has lost its
+    // project has no read position to move.
+    if (!channel || channel.orgId !== orgId || !(await channelProjectVisible(ctx, channel.projectId))) {
+      return new Response("Not found", { status: 404 });
+    }
 
     // Only a member has a read position. A non-member is a 404 and nothing is
     // broadcast: the receipt below would otherwise show them in the channel.

@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (!canSeeChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       return new Response("Not found", { status: 404 });
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (!canPostToChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       return new Response("Forbidden", { status: 403 });
@@ -122,9 +122,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const parsed = postSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
-    // Idempotency: client retry with same UUID gets the existing row.
+    // Idempotency: a client retry (the same id, in this channel, by this
+    // author) gets the existing row. Any other use of an id is a conflict.
     const dup = await prisma.chatMessage.findUnique({ where: { id: parsed.data.id } });
-    if (dup) return created(dup);
+    if (dup) {
+      if (dup.channelId === channel.id && dup.authorId === ctx.userId) return created(dup);
+      return new Response(JSON.stringify({ error: "id_in_use" }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
 
     const message = await createUserMessage({
       id: parsed.data.id,

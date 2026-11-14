@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { mayUseChat } from "@/lib/chat/access";
+import { mayUseChat, visibleChannelWhere } from "@/lib/chat/access";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -23,6 +23,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
         isPrivate: false,
         archivedAt: null,
         members: { none: { userId: ctx.userId } },
+        // A team-scoped project's channel is offered only to who can see the project.
+        AND: [await visibleChannelWhere(ctx)],
       },
       select: {
         id: true,

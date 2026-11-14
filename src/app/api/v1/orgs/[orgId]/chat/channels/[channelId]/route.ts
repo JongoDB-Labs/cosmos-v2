@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (!canSeeChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       // 404, not 403 — avoid existence leaks for private channels
@@ -72,7 +72,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole, roleCounts: roleCountsFor(ctx, Permission.CHAT_USE) })) {
       return new Response("Forbidden", { status: 403 });

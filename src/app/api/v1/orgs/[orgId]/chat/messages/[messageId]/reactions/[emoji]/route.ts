@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { noContent, handleApiError } from "@/lib/api-helpers";
+import { channelProjectVisible } from "@/lib/chat/access";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 
@@ -24,9 +25,9 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
 
     const message = await prisma.chatMessage.findUnique({
       where: { id: messageId },
-      select: { channelId: true, channel: { select: { orgId: true } } },
+      select: { channelId: true, channel: { select: { orgId: true, projectId: true } } },
     });
-    if (!message || message.channel.orgId !== orgId) {
+    if (!message || message.channel.orgId !== orgId || !(await channelProjectVisible(ctx, message.channel.projectId))) {
       return new Response("Not found", { status: 404 });
     }
 

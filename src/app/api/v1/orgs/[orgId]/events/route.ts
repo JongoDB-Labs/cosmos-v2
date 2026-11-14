@@ -3,11 +3,10 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext, sessionStillValid } from "@/lib/auth/session";
 import { trustedClientIp } from "@/lib/auth/client-ip";
 import { SESSION_COOKIE } from "@/lib/auth/client";
-import { getBus } from "@/lib/realtime/bus";
+import { getBus, type BusEvent } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { getPresence } from "@/lib/realtime/presence";
 import { openStreamGate } from "@/lib/realtime/stream-gate.server";
-import { Permission, hasPermission } from "@/lib/rbac/permissions";
 
 // cacheComponents enabled: route segment configs `runtime` and `dynamic`
 // are not supported (Node is default, routes are dynamic by default).
@@ -44,26 +43,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     stillValid: async () => (sessionId ? sessionStillValid(sessionId, orgId, clientIp) : false),
   });
 
-  // Compute the user's interest set:
+  // The user's interest set:
   //   - org:{orgId}    — back-compat with publishers that still use the org topic
   //   - user:{userId}  — DMs, mentions, push echoes (post-B5 notifications land here)
-  //   - channel:{id}   — for every chat channel the user is a member of, when
-  //                      they may use chat at all
-  const memberships = hasPermission(ctx.permissions, Permission.CHAT_USE)
-    ? await prisma.chatChannelMember.findMany({
-        where: { userId: ctx.userId, channel: { orgId, archivedAt: null } },
-        select: { channelId: true },
-      })
-    : [];
-  const interest: string[] = [
-    topics.org(ctx.orgId),
-    topics.user(ctx.userId),
-    ...memberships.map((m) => topics.channel(m.channelId)),
-  ];
+  //   - channel:{id}   — every chat channel the gate says they may hear now
+  //                      (`gate.channels`: theirs, with CHAT_USE, under no
+  //                      project or one they can see). Followed while the stream
+  //                      is open, not fixed when it opens: a channel joined
+  //                      later is subscribed at the gate's next recompute (at
+  //                      once, on their own `chat.channel.joined`), and one they
+  //                      leave or can no longer read is unsubscribed.
+  const interest: string[] = [topics.org(ctx.orgId), topics.user(ctx.userId)];
+  const initialChannels = [...gate.channels];
 
   const encoder = new TextEncoder();
   let pingInterval: ReturnType<typeof setInterval> | null = null;
   let unsubscribe: (() => void) | null = null;
+  const channelSubs = new Map<string, () => void>();
+  let syncChannels: () => void = () => {};
   let stopped = false;
 
   // Runs once, whether the client went away (cancel) or the server ended it.
@@ -72,6 +69,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     stopped = true;
     if (pingInterval) clearInterval(pingInterval);
     if (unsubscribe) unsubscribe();
+    for (const off of channelSubs.values()) off();
+    channelSubs.clear();
     const offline = getPresence().disconnect(ctx.userId);
     if (offline === "offline") {
       void getBus().publish(topics.org(ctx.orgId), "chat.presence.changed", {
@@ -87,7 +86,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       const hello = `event: hello\ndata: ${JSON.stringify({
         orgId: ctx.orgId,
         userId: ctx.userId,
-        channels: memberships.map((m) => m.channelId),
+        channels: initialChannels,
         ts: Date.now(),
       })}\n\n`;
       controller.enqueue(encoder.encode(hello));
@@ -95,10 +94,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       // Each event is checked in arrival order: the check may read the
       // database, and a later event must not overtake an earlier one.
       let queue: Promise<void> = Promise.resolve();
-      unsubscribe = getBus().subscribe(interest, (event) => {
+      const onEvent = (event: BusEvent) => {
         queue = queue
           .then(async () => {
-            if (!(await gate.admit(event))) {
+            const admitted = await gate.admit(event);
+            // The check may have recomputed the audience (a channel joined or
+            // left, or the periodic refresh): follow its channels before the
+            // next event is read.
+            syncChannels();
+            if (!admitted) {
               if (gate.closed) closeStream();
               return;
             }
@@ -108,7 +112,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           .catch(() => {
             /* ignore — controller may be closed; cancel() will fire */
           });
-      });
+      };
+      unsubscribe = getBus().subscribe(interest, onEvent);
+
+      // One subscription per channel topic, so the set can change while open.
+      syncChannels = () => {
+        if (stopped) return;
+        const want = gate.channels;
+        for (const [channelId, off] of channelSubs) {
+          if (!want.has(channelId)) {
+            off();
+            channelSubs.delete(channelId);
+          }
+        }
+        for (const channelId of want) {
+          if (!channelSubs.has(channelId)) channelSubs.set(channelId, getBus().subscribe([topics.channel(channelId)], onEvent));
+        }
+      };
+      syncChannels();
 
       // The member was removed, or the session ended, while connected: end the stream.
       function closeStream() {
@@ -142,6 +163,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         void gate.refreshIfStale().then(
           () => {
             if (gate.closed) closeStream();
+            else syncChannels();
           },
           () => {
             /* best-effort: the next event re-checks */
