@@ -308,3 +308,30 @@ describe("an API key reaches a restricted file only with the scope for it, whoev
     });
   }
 });
+
+describe("?scope=org lists only the files filed under no project, restricted ones too", () => {
+  let restrictedOrg = "";
+  beforeAll(async () => {
+    restrictedOrg = (await prisma.document.create({
+      data: {
+        orgId, projectId: null, visibility: "RESTRICTED", title: `org-restricted-${stamp}`,
+        storageKey: `test/agree/${stamp}/org-restricted.txt`, filename: "org-restricted.txt", contentType: "text/plain",
+        size: 1, uploadedById: uploader, status: "READY",
+      },
+    })).id;
+  });
+  const listed = async (qs: string) =>
+    ((await (await orgList(req(`http://localhost/x${qs}`), orgP())).json()) as Array<{ id: string }>).map((d) => d.id);
+
+  it.each([
+    ["the uploader", () => as(uploader)],
+    ["an administrator", () => as(admin, { orgRole: "ADMIN", permissions: RolePermissions.ADMIN, basePermissions: RolePermissions.ADMIN })],
+  ])("%s: the org-wide restricted file, and none filed in a project", async (_who, sign) => {
+    sign();
+    // Control: without the scope, the same caller lists the project files too.
+    expect(await listed("")).toEqual(expect.arrayContaining([restrictedOrg, restrictedP, restrictedT, openP]));
+    const ids = await listed("?scope=org");
+    expect(ids).toContain(restrictedOrg);
+    expect(ids.filter((id) => [restrictedP, restrictedT, openP].includes(id))).toEqual([]);
+  });
+});

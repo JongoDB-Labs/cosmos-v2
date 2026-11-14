@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { createHash, createHmac } from "node:crypto";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
+import { refuseProjectScopedKey } from "@/lib/auth/key-gate";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
@@ -27,6 +28,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
+    // The same rule as the list: audit rows cover the whole org, so a key
+    // limited to some projects can't export them.
+    refuseProjectScopedKey(ctx);
     requirePermission(ctx, Permission.AUDIT_LOG_READ);
 
     // Mirror the list route's filters EXACTLY so an export honors the same
