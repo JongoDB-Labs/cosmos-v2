@@ -23,6 +23,7 @@ import { Prisma } from "@prisma/client";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
+import { escapeLike } from "@/lib/query/like";
 import { createWorkItem, listProjectWorkItems } from "./route.contract";
 
 const TYPE_NAME_MAP: Record<string, string> = {
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (query.parentId) where.parentId = query.parentId;
 
     if (query.search) {
-      where.title = { contains: query.search, mode: "insensitive" };
+      where.title = { contains: escapeLike(query.search), mode: "insensitive" };
     }
 
     const items = await prisma.workItem.findMany({
@@ -157,7 +158,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
       if (!wit) {
         const fallback = await prisma.workItemType.findFirst({
-          where: { isBuiltIn: true, key: { endsWith: `.${typeName}` } },
+          where: { isBuiltIn: true, key: { endsWith: escapeLike(`.${typeName}`) } },
           select: { id: true },
         });
         if (!fallback) {

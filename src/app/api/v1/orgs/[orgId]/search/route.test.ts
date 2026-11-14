@@ -98,4 +98,29 @@ describe("GET /search — global palette search (COSMOS-33)", () => {
     expect(body).toEqual([]);
     expect(searchEntities).not.toHaveBeenCalled();
   });
+
+  it("is rate-limited per user: a burst of 30, then 429 before the registry is asked", async () => {
+    // The bucket refills with Date.now(); a slow run would earn tokens back
+    // mid-test. Frozen, 31 requests are 31 requests.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      // Its own user, so no other spec's requests are in this bucket.
+      getAuthContext.mockResolvedValue({ userId: "user-burst", orgId: ORG_ID });
+      const statuses: number[] = [];
+      for (let i = 0; i < 31; i++) statuses.push((await GET(req(), { params })).status);
+
+      expect(statuses.slice(0, 30).every((s) => s === 200)).toBe(true);
+      expect(statuses[30]).toBe(429);
+      expect(searchEntities).toHaveBeenCalledTimes(30);
+      const limited = await GET(req(), { params });
+      expect(limited.status).toBe(429);
+      expect(limited.headers.get("Retry-After")).toBe("1");
+
+      // Another person's bucket is their own.
+      getAuthContext.mockResolvedValue({ userId: "user-other", orgId: ORG_ID });
+      expect((await GET(req(), { params })).status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

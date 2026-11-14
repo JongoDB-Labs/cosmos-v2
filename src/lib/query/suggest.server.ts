@@ -17,6 +17,7 @@ import { FUNCTIONS } from "./functions";
 import { quote } from "./print";
 import { cqlLexer, Identifier, KEYWORDS } from "./lexer";
 import { loadSchemaCustomFields } from "./resolve.server";
+import { escapeLike } from "./like";
 
 export interface Suggestion {
   label: string;
@@ -36,7 +37,7 @@ function asValue(s: string): string {
   return bare ? s : quote(s);
 }
 
-const contains = (prefix: string) => ({ contains: prefix, mode: "insensitive" as const });
+const contains = (prefix: string) => ({ contains: escapeLike(prefix), mode: "insensitive" as const });
 
 function functionsFor(kind: ValueKind, prefix: string): Suggestion[] {
   const returns =

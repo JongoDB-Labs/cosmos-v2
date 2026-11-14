@@ -646,7 +646,7 @@ const addNoteSchema = z.object({
  * in, so a person can delete their own note without the room seeing who wrote
  * what.
  */
-export async function addCeremonyNote(ctx: AuthContext, scope: CeremonyScope, body: CeremonyBody) {
+export async function addCeremonyNote(ctx: AuthContext, scope: CeremonyScope, body: CeremonyBody, caller: CeremonyCaller) {
   await requireCeremonyContributor(ctx, scope.projectId);
 
   const data = addNoteSchema.parse(await body());
@@ -681,6 +681,16 @@ export async function addCeremonyNote(ctx: AuthContext, scope: CeremonyScope, bo
     },
   });
 
+  // Where, never what: the note's text stays out of the trail.
+  await logAudit({
+    orgId: scope.orgId,
+    userId: ctx.userId,
+    action: "ceremony.note.add",
+    entity: "RetroNote",
+    entityId: note.id,
+    metadata: { ceremonyId: ceremony.id, intervalId: scope.intervalId, columnKey: note.columnKey, ...auditVia(caller) },
+    ipAddress: caller.ipAddress,
+  });
   publishCeremonyChanged(scope.orgId, scope.projectId, ceremony.id);
 
   return {
@@ -700,6 +710,7 @@ export async function updateCeremonyNote(
   scope: CeremonyScope,
   noteId: string,
   body: CeremonyBody,
+  caller: CeremonyCaller,
 ) {
   await requireCeremonyContributor(ctx, scope.projectId);
 
@@ -715,12 +726,21 @@ export async function updateCeremonyNote(
     data: { text: data.text },
   });
 
+  await logAudit({
+    orgId: scope.orgId,
+    userId: ctx.userId,
+    action: "ceremony.note.update",
+    entity: "RetroNote",
+    entityId: note.id,
+    metadata: { ceremonyId: note.ceremonyId, intervalId: scope.intervalId, ...auditVia(caller) },
+    ipAddress: caller.ipAddress,
+  });
   publishCeremonyChanged(scope.orgId, scope.projectId, note.ceremonyId);
   return { id: updated.id, text: updated.text };
 }
 
 /** Deleting is allowed on a closed ceremony, as it always was. */
-export async function deleteCeremonyNote(ctx: AuthContext, scope: CeremonyScope, noteId: string) {
+export async function deleteCeremonyNote(ctx: AuthContext, scope: CeremonyScope, noteId: string, caller: CeremonyCaller) {
   await requireCeremonyContributor(ctx, scope.projectId);
 
   const note = await findNote(noteId, scope);
@@ -729,6 +749,15 @@ export async function deleteCeremonyNote(ctx: AuthContext, scope: CeremonyScope,
   if (!(await mayModifyNote(ctx, scope.projectId, note.authorId))) throw new ForbiddenError(NOT_YOURS);
 
   await prisma.retroNote.delete({ where: { id: note.id } });
+  await logAudit({
+    orgId: scope.orgId,
+    userId: ctx.userId,
+    action: "ceremony.note.delete",
+    entity: "RetroNote",
+    entityId: note.id,
+    metadata: { ceremonyId: note.ceremonyId, intervalId: scope.intervalId, ...auditVia(caller) },
+    ipAddress: caller.ipAddress,
+  });
   publishCeremonyChanged(scope.orgId, scope.projectId, note.ceremonyId);
   return { id: note.id };
 }
@@ -736,6 +765,20 @@ export async function deleteCeremonyNote(ctx: AuthContext, scope: CeremonyScope,
 // ── Action items ─────────────────────────────────────────────────────────────
 
 const NOT_A_MEMBER = "That owner is not a member of this organization";
+
+/**
+ * An action's owner must be a current member of this org: not removed, not
+ * deactivated. Otherwise the action is assigned to somebody who will never
+ * see it, and promoting it would make them the work item's assignee.
+ */
+async function requireAssignableOwner(orgId: string, ownerId: string): Promise<void> {
+  const member = await prisma.orgMember.findFirst({
+    where: assignableMembersWhere(orgId, [ownerId]),
+    select: { id: true },
+  });
+  if (!member) throw new ProblemError(400, "invalid_request", NOT_A_MEMBER);
+}
+
 const addActionSchema = z.object({
   ceremonyId: z.string().uuid(),
   text: z.string().trim().min(1).max(2000),
@@ -749,7 +792,7 @@ const addActionSchema = z.object({
  * row exists stops the conversation. The board nags for them afterwards, and
  * promotion needs them.
  */
-export async function addCeremonyAction(ctx: AuthContext, scope: CeremonyScope, body: CeremonyBody) {
+export async function addCeremonyAction(ctx: AuthContext, scope: CeremonyScope, body: CeremonyBody, caller: CeremonyCaller) {
   await requireCeremonyContributor(ctx, scope.projectId);
 
   const data = addActionSchema.parse(await body());
@@ -760,15 +803,7 @@ export async function addCeremonyAction(ctx: AuthContext, scope: CeremonyScope, 
     throw new ConflictError("This ceremony is closed. Reopen it to add actions.");
   }
 
-  // An owner must be a member of this org, or the action is assigned to
-  // somebody who will never see it.
-  if (data.ownerId) {
-    const member = await prisma.orgMember.findFirst({
-      where: { orgId: scope.orgId, userId: data.ownerId },
-      select: { id: true },
-    });
-    if (!member) throw new ProblemError(400, "invalid_request", NOT_A_MEMBER);
-  }
+  if (data.ownerId) await requireAssignableOwner(scope.orgId, data.ownerId);
 
   const max = await prisma.retroActionItem.aggregate({
     where: { ceremonyId: ceremony.id },
@@ -785,6 +820,15 @@ export async function addCeremonyAction(ctx: AuthContext, scope: CeremonyScope, 
     },
   });
 
+  await logAudit({
+    orgId: scope.orgId,
+    userId: ctx.userId,
+    action: "ceremony.action.add",
+    entity: "RetroActionItem",
+    entityId: action.id,
+    metadata: { ceremonyId: ceremony.id, intervalId: scope.intervalId, ...auditVia(caller) },
+    ipAddress: caller.ipAddress,
+  });
   publishCeremonyChanged(scope.orgId, scope.projectId, ceremony.id);
   return action;
 }
@@ -800,6 +844,7 @@ export async function updateCeremonyAction(
   scope: CeremonyScope,
   actionId: string,
   body: CeremonyBody,
+  caller: CeremonyCaller,
 ) {
   await requireCeremonyContributor(ctx, scope.projectId);
 
@@ -809,15 +854,8 @@ export async function updateCeremonyAction(
   if (action.ceremony.status === "CLOSED") throw new ConflictError("This ceremony is closed");
 
   const data = editActionSchema.parse(await body());
-  // Same rule as creating one: an owner must be a member of this org (the
-  // owner becomes the assignee when the action is promoted to a work item).
-  if (data.ownerId) {
-    const member = await prisma.orgMember.findFirst({
-      where: assignableMembersWhere(scope.orgId, [data.ownerId]),
-      select: { id: true },
-    });
-    if (!member) throw new ProblemError(400, "invalid_request", NOT_A_MEMBER);
-  }
+  // Same rule as creating one.
+  if (data.ownerId) await requireAssignableOwner(scope.orgId, data.ownerId);
   const updated = await prisma.retroActionItem.update({
     where: { id: action.id },
     data: {
@@ -827,6 +865,21 @@ export async function updateCeremonyAction(
     },
   });
 
+  await logAudit({
+    orgId: scope.orgId,
+    userId: ctx.userId,
+    action: "ceremony.action.update",
+    entity: "RetroActionItem",
+    entityId: action.id,
+    // Which fields changed, not their values.
+    metadata: {
+      ceremonyId: action.ceremonyId,
+      intervalId: scope.intervalId,
+      changed: (["text", "ownerId", "dueDate"] as const).filter((k) => data[k] !== undefined),
+      ...auditVia(caller),
+    },
+    ipAddress: caller.ipAddress,
+  });
   publishCeremonyChanged(scope.orgId, scope.projectId, action.ceremonyId);
   return updated;
 }
@@ -836,7 +889,7 @@ export async function updateCeremonyAction(
  * the team committed to that work, and it now lives in the backlog on its own
  * terms. Allowed on a closed ceremony, as it always was.
  */
-export async function deleteCeremonyAction(ctx: AuthContext, scope: CeremonyScope, actionId: string) {
+export async function deleteCeremonyAction(ctx: AuthContext, scope: CeremonyScope, actionId: string, caller: CeremonyCaller) {
   await requireCeremonyContributor(ctx, scope.projectId);
 
   const action = await findAction(actionId, scope);
@@ -845,6 +898,15 @@ export async function deleteCeremonyAction(ctx: AuthContext, scope: CeremonyScop
 
   await prisma.retroActionItem.delete({ where: { id: action.id } });
 
+  await logAudit({
+    orgId: scope.orgId,
+    userId: ctx.userId,
+    action: "ceremony.action.delete",
+    entity: "RetroActionItem",
+    entityId: action.id,
+    metadata: { ceremonyId: action.ceremonyId, intervalId: scope.intervalId, promotedWorkItemId: action.workItemId, ...auditVia(caller) },
+    ipAddress: caller.ipAddress,
+  });
   publishCeremonyChanged(scope.orgId, scope.projectId, action.ceremonyId);
   return { id: action.id, promotedWorkItemId: action.workItemId };
 }

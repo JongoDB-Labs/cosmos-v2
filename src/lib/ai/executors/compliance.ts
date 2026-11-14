@@ -5,6 +5,7 @@ import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { assertPermission, loadAuthContext, type ToolContext } from "./_ctx";
 import { scopedRosterUserIds } from "@/lib/members/scoped-roster.server";
+import { escapeLike } from "@/lib/query/like";
 
 const querySchema = z.object({
   framework: z.nativeEnum(ComplianceFramework).optional(),
@@ -126,8 +127,8 @@ export async function listOrgMembers(
     ? {
         user: {
           OR: [
-            { displayName: { contains: query, mode: "insensitive" as const } },
-            { email: { contains: query, mode: "insensitive" as const } },
+            { displayName: { contains: escapeLike(query), mode: "insensitive" as const } },
+            { email: { contains: escapeLike(query), mode: "insensitive" as const } },
           ],
         },
       }

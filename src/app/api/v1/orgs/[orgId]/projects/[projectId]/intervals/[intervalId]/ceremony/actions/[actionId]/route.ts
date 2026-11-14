@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { updateCeremonyAction, deleteCeremonyAction } from "@/lib/intervals/ceremony.server";
-import { ceremonyAuth, isResponse } from "../../_helpers";
+import { ceremonyAuth, isResponse, routeCaller } from "../../_helpers";
 
 type RouteParams = {
   params: Promise<{
@@ -20,7 +20,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (isResponse(ctx)) return ctx;
 
     return success(
-      await updateCeremonyAction(ctx, { orgId, projectId, intervalId }, actionId, () => request.json()),
+      await updateCeremonyAction(ctx, { orgId, projectId, intervalId }, actionId, () => request.json(), routeCaller(request)),
     );
   } catch (e) {
     return handleApiError(e);
@@ -35,7 +35,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (isResponse(ctx)) return ctx;
 
     return success(
-      await deleteCeremonyAction(ctx, { orgId, projectId, intervalId }, actionId),
+      await deleteCeremonyAction(ctx, { orgId, projectId, intervalId }, actionId, routeCaller(request)),
     );
   } catch (e) {
     return handleApiError(e);

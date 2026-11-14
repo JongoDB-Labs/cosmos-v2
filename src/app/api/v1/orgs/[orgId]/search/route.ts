@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { searchEntities } from "@/lib/mentions/registry.server";
+import { limitEntitySearch } from "@/lib/mentions/search-rate-limit";
 import { ENTITY_ORDER } from "@/lib/mentions/refs";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -34,6 +35,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!q || q.trim().length === 0) {
       return success([]);
     }
+
+    // One budget with the @-mention typeahead: the same fan-out. A 429 keeps
+    // what the palette shows.
+    const limited = limitEntitySearch(request, ctx.userId);
+    if (limited) return limited;
 
     const hits = await searchEntities({
       ctx,

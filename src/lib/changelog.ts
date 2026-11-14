@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.560.7",
+    date: "2026-11-14",
+    title: "Search finds % and _ as text, and retro writes are audited",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching for % or _ in the command palette (⌘K) or the @-mention picker finds only names that contain that character. Before, either one matched every name of every kind. The same goes for the workflow simulator's item picker, the assistant's searches, and the API's search filter on CRM contacts, partners, products and a project's work items. In chat search, from:% and in:_ now look for those characters in a name too, instead of matching every author or channel.",
+      },
+      {
+        kind: "fix",
+        text: "The command palette (⌘K) and the @-mention picker run the same search, and now share one rate limit, as the Issues search has. Ordinary typing stays well inside it.",
+      },
+      {
+        kind: "fix",
+        text: "A retro action item can't be given to someone whose account is deactivated. Editing an action already refused them; adding one now does too.",
+      },
+      {
+        kind: "fix",
+        text: "Adding, editing and deleting retro notes and action items now shows in the audit log, with who did it and when. The text of a note or action stays out of the log.",
+      },
+    ],
+  },
+  {
     version: "2.560.4",
     date: "2026-11-14",
     title: "Exports show only what you could read in the app",
