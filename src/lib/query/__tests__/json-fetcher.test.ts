@@ -42,7 +42,8 @@ describe("a server's reason reaches the toast", () => {
   });
 
   it("fetchErrorOf of a response that says nothing keeps the caller's own fallback", async () => {
-    for (const res of [new Response("Not found", { status: 404 }), new Response(null, { status: 502 })]) {
+    const page = "<!DOCTYPE html><html><body><h1>502 Bad Gateway</h1></body></html>";
+    for (const res of [new Response(page, { status: 502 }), new Response(null, { status: 502 })]) {
       toastError.mockClear();
       notifyError(await fetchErrorOf(res), "Couldn't save the note.");
       expect(toastError).toHaveBeenCalledWith("Couldn't save the note.");
@@ -65,8 +66,15 @@ describe("serverReason", () => {
     expect(serverReason({ error: "That status doesn't exist in this project." })).toBe("That status doesn't exist in this project.");
   });
 
+  it("is a short plain-text body, as older routes send", () => {
+    expect(serverReason("File exceeds 25 MB limit")).toBe("File exceeds 25 MB limit");
+    expect(serverReason("  This request is already approved\n")).toBe("This request is already approved");
+  });
+
   it("is null when the body says nothing", () => {
-    for (const body of [null, undefined, "", "Not found", "<html>502</html>", [], {}, { error: { nested: true } }]) {
+    const page = "<!DOCTYPE html><html><body>502</body></html>";
+    const trace = "Error: boom\n    at handler (route.ts:12:5)";
+    for (const body of [null, undefined, "", "   ", page, trace, "x".repeat(201), [], {}, 42, { error: { nested: true } }]) {
       expect(serverReason(body)).toBeNull();
     }
   });
@@ -79,8 +87,13 @@ describe("jsonFetch", () => {
     expect({ status: err.status, message: err.message }).toEqual({ status: 409, message: "Sprint is active" });
   });
 
+  it("carries a plain-text reason, which the status text would have lost", async () => {
+    respondWith(new Response("File exceeds 25 MB limit", { status: 413, statusText: "Payload Too Large" }));
+    expect(((await rejection(jsonFetch("/api/x"))) as FetchError).message).toBe("File exceeds 25 MB limit");
+  });
+
   it("names the status when the body has no reason", async () => {
-    respondWith(new Response("Not found", { status: 404, statusText: "Not Found" }));
+    respondWith(new Response("<html><body>Not Found</body></html>", { status: 404, statusText: "Not Found" }));
     expect(((await rejection(jsonFetch("/api/x"))) as FetchError).message).toBe("Not Found");
     respondWith(new Response(null, { status: 500 }));
     expect(((await rejection(jsonFetch("/api/x"))) as FetchError).message).toBe("HTTP 500");

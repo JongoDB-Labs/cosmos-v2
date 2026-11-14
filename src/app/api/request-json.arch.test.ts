@@ -132,6 +132,17 @@ describe("the scanner (positive controls)", () => {
     expect(rawJsonReads("route.ts", src).reads).toEqual([2, 3, 4, 5, 6, 7, 8]);
   });
 
+  it("finds a read on a parameter typed only by inference, by its name", () => {
+    // A handler passed to a wrapper: no annotation for the type rule to see.
+    const src = [
+      "export const PUT = withOrg(async (request, ctx) => {",
+      "  const body = await request.json();",
+      "});",
+      "export const POST = withOrg(async (_req) => success(await _req.json()));",
+    ].join("\n");
+    expect(rawJsonReads("route.ts", src).reads).toEqual([2, 4]);
+  });
+
   it("does not count a mention, a fetch response, or the helper", () => {
     const src = [
       "// Never call request.json() here: see readJsonBody.",

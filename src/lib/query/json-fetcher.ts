@@ -12,10 +12,16 @@ export class FetchError extends Error {
 /**
  * What the server said went wrong, from a failed response's body: a problem's
  * `detail` (lib/openapi/problem.ts; a validation refusal puts its first issue
- * there), else the legacy `error` key. Null when the body says nothing (none,
- * plain text, a proxy's HTML page).
+ * there), else the legacy `error` key, else a short plain-text body (older
+ * routes answer `new Response("File exceeds 25 MB limit", { status: 413 })`).
+ * Null when the body says nothing: none, or a page (HTML, several lines, long)
+ * that a proxy or the framework sent instead.
  */
 export function serverReason(body: unknown): string | null {
+  if (typeof body === "string") {
+    const text = body.trim();
+    return text && text.length <= 200 && !text.includes("\n") && !text.startsWith("<") ? text : null;
+  }
   if (!body || typeof body !== "object") return null;
   const { detail, error } = body as { detail?: unknown; error?: unknown };
   if (typeof detail === "string" && detail.trim()) return detail;
