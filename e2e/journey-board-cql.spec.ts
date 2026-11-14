@@ -49,8 +49,9 @@ test.describe("Boards — query language", () => {
     await expect(page.getByText('This board shows summary ~ "radar"')).toBeVisible({ timeout: 20_000 });
     await expect(card("Falcon radar upgrade")).toBeHidden({ timeout: 20_000 });
 
-    // Clear returns to the board's scope, not to every item in the project.
-    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    // Clear (an icon in the query box, on a board) returns to the board's
+    // scope, not to every item in the project.
+    await page.getByRole("button", { name: "Clear search and filters" }).click();
     await expect(card("Falcon radar upgrade")).toBeVisible({ timeout: 20_000 });
     await expect(card("Falcon SSO integration")).toBeHidden();
     expect(new URL(page.url()).searchParams.get("cql")).toBeNull();

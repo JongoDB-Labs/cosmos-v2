@@ -16,6 +16,7 @@ import { executeCql } from "../execute.server";
 import { CqlError } from "../errors";
 import { CQL_VERSION, type CqlNode, type CqlQuery } from "../ast";
 import { seedWorld, type World } from "./cql-fixture";
+import { cqlTextArb } from "./arbitraries";
 import { prisma } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
@@ -68,15 +69,8 @@ describe("CQL scope escape (e2e DB, property)", () => {
     );
   }
 
-  const textQueryArb = () => fc.letrec<{ e: string }>((tie) => ({
-    e: fc.oneof(
-      { depthSize: "small" },
-      { weight: 4, arbitrary: clauseArb() },
-      { weight: 1, arbitrary: fc.tuple(tie("e"), tie("e")).map(([a, b]) => `(${a} OR ${b})`) },
-      { weight: 1, arbitrary: fc.tuple(tie("e"), tie("e")).map(([a, b]) => `${a} AND ${b}`) },
-      { weight: 1, arbitrary: tie("e").map((a) => `NOT (${a})`) },
-    ),
-  })).e;
+  /** Clauses under AND / OR / NOT, inside the parser's limits. */
+  const textQueryArb = () => cqlTextArb(clauseArb());
 
   /** JSON queries carrying raw ids, as a saved filter or dashboard panel would. */
   function jsonQueryArb(): fc.Arbitrary<CqlQuery> {
@@ -237,16 +231,7 @@ describe("CQL scope escape (e2e DB, property)", () => {
           ),
         },
       );
-    const queryArb = () =>
-      fc.letrec<{ e: string }>((tie) => ({
-        e: fc.oneof(
-          { depthSize: "small" },
-          { weight: 4, arbitrary: clause() },
-          { weight: 1, arbitrary: fc.tuple(tie("e"), tie("e")).map(([a, b]) => `(${a} OR ${b})`) },
-          { weight: 1, arbitrary: fc.tuple(tie("e"), tie("e")).map(([a, b]) => `${a} AND ${b}`) },
-          { weight: 1, arbitrary: tie("e").map((a) => `NOT (${a})`) },
-        ),
-      })).e;
+    const queryArb = () => cqlTextArb(clause());
 
     it("the controls: a readable comment matches, and swapping its word changes the answer", async () => {
       const reader = withComments(w.ctx());
