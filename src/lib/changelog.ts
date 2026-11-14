@@ -65,6 +65,10 @@ const RELEASES: Release[] = [
         kind: "fix",
         text: "A channel you join while chat is open now shows new messages straight away, without reloading the page. A project channel you can no longer see stops sending you messages within a minute.",
       },
+      {
+        kind: "fix",
+        text: "The duplicate-message check, which keeps a message resent after a dropped connection from posting twice, now matches the channel and author too.",
+      },
     ],
   },
   {

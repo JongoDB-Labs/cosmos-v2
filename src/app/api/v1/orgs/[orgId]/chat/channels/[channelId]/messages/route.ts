@@ -122,9 +122,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const parsed = postSchema.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
-    // Idempotency: client retry with same UUID gets the existing row.
+    // Idempotency: a client retry (the same id, in this channel, by this
+    // author) gets the existing row. Any other use of an id is a conflict.
     const dup = await prisma.chatMessage.findUnique({ where: { id: parsed.data.id } });
-    if (dup) return created(dup);
+    if (dup) {
+      if (dup.channelId === channel.id && dup.authorId === ctx.userId) return created(dup);
+      return new Response(JSON.stringify({ error: "id_in_use" }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
 
     const message = await createUserMessage({
       id: parsed.data.id,
