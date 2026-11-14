@@ -2,12 +2,17 @@
 
 import { createContext, useContext, useMemo } from "react";
 import { usePathname } from "next/navigation";
-import { Permission, RolePermissions, hasPermission } from "@/lib/rbac/permissions";
+import { Permission, RolePermissions, hasPermission, permissionMaskFromKeys } from "@/lib/rbac/permissions";
 
 interface Org {
   id: string;
   slug: string;
   role: string;
+  /** The permission KEYS this person's session holds in the org, computed on
+   *  the server by the fold its own checks use (the dashboard layout). The org
+   *  role alone misses work roles, a stored override and the org's
+   *  restrictions, so `can()` reads these, never the role. */
+  permissions: readonly string[];
 }
 
 interface PermissionsContextValue {
@@ -33,7 +38,7 @@ export function PermissionsProvider({
   const value = useMemo(() => {
     const org = orgs.find((o) => o.slug === orgSlug);
     if (!org) return null;
-    const perms = RolePermissions[org.role as keyof typeof RolePermissions] ?? 0n;
+    const perms = permissionMaskFromKeys(org.permissions);
     return {
       orgId: org.id,
       orgSlug: org.slug,

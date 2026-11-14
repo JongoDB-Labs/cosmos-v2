@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.12",
+    date: "2026-11-14",
+    title: "Menus offer only what you may use",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Buttons and menus now follow your full access in each organization, including what a work role adds, what an admin set for you, and what your organization restricts. Before, they followed your role alone, so a viewer whose work role allows chat saw no way into it.",
+      },
+      {
+        kind: "fix",
+        text: "The command menu and the phone's bottom bar show Chat only to people who may use chat. The command menu also hides Notes and Meetings from guests, as the top bar already did.",
+      },
+      {
+        kind: "fix",
+        text: "Inviting someone, or changing a member's role, now offers only the roles you may give. A member who manages members through a work role is no longer offered Admin or Billing admin, which were refused when picked.",
+      },
+    ],
+  },
+  {
     version: "2.561.5",
     date: "2026-11-14",
     title: "Restrictions and removals apply consistently",

@@ -449,7 +449,7 @@ export function permissionNames(permissions: bigint): PermissionKey[] {
 
 /** Build a permission bitmask from a list of permission KEYS. Unknown keys are
  *  ignored (so untrusted input can't set bogus bits). Inverse of permissionNames. */
-export function permissionMaskFromKeys(keys: string[]): bigint {
+export function permissionMaskFromKeys(keys: readonly string[]): bigint {
   let mask = 0n;
   for (const k of keys) {
     const bit = (Permission as Record<string, bigint | undefined>)[k];

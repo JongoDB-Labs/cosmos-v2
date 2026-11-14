@@ -6,6 +6,7 @@ import { MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useDrawers } from "@/components/drawers/drawer-provider";
+import { Permission, usePermissions } from "@/components/providers/permissions-provider";
 import {
   DEFAULT_MOBILE_NAV,
   MOBILE_NAV_CHANGED_EVENT,
@@ -17,7 +18,9 @@ import {
 // (Settings → Preferences → Mobile Navigation, persisted in localStorage). The
 // Agent is the floating bubble (not a nav slot); the long tail stays in the
 // drawer. Chat opens the docked drawer (full-screen on mobile) rather than the
-// orphaned /chat page.
+// orphaned /chat page. Without CHAT_USE, which every chat route needs, there is
+// no Chat cell and the four slots share the bar, as the docked drawer drops its
+// Chat tab.
 export function MobileBottomNav({
   orgSlug,
   orgId,
@@ -27,9 +30,11 @@ export function MobileBottomNav({
 }) {
   const pathname = usePathname();
   const { openDrawer, isOpen } = useDrawers();
+  const chatAllowed = usePermissions().can(Permission.CHAT_USE);
   // useTotalUnread must be called unconditionally (before any early return) to
-  // keep hook order stable. An empty orgId is a no-op inside the hook.
-  const totalUnread = useTotalUnread(orgId ?? "");
+  // keep hook order stable. An empty orgId is a no-op inside the hook, which is
+  // what it gets when there is no Chat cell to badge.
+  const totalUnread = useTotalUnread(chatAllowed ? (orgId ?? "") : "");
 
   // Read the user's chosen slots; SSR + first paint use the default to avoid a
   // hydration mismatch, then sync from localStorage on mount + on change.
@@ -50,10 +55,16 @@ export function MobileBottomNav({
   // Build the 5 cells: [slot0, slot1, Chat(center), slot2, slot3].
   const left = slots.slice(0, 2);
   const right = slots.slice(2, 4);
-  const ordered = [...left, "__chat__", ...right];
+  const ordered = chatAllowed ? [...left, "__chat__", ...right] : [...left, ...right];
 
   return (
-    <nav aria-label="Primary (mobile)" className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-5 border-t border-[var(--border)] bg-[var(--bg)] pb-[env(safe-area-inset-bottom)] md:hidden">
+    <nav
+      aria-label="Primary (mobile)"
+      className={cn(
+        "fixed bottom-0 left-0 right-0 z-30 grid border-t border-[var(--border)] bg-[var(--bg)] pb-[env(safe-area-inset-bottom)] md:hidden",
+        chatAllowed ? "grid-cols-5" : "grid-cols-4",
+      )}
+    >
       {ordered.map((key, i) => {
         if (key === "__chat__") {
           const active = isOpen("chat");

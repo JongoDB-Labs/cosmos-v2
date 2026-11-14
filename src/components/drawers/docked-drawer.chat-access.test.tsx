@@ -24,6 +24,7 @@ vi.mock("./panels/meetings-panel", () => ({ MeetingsPanel: () => null }));
 vi.mock("@/components/chat/channel-view", () => ({ ChannelView: () => <div data-testid="channel-view" /> }));
 
 import { PermissionsProvider } from "@/components/providers/permissions-provider";
+import { RolePermissions, permissionNames } from "@/lib/rbac/permissions";
 import { DrawerProvider, useDrawers, type DrawerTool } from "./drawer-provider";
 import { DockedDrawer } from "./docked-drawer";
 
@@ -36,7 +37,10 @@ function Open({ tool }: { tool: DrawerTool }) {
 function app(role: string, tool: DrawerTool) {
   return (
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <PermissionsProvider orgs={[{ id: "org-1", slug: "acme", role }]}>
+      {/* The keys the shell sends for a plain member of that role. */}
+      <PermissionsProvider
+        orgs={[{ id: "org-1", slug: "acme", role, permissions: permissionNames(RolePermissions[role as keyof typeof RolePermissions]) }]}
+      >
         <DrawerProvider>
           <Open tool={tool} />
           <DockedDrawer orgId="org-1" orgSlug="acme" userId="u1" />
