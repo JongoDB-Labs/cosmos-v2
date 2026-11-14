@@ -11,6 +11,7 @@ import {
   Permission,
 } from "@/lib/rbac/permissions";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
+import { currentWorkRoleRefusal } from "@/lib/rbac/grant-ceiling";
 import { TeamTable } from "./team-table";
 import { InviteMemberButton } from "./invite-member-button";
 import { AccountRequestQueue } from "./account-request-queue";
@@ -117,6 +118,11 @@ async function TeamPageContent({ params }: PageParams) {
   const grantableRoleIds = workRoles
     .filter((r) => isPermissionSubset(maskFromDb(r.grants), ctx.basePermissions))
     .map((r) => r.id);
+  // Taking a role away is the ceiling on current role, counted without the
+  // org's restrictions, as the work-roles API counts it.
+  const removableRoleIds = workRoles
+    .filter((r) => currentWorkRoleRefusal(ctx, maskFromDb(r.grants)) === null)
+    .map((r) => r.id);
   const workRoleOptions = workRoles.map(({ id, name, isBuiltIn }) => ({
     id,
     name,
@@ -150,6 +156,7 @@ async function TeamPageContent({ params }: PageParams) {
         rows={rows}
         workRoleOptions={workRoleOptions}
         grantableRoleIds={grantableRoleIds}
+        removableRoleIds={removableRoleIds}
         isPlatformAdmin={isPlatformAdmin}
         currentUserId={ctx.userId}
         viewerIsOwner={ctx.orgRole === "OWNER"}

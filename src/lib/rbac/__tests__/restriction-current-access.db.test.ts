@@ -14,6 +14,7 @@
 // Own org and users throughout; the seeded users are shared.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import type { ReactElement } from "react";
 import { randomBytes } from "node:crypto";
 
 // Vault key for sealing the reset token.
@@ -37,6 +38,11 @@ vi.mock("next/cache", async (orig) => ({
   updateTag: () => undefined,
 }));
 vi.mock("@/lib/integrations/invitation-email", () => ({ sendPasswordResetEmail: vi.fn(async () => undefined) }));
+// The Org page renders on the server; its client parts are stood in for, so the
+// props it hands the table can be read.
+vi.mock("@/app/(dashboard)/[orgSlug]/team/team-table", () => ({ TeamTable: () => null }));
+vi.mock("@/app/(dashboard)/[orgSlug]/team/invite-member-button", () => ({ InviteMemberButton: () => null }));
+vi.mock("@/app/(dashboard)/[orgSlug]/team/account-request-queue", () => ({ AccountRequestQueue: () => null }));
 
 import { prisma } from "@/lib/db/client";
 import { hashPassword } from "@/lib/auth/password";
@@ -45,6 +51,12 @@ import { SESSION_COOKIE } from "@/lib/auth/client";
 import { apiKeyAuthContext, scopeMask } from "@/lib/auth/api-key";
 import { PUT as putMember, DELETE as deleteMember } from "@/app/api/v1/orgs/[orgId]/members/[memberId]/route";
 import { POST as sendReset } from "@/app/api/v1/orgs/[orgId]/members/[memberId]/password-reset/route";
+import { PUT as putMemberWorkRoles } from "@/app/api/v1/orgs/[orgId]/members/[memberId]/work-roles/route";
+import { PUT as putRoleRoster } from "@/app/api/v1/orgs/[orgId]/work-roles/[roleId]/members/route";
+import { PUT as putWorkRole, DELETE as deleteWorkRoleRoute } from "@/app/api/v1/orgs/[orgId]/work-roles/[roleId]/route";
+import { seedBuiltinWorkRoles } from "@/lib/rbac/builtin-work-roles-seed";
+import TeamPage from "@/app/(dashboard)/[orgSlug]/team/page";
+import { TeamTable } from "@/app/(dashboard)/[orgSlug]/team/team-table";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const slug = `rca-${stamp}`;
@@ -53,6 +65,8 @@ const users: string[] = [];
 let ownerMemberId = "";
 let elevatedRoleId = "";
 let adminUserId = "";
+let managerRoleId = "";
+let contributorId = "";
 
 /** Callers, by session cookie. The manager manages members only through a work role. */
 const as = {} as Record<"owner" | "admin" | "manager", Headers>;
@@ -102,15 +116,61 @@ const setRole = async (who: Headers, memberId: string, role: string) =>
 const remove = async (who: Headers, memberId: string) => (await deleteMember(req(who, "DELETE"), params(memberId))).status;
 const reset = async (who: Headers, memberId: string) => (await sendReset(req(who, "POST"), params(memberId))).status;
 const roleOf = async (memberId: string) => (await prisma.orgMember.findUnique({ where: { id: memberId } }))?.role ?? null;
+const roleParams = (roleId: string) => ({ params: Promise.resolve({ orgId, roleId }) });
+const setWorkRoles = async (who: Headers, memberId: string, workRoleIds: string[]) =>
+  (await putMemberWorkRoles(req(who, "PUT", { workRoleIds }), params(memberId))).status;
+const setRoster = async (who: Headers, roleId: string, orgMemberIds: string[]) =>
+  (await putRoleRoster(req(who, "PUT", { orgMemberIds }), roleParams(roleId))).status;
+const editWorkRole = async (who: Headers, roleId: string, body: Record<string, unknown>) =>
+  (await putWorkRole(req(who, "PUT", body), roleParams(roleId))).status;
+const deleteWorkRole = async (who: Headers, roleId: string) =>
+  (await deleteWorkRoleRoute(req(who, "DELETE"), roleParams(roleId))).status;
+const holds = async (memberId: string, workRoleId: string) =>
+  (await prisma.orgMemberWorkRole.count({ where: { orgMemberId: memberId, workRoleId } })) > 0;
+const rosterOf = async (workRoleId: string) =>
+  (await prisma.orgMemberWorkRole.findMany({ where: { workRoleId }, select: { orgMemberId: true } })).map((r) => r.orgMemberId);
+/** The props the Org page hands its table, rendered as `who`. */
+async function teamTableProps(who: Headers): Promise<{ grantableRoleIds: string[]; removableRoleIds?: string[] }> {
+  h.headers = who;
+  type El = ReactElement<{ children?: unknown }>;
+  const suspense = TeamPage({ params: Promise.resolve({ orgSlug: slug }) }) as El;
+  const content = suspense.props.children as El;
+  const tree = await (content.type as (p: unknown) => Promise<unknown>)(content.props);
+  const find = (n: unknown): Record<string, unknown> | null => {
+    if (!n || typeof n !== "object") return null;
+    const el = n as ReactElement<Record<string, unknown>>;
+    if (el.type === TeamTable) return el.props;
+    for (const k of ([] as unknown[]).concat(el.props?.children ?? [])) {
+      const hit = find(k);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  const props = find(tree);
+  if (!props) throw new Error("the Org page rendered no table");
+  return props as { grantableRoleIds: string[]; removableRoleIds?: string[] };
+}
+let customRoles = 0;
+async function itemWriterRole() {
+  return (await prisma.workRole.create({
+    data: {
+      orgId, key: `writer-${stamp}-${customRoles++}`, name: `Item writer ${customRoles}`,
+      grants: maskToDb(Permission.ITEM_CREATE | Permission.ITEM_READ),
+    },
+  })).id;
+}
 
 beforeAll(async () => {
   orgId = (await prisma.organization.create({ data: { name: `rca ${stamp}`, slug, tenantClass: "COMMERCIAL" } })).id;
   const managerRole = await prisma.workRole.create({
     data: { orgId, key: `members-${stamp}`, name: "Member manager", grants: maskToDb(Permission.ORG_MANAGE_MEMBERS) },
   });
+  managerRoleId = managerRole.id;
   elevatedRoleId = (await prisma.workRole.create({
     data: { orgId, key: `security-${stamp}`, name: "Security", grants: maskToDb(Permission.SECURITY_MANAGE) },
   })).id;
+  await seedBuiltinWorkRoles(orgId);
+  contributorId = (await prisma.workRole.findFirstOrThrow({ where: { orgId, key: "builtin.contributor" } })).id;
   const owner = await person("OWNER");
   ownerMemberId = owner.memberId;
   as.owner = await sessionFor(owner.userId);
@@ -216,6 +276,33 @@ describe("an API key", () => {
   });
 });
 
+describe.each([
+  ["with no restriction", [] as string[]],
+  ["under a restriction on ITEM_CREATE", ["ITEM_CREATE"]],
+])("what a manager holds through a work role never raises their ceiling (%s)", (_label, actions) => {
+  beforeEach(() => restrict(actions));
+
+  it("a manager through a work role can't reach a peer who manages members the same way", async () => {
+    // The peer holds nothing the manager lacks in permissions, only in base:
+    // ORG_MANAGE_MEMBERS through a work role. Counting the manager's own work
+    // roles in their ceiling would put the peer within reach, and that is how
+    // a self-assigned grant gets laundered into power over others.
+    const peer = await person("MEMBER", managerRoleId);
+    expect(await reset(as.manager, peer.memberId)).toBe(403);
+    expect(await remove(as.manager, peer.memberId)).toBe(403);
+    expect(await setRole(as.manager, peer.memberId, "VIEWER")).toBe(403);
+    expect(await roleOf(peer.memberId)).toBe("MEMBER");
+  });
+
+  it("while the same manager still reaches a plain member", async () => {
+    const a = await person("MEMBER");
+    const b = await person("MEMBER");
+    expect(await reset(as.manager, a.memberId)).toBe(200);
+    expect(await setRole(as.manager, a.memberId, "VIEWER")).toBe(200);
+    expect(await remove(as.manager, b.memberId)).toBe(204);
+  });
+});
+
 describe("with no restriction", () => {
   beforeEach(() => restrict([]));
 
@@ -236,5 +323,66 @@ describe("with no restriction", () => {
   it("a manager through a work role still can't reach someone whose work role holds more", async () => {
     const { memberId } = await person("MEMBER", elevatedRoleId);
     expect(await reset(as.manager, memberId)).toBe(403);
+  });
+});
+
+describe("work roles under a restriction on ITEM_CREATE, which Contributor grants", () => {
+  beforeEach(() => restrict(["ITEM_CREATE"]));
+
+  it("an admin can take Contributor away from a member, as they can remove that member", async () => {
+    const { memberId } = await person("MEMBER", contributorId);
+    expect(await setWorkRoles(as.admin, memberId, [])).toBe(200);
+    expect(await holds(memberId, contributorId)).toBe(false);
+  });
+
+  it("and can take a member off Contributor's roster", async () => {
+    const off = await person("MEMBER", contributorId);
+    const stays = await person("MEMBER", contributorId);
+    const others = (await rosterOf(contributorId)).filter((id) => id !== off.memberId);
+    expect(others).toContain(stays.memberId);
+    expect(await setRoster(as.admin, contributorId, others)).toBe(200);
+    expect(await holds(off.memberId, contributorId)).toBe(false);
+    expect(await holds(stays.memberId, contributorId)).toBe(true);
+  });
+
+  it("but can't give Contributor while the restriction stands, either way", async () => {
+    // A grant outlives the restriction, so giving it is checked as before.
+    const { memberId } = await person("MEMBER");
+    expect(await setWorkRoles(as.admin, memberId, [contributorId])).toBe(403);
+    expect(await setRoster(as.admin, contributorId, [...(await rosterOf(contributorId)), memberId])).toBe(403);
+    expect(await holds(memberId, contributorId)).toBe(false);
+  });
+
+  it("an admin can rename or delete a role that grants it, but not give a role new grants that include it", async () => {
+    const roleId = await itemWriterRole();
+    expect(await editWorkRole(as.admin, roleId, { name: `Renamed writer ${stamp}` })).toBe(200);
+    expect(await editWorkRole(as.admin, roleId, { grants: ["ITEM_CREATE", "ITEM_READ"] })).toBe(403);
+    expect(await deleteWorkRole(as.admin, roleId)).toBe(204);
+    expect(await prisma.workRole.count({ where: { id: roleId } })).toBe(0);
+  });
+
+  it("the Org page offers to take Contributor away, but not to give it", async () => {
+    const admin = await teamTableProps(as.admin);
+    expect(admin.grantableRoleIds).not.toContain(contributorId);
+    expect(admin.removableRoleIds).toContain(contributorId);
+    // The manager's ceiling is their member role alone: what their own work
+    // role grants doesn't count, so neither it nor Security is theirs to take.
+    // An item-writer role is (control), though the restriction keeps them from
+    // giving it.
+    const writer = await itemWriterRole();
+    const manager = await teamTableProps(as.manager);
+    expect(manager.removableRoleIds).toContain(writer);
+    expect(manager.grantableRoleIds).not.toContain(writer);
+    expect(manager.removableRoleIds).not.toContain(elevatedRoleId);
+    expect(manager.removableRoleIds).not.toContain(managerRoleId);
+  });
+
+  it("a manager through a work role still can't take away, edit or delete a role beyond their own", async () => {
+    const { memberId } = await person("MEMBER", elevatedRoleId);
+    expect(await setWorkRoles(as.manager, memberId, [])).toBe(403);
+    expect(await setRoster(as.manager, elevatedRoleId, [])).toBe(403);
+    expect(await editWorkRole(as.manager, elevatedRoleId, { name: `Renamed security ${stamp}` })).toBe(403);
+    expect(await deleteWorkRole(as.manager, elevatedRoleId)).toBe(403);
+    expect(await holds(memberId, elevatedRoleId)).toBe(true);
   });
 });

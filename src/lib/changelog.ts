@@ -71,7 +71,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "A restriction on an action, such as creating work items, no longer stops an admin from changing, removing or sending a password reset to a member whose role allows that action. Giving someone a role still counts every permission the role carries.",
+        text: "A restriction on an action, such as creating work items, no longer stops an admin from changing, removing or sending a password reset to a member whose role allows that action, or from taking away, editing or deleting a work role that allows it. Giving someone a role or a work role still counts every permission it carries.",
       },
       {
         kind: "fix",

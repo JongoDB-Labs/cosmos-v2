@@ -49,8 +49,11 @@ export async function ruleContext(rule: { orgId: string; ownerId: string | null;
   const cap = maskFromDb(rule.actorCap);
   return {
     ...member,
+    // Every mask is capped. The spread carries the owner's ceiling on current
+    // access too, and left alone it would let the rule manage anyone the owner can.
     permissions: member.permissions & cap,
     basePermissions: member.basePermissions & cap,
+    unrestrictedBasePermissions: (member.unrestrictedBasePermissions ?? member.basePermissions) & cap,
     isApiKey: true,
   };
 }

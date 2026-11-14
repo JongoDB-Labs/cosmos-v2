@@ -175,8 +175,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
     // The ceiling on current role, as in PUT: remove only a member whose access
     // the caller could have granted. Removing them ends their work roles too, so
-    // those count; otherwise removal would strip a work role the caller is
-    // refused when taking it away directly.
+    // those count, against the same ceiling as taking a work role away directly:
+    // the caller's base before the org's restrictions (grant-ceiling.ts).
     const current = currentAccessRefusal(ctx, member.role, heldBeyondRole(member));
     if (current) return forbidden(current);
 

@@ -48,6 +48,8 @@ interface TeamTableProps {
    *  so a member can never hand out a role that grants more than they hold
    *  themselves. */
   grantableRoleIds: string[];
+  /** Ids the actor may take away from a holder (see TeamRoleDialog). */
+  removableRoleIds?: string[];
   /** True when the viewer is a platform/system admin (INTERNAL_ADMINS). Unlocks
    *  the global "Delete account" row action — the API re-checks this gate. */
   isPlatformAdmin?: boolean;
@@ -80,6 +82,7 @@ export function TeamTable({
   rows,
   workRoleOptions,
   grantableRoleIds,
+  removableRoleIds,
   isPlatformAdmin = false,
   currentUserId,
   viewerIsOwner,
@@ -442,6 +445,7 @@ export function TeamTable({
           member={roleDialogTarget}
           workRoleOptions={workRoleOptions}
           grantableRoleIds={grantableRoleIds}
+          removableRoleIds={removableRoleIds}
           viewerIsOwner={viewerIsOwner}
           onClose={() => setRoleDialogTarget(null)}
         />

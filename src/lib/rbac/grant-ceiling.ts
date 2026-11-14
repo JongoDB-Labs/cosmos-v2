@@ -119,6 +119,21 @@ export function workRoleCeilingRefusal(granter: Pick<Granter, "basePermissions">
   return isPermissionSubset(grants, granter.basePermissions) ? null : CURRENT_ACCESS_MESSAGE;
 }
 
+/**
+ * The ceiling on CURRENT work-role access: why `granter` may not take away,
+ * edit or delete a work role that grants `grants` today, or null when they may.
+ * Compared like {@link currentAccessRefusal}, with the base before the org's
+ * restrictions, so a restriction doesn't stop an admin taking away a role they
+ * could remove along with its holder. Giving a role, or giving one new grants,
+ * stays on {@link workRoleCeilingRefusal}.
+ */
+export function currentWorkRoleRefusal(
+  granter: Pick<CurrentAccessGranter, "basePermissions" | "unrestrictedBasePermissions">,
+  grants: bigint,
+): string | null {
+  return workRoleCeilingRefusal({ basePermissions: granter.unrestrictedBasePermissions ?? granter.basePermissions }, grants);
+}
+
 /** The org roles `granter` may hand out, in the order the UI lists them. */
 export function grantableOrgRoles(granter: Granter): OrgRole[] {
   const all: OrgRole[] = ["OWNER", "ADMIN", "BILLING_ADMIN", "MEMBER", "VIEWER", "GUEST"];
