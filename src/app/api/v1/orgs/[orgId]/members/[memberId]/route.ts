@@ -16,6 +16,7 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { z } from "zod";
 import { OrgRole } from "@prisma/client";
 import { ProblemError } from "@/lib/openapi/problem";
+import { escapeLike } from "@/lib/query/like";
 
 const updateMemberSchema = z.object({
   role: z.nativeEnum(OrgRole),
@@ -152,7 +153,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const member = await prisma.orgMember.findUnique({
       where: { id: memberId },
-      include: { workRoles: HELD_WORK_ROLES },
+      include: { workRoles: HELD_WORK_ROLES, user: { select: { email: true } } },
     });
     if (!member || member.orgId !== orgId) {
       return new Response("Not found", { status: 404 });
@@ -192,7 +193,12 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // or an SSO sign-in the identity provider still vouches for, clears
     // `removedAt` on this same row, and every key and link they ever made would
     // work again.
-    await prisma.$transaction(async (tx) => {
+    //
+    // Their invitations to this org end with it too, expired ones included
+    // (resending revives one): accepting an invitation reinstates a removed
+    // member, and one sent before the removal must not undo it. Matched as
+    // acceptance matches them: the exact address, ignoring case.
+    const invitationsEnded = await prisma.$transaction(async (tx) => {
       await tx.orgMember.update({
         where: { id: memberId },
         data: { removedAt: new Date() },
@@ -205,6 +211,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         reason: "removed",
         ipAddress: getIpAddress(request),
       });
+      const ended = await tx.invitation.deleteMany({
+        where: { orgId, email: { equals: escapeLike(member.user.email), mode: "insensitive" } },
+      });
+      return ended.count;
     });
     // Nothing more goes to their Teams chat from this org (COSMOS-202 T2).
     await prisma.teamsConversation.deleteMany({ where: { orgId, userId: member.userId } });
@@ -219,7 +229,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       // keep the removal reversible. `role` is recorded only so the event reads on its
       // own. The permission mask is deliberately NOT copied in — see the note on
       // OrgMember.permissions in prisma/schema.prisma.
-      metadata: { targetUserId: member.userId, role: member.role } as Record<string, string>,
+      metadata: {
+        targetUserId: member.userId,
+        role: member.role,
+        invitationsEnded: String(invitationsEnded),
+      } as Record<string, string>,
       ipAddress: getIpAddress(request),
     });
 

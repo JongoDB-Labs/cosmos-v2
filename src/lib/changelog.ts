@@ -68,6 +68,29 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.561.14",
+    date: "2026-11-14",
+    title: "Inviting someone back brings them back",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Inviting back someone who was removed from your organization now lets them in when they sign in, with the role in the invitation and the work roles and projects they had. Before, the invitation disappeared at their sign-in and they stayed out, with nothing to say why. Their old API keys and calendar links stay ended.",
+      },
+      {
+        kind: "fix",
+        text: "An invitation now reaches its person whatever capital letters their address was written with.",
+      },
+      {
+        kind: "fix",
+        text: "Inviting someone back, or resending their invitation, needs the same access as re-adding them from the members list: it counts the work roles and extra permissions they would get back.",
+      },
+      {
+        kind: "fix",
+        text: "Removing someone from your organization also cancels their invitations to it. An invitation sent before someone was removed no longer brings them back; send them a new one.",
+      },
+    ],
+  },
+  {
     version: "2.561.13",
     date: "2026-11-14",
     title: "People removed from an organization leave its lists",

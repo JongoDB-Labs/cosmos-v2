@@ -284,9 +284,6 @@
     "isManagerOf",
     "roleCountsFor"
   ],
-  "POST v1/orgs/[orgId]/members": [
-    "OrgRole.OWNER|ADMIN"
-  ],
   "POST v1/orgs/[orgId]/projects/[projectId]/blockers": [
     "requireProjectManage"
   ],
