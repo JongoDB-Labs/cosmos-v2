@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db/client";
+import { escapeLike } from "@/lib/query/like";
 
 /** Where the sending org came from — recorded in the operator log, never shown to the caller. */
 export type SenderOrgSource = "named" | "membership" | "invitation";
@@ -42,7 +43,7 @@ export async function resolveSenderOrg(params: {
   // that is the org whose message they are most likely waiting on.
   const invitation = await prisma.invitation.findFirst({
     where: {
-      email: { equals: params.email, mode: "insensitive" },
+      email: { equals: escapeLike(params.email), mode: "insensitive" },
       expiresAt: { gt: new Date() },
     },
     orderBy: { createdAt: "desc" },

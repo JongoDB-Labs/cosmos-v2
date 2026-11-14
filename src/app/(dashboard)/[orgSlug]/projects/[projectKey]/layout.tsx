@@ -14,6 +14,7 @@ import { Settings, Upload, CalendarClock } from "lucide-react";
 import { ProjectBoardTabs } from "./board-tabs";
 import { cqlEnabled } from "@/lib/query/flag";
 import { ClassificationBanner } from "@/components/security/classification-banner";
+import { escapeLike } from "@/lib/query/like";
 
 type LayoutParams = {
   params: Promise<{ orgSlug: string; projectKey: string }>;
@@ -32,7 +33,7 @@ export default async function ProjectLayout({
   const project = await prisma.project.findFirst({
     where: {
       orgId: ctx.orgId,
-      key: { equals: projectKey, mode: "insensitive" },
+      key: { equals: escapeLike(projectKey), mode: "insensitive" },
       archived: false,
     },
     include: {
