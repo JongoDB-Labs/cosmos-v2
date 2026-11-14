@@ -33,6 +33,7 @@ import { POST as passwordLogin } from "@/app/api/auth/password/login/route";
 import { POST as inviteRoute } from "@/app/api/v1/orgs/[orgId]/invitations/route";
 import { POST as resendRoute } from "@/app/api/v1/orgs/[orgId]/invitations/[invitationId]/route";
 import { DELETE as removeRoute } from "@/app/api/v1/orgs/[orgId]/members/[memberId]/route";
+import { POST as addRoute } from "@/app/api/v1/orgs/[orgId]/members/route";
 import { consumePendingInvitations } from "./consume-invitations";
 import { addOrReinstateMember, membershipRow } from "@/lib/members/add-member.server";
 
@@ -42,6 +43,7 @@ const PASSWORD = `readd ${stamp} passphrase`;
 
 type Role = "OWNER" | "ADMIN" | "MEMBER" | "VIEWER";
 let orgId = "";
+const otherOrgs: string[] = [];
 let owner = "";
 let admin = "";
 const userIds: string[] = [];
@@ -81,6 +83,7 @@ const request = (method: string, body?: unknown) =>
   });
 const remove = (memberId: string) => removeRoute(request("DELETE"), { params: Promise.resolve({ orgId, memberId }) });
 const invite = (body: Record<string, unknown>) => inviteRoute(request("POST", body), { params: Promise.resolve({ orgId }) });
+const add = (userId: string, role: Role) => addRoute(request("POST", { userId, role }), { params: Promise.resolve({ orgId }) });
 const resend = (invitationId: string) => resendRoute(request("POST"), { params: Promise.resolve({ orgId, invitationId }) });
 const signIn = (email: string) => passwordLogin(request("POST", { email, password: PASSWORD }));
 const rowsOf = (userId: string) => prismaUnfiltered.orgMember.findMany({ where: { orgId, userId } });
@@ -97,7 +100,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.session.deleteMany({ where: { userId: { in: userIds } } });
-  await prisma.organization.deleteMany({ where: { id: orgId } });
+  await prisma.organization.deleteMany({ where: { id: { in: [orgId, ...otherOrgs] } } });
   await prisma.allowedEmail.deleteMany({ where: { email: { endsWith: `@${DOM}` } } });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
 });
@@ -286,5 +289,81 @@ describe("the shared write meets a row it was not told about", () => {
       orgId, userId, role: "MEMBER", existing: await membershipRow(orgId, userId), actorUserId: userId,
     });
     expect(joined).toMatchObject({ reinstated: true, member: { id: memberId } });
+  });
+});
+
+describe("an invitation from before a removal does not undo it", () => {
+  it("an invitation sent before an admin added and then removed the person does not bring them back", async () => {
+    const email = `added-then-removed.${stamp}@${DOM}`;
+    const userId = await account(email);
+    h.ctx = as(owner, "OWNER");
+    const invited = await invite({ email, role: "MEMBER" });
+    expect(invited.status).toBe(201);
+    const { invitation } = (await invited.json()) as { invitation: { id: string } };
+    expect((await add(userId, "MEMBER")).status).toBe(201);
+    const [row] = await rowsOf(userId);
+    expect((await remove(row.id)).status).toBe(204);
+
+    expect((await signIn(email)).status).toBe(200);
+    expect((await rowsOf(userId)).map((r) => ({ id: r.id, removed: r.removedAt !== null }))).toEqual([
+      { id: row.id, removed: true },
+    ]);
+    expect(await prisma.invitation.count({ where: { id: invitation.id } })).toBe(0);
+  });
+
+  it("an invitation left from before the removal is deleted at sign-in, and they stay removed", async () => {
+    const email = `left-over.${stamp}@${DOM}`;
+    const userId = await account(email);
+    const memberId = await join(userId, "MEMBER");
+    h.ctx = as(owner, "OWNER");
+    expect((await remove(memberId)).status).toBe(204);
+    const [{ removedAt }] = await rowsOf(userId);
+    // As made before removals ended invitations: issued a minute before it.
+    const { id } = await prisma.invitation.create({
+      data: { orgId, email, createdAt: new Date(removedAt!.getTime() - 60_000), expiresAt: new Date(Date.now() + 86_400_000) },
+    });
+
+    expect((await signIn(email)).status).toBe(200);
+    expect((await rowsOf(userId)).map((r) => r.removedAt)).toEqual([removedAt]);
+    expect(await prisma.invitation.count({ where: { id } })).toBe(0);
+  });
+
+  it("removing someone deletes their invitations to that org, expired ones too, matched by exact address ignoring case", async () => {
+    const email = `leaver_${stamp}@${DOM}`;
+    const userId = await account(email);
+    const memberId = await join(userId, "MEMBER");
+    const other = (await prisma.organization.create({ data: { name: `Other ${stamp}`, slug: `readd-other-${stamp}` } })).id;
+    otherOrgs.push(other);
+    const later = new Date(Date.now() + 86_400_000);
+    const mine = await prisma.invitation.create({ data: { orgId, email: email.toUpperCase(), expiresAt: later } });
+    const lapsed = await prisma.invitation.create({ data: { orgId, email, expiresAt: new Date(Date.now() - 60_000) } });
+    // Someone else's address one character away, and the same address in another org.
+    const near = await prisma.invitation.create({ data: { orgId, email: `leaver.${stamp}@${DOM}`, expiresAt: later } });
+    const elsewhere = await prisma.invitation.create({ data: { orgId: other, email, expiresAt: later } });
+
+    h.ctx = as(owner, "OWNER");
+    expect((await remove(memberId)).status).toBe(204);
+    const left = await prisma.invitation.findMany({ where: { id: { in: [mine.id, lapsed.id, near.id, elsewhere.id] } }, select: { id: true } });
+    expect(left.map((i) => i.id).sort()).toEqual([near.id, elsewhere.id].sort());
+    const audit = await prisma.auditLog.findFirst({ where: { orgId, action: "member.removed", entityId: memberId } });
+    expect(audit?.metadata).toMatchObject({ invitationsEnded: "2" });
+  });
+
+  it("resending an invitation from before the removal is refused: the admin sends a new one", async () => {
+    const email = `resend-stale.${stamp}@${DOM}`;
+    const userId = await account(email);
+    const memberId = await join(userId, "MEMBER");
+    h.ctx = as(owner, "OWNER");
+    expect((await remove(memberId)).status).toBe(204);
+    const [{ removedAt }] = await rowsOf(userId);
+    const expiresAt = new Date(Date.now() + 3_600_000);
+    const { id } = await prisma.invitation.create({
+      data: { orgId, email, createdAt: new Date(removedAt!.getTime() - 60_000), expiresAt },
+    });
+
+    const res = await resend(id);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(/new invitation/i);
+    expect((await prisma.invitation.findUniqueOrThrow({ where: { id } })).expiresAt).toEqual(expiresAt);
   });
 });

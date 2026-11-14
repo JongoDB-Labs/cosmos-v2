@@ -65,6 +65,10 @@ const RELEASES: Release[] = [
         kind: "fix",
         text: "Inviting someone back, or resending their invitation, needs the same access as re-adding them from the members list: it counts the work roles and extra permissions they would get back.",
       },
+      {
+        kind: "fix",
+        text: "Removing someone from your organization also cancels their invitations to it. An invitation sent before someone was removed no longer brings them back; send them a new one.",
+      },
     ],
   },
   {

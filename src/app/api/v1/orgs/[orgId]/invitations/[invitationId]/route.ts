@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { ConflictError, requirePermission } from "@/lib/rbac/check";
 import { Permission, maskFromDb } from "@/lib/rbac/permissions";
 import { assertCanChangeCurrentAccess, assertCanGrantOrgRole } from "@/lib/rbac/grant-ceiling";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -9,7 +9,12 @@ import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { sendInvitationEmail } from "@/lib/integrations/invitation-email";
 import { revokeProvisionedAccount } from "@/lib/auth/revoke-invitation";
-import { retainedGrantsFor } from "@/lib/members/add-member.server";
+import {
+  ISSUED_BEFORE_REMOVAL_MESSAGE,
+  issuedBeforeRemoval,
+  removedMembershipsFor,
+  retainedGrantsFor,
+} from "@/lib/members/add-member.server";
 
 /**
  * Revoke (DELETE) or resend (POST) a pending invitation — the lifecycle the
@@ -105,6 +110,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { id: invitationId, orgId },
     });
     if (!existing) return new Response("Not found", { status: 404 });
+
+    // An invitation sent before its person was removed can't bring them back
+    // (acceptance deletes it), and resending changes only its expiry, so it
+    // would still be one from before the removal. The admin sends a new one.
+    const removed = await removedMembershipsFor(orgId, existing.email);
+    if (removed.some((m) => issuedBeforeRemoval(existing.createdAt, m))) {
+      throw new ConflictError(ISSUED_BEFORE_REMOVAL_MESSAGE);
+    }
 
     // Resending extends the invitation's life, including one that had expired,
     // so it is a grant like creating one: the same ceiling applies to the role

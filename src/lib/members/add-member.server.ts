@@ -26,6 +26,18 @@ export function membershipRow(orgId: string, userId: string) {
 
 export type MembershipRow = NonNullable<Awaited<ReturnType<typeof membershipRow>>>;
 
+/** The removed memberships in this org held by an account at `email` (exact, ignoring case). */
+export function removedMembershipsFor(orgId: string, email: string) {
+  return prismaUnfiltered.orgMember.findMany({
+    where: {
+      orgId,
+      removedAt: { not: null },
+      user: { email: { equals: escapeLike(email), mode: "insensitive" } },
+    },
+    select: { removedAt: true, permissions: true, workRoles: HELD_WORK_ROLES },
+  });
+}
+
 /**
  * What inviting `email` back hands out beyond the invitation's own role and
  * work roles: the stored override and work-role grants of a removed membership
@@ -34,16 +46,24 @@ export type MembershipRow = NonNullable<Awaited<ReturnType<typeof membershipRow>
  * they do when an admin re-adds the person from the members list.
  */
 export async function retainedGrantsFor(orgId: string, email: string): Promise<bigint> {
-  const rows = await prismaUnfiltered.orgMember.findMany({
-    where: {
-      orgId,
-      removedAt: { not: null },
-      user: { email: { equals: escapeLike(email), mode: "insensitive" } },
-    },
-    select: { permissions: true, workRoles: HELD_WORK_ROLES },
-  });
+  const rows = await removedMembershipsFor(orgId, email);
   return rows.reduce((acc, r) => acc | heldBeyondRole(r), 0n);
 }
+
+/**
+ * Was an invitation issued at `issuedAt` sent before this membership was
+ * removed? Such an invitation never brings the person back: its grant ceiling
+ * ran before the removal, and the removal is the later decision. Removing a
+ * member deletes their invitations, so this catches the ones that predate that
+ * rule. Resending changes only the expiry, so it does not make one new; the
+ * admin sends a new invitation instead.
+ */
+export function issuedBeforeRemoval(issuedAt: Date, row: { removedAt: Date | null } | null): boolean {
+  return row?.removedAt != null && issuedAt.getTime() <= row.removedAt.getTime();
+}
+
+export const ISSUED_BEFORE_REMOVAL_MESSAGE =
+  "This invitation was sent before they were removed, so it can't bring them back. Send them a new invitation.";
 
 const MEMBER_SELECT = {
   id: true,

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
 import { escapeLike } from "@/lib/query/like";
-import { addOrReinstateMember, membershipRow } from "@/lib/members/add-member.server";
+import { addOrReinstateMember, issuedBeforeRemoval, membershipRow } from "@/lib/members/add-member.server";
 
 /**
  * Consume all pending, unexpired invitations addressed to `email`: let the
@@ -11,6 +11,9 @@ import { addOrReinstateMember, membershipRow } from "@/lib/members/add-member.se
  *
  * `email` matches an invitation's exact address, ignoring case: the OAuth
  * sign-ins pass the account's stored address, which may carry capitals.
+ *
+ * An invitation sent before the person was removed never brings them back; it
+ * is deleted (issuedBeforeRemoval).
  *
  * Best-effort per invite: someone who is already a member just has the invite
  * cleared, and a since-deleted work-role is skipped. Any other failure is
@@ -43,11 +46,20 @@ export async function consumePendingInvitations(
     // what reinstating a removed membership hands back (retainedGrantsFor).
     let joined: Awaited<ReturnType<typeof addOrReinstateMember>>;
     try {
+      const existing = await membershipRow(invite.orgId, userId);
+      if (issuedBeforeRemoval(invite.createdAt, existing)) {
+        console.warn(
+          "[invitations] an invitation sent before the person was removed was not used; it is deleted",
+          { orgId: invite.orgId, invitationId: invite.id, userId },
+        );
+        await prisma.invitation.delete({ where: { id: invite.id } }).catch(() => undefined);
+        continue;
+      }
       joined = await addOrReinstateMember({
         orgId: invite.orgId,
         userId,
         role: invite.role,
-        existing: await membershipRow(invite.orgId, userId),
+        existing,
         actorUserId: userId,
         auditMetadata: { invitationId: invite.id },
       });
