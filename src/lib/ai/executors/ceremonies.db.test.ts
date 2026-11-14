@@ -37,19 +37,22 @@ const { getAuthContext } = vi.hoisted(() => ({ getAuthContext: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 import { POST as closeRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/close/route";
 import { POST as addNoteRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/notes/route";
-import { DELETE as deleteNoteRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/notes/[noteId]/route";
+import { PATCH as editNoteRoute, DELETE as deleteNoteRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/notes/[noteId]/route";
 import { POST as addActionRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/actions/route";
-import { PATCH as editActionRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/actions/[actionId]/route";
+import { PATCH as editActionRoute, DELETE as deleteActionRoute } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/actions/[actionId]/route";
 
 type RouteHandler = (r: NextRequest, c: never) => Promise<Response>;
-/** Call a ceremony route as `actor`; returns the HTTP status. */
-async function asRest(actor: ToolContext, handler: RouteHandler, extra: Record<string, string>, method: string, body?: unknown) {
+/** Call a ceremony route as `actor`. */
+async function rest(actor: ToolContext, handler: RouteHandler, extra: Record<string, string>, method: string, body?: unknown) {
   getAuthContext.mockResolvedValue(actor.auth);
-  const res = await handler(
+  return handler(
     new NextRequest("http://localhost/x", { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
     { params: Promise.resolve({ orgId, projectId, intervalId, ...extra }) } as never,
   );
-  return res.status;
+}
+/** Call a ceremony route as `actor`; returns the HTTP status. */
+async function asRest(actor: ToolContext, handler: RouteHandler, extra: Record<string, string>, method: string, body?: unknown) {
+  return (await rest(actor, handler, extra, method, body)).status;
 }
 
 const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -306,6 +309,118 @@ describe("who may type into a retro, and who runs it", () => {
       deleted: true, id: actionId, promotedWorkItemId: null,
     });
     expect(await prisma.retroActionItem.count({ where: { id: actionId } })).toBe(0);
+  });
+});
+
+describe("an action item's owner is a current member of the org", () => {
+  const NOT_A_MEMBER = "That owner is not a member of this organization";
+  let deactivatedId = "";
+  let removedId = "";
+
+  beforeAll(async () => {
+    // Own users: the seeded ones are shared by every DB spec.
+    deactivatedId = await user("deactivated");
+    await prisma.orgMember.create({ data: { orgId, userId: deactivatedId, role: "MEMBER" } });
+    await prisma.user.update({ where: { id: deactivatedId }, data: { deactivatedAt: new Date() } });
+    removedId = await user("removed");
+    await prisma.orgMember.create({ data: { orgId, userId: removedId, role: "MEMBER", removedAt: new Date() } });
+  });
+
+  it("control: a current member is accepted as owner, through the route and the tool", async () => {
+    const ceremonyId = await running(sharedBoard);
+    expect(await asRest(member, addActionRoute as RouteHandler, {}, "POST", { ceremonyId, text: "owned by a current member", ownerId: viewer.userId })).toBe(200);
+    expect((await call(addCeremonyActionTool, at({ ceremonyId, text: "owned by a current member, too", ownerId: viewer.userId }), member)).error).toBeUndefined();
+    expect(await prisma.retroActionItem.count({
+      where: { ceremonyId, ownerId: viewer.userId, text: { in: ["owned by a current member", "owned by a current member, too"] } },
+    })).toBe(2);
+  });
+
+  it("a deactivated user is refused as owner when the action is created", async () => {
+    const ceremonyId = await running(sharedBoard);
+    expect(await asRest(member, addActionRoute as RouteHandler, {}, "POST", { ceremonyId, text: "owned by a deactivated user", ownerId: deactivatedId })).toBe(400);
+    expect(await call(addCeremonyActionTool, at({ ceremonyId, text: "owned by a deactivated user", ownerId: deactivatedId }), member)).toEqual({ error: NOT_A_MEMBER });
+    expect(await prisma.retroActionItem.count({ where: { ownerId: deactivatedId } })).toBe(0);
+  });
+
+  // Not the change above: a removed member was refused before it too. Two layers
+  // hold this, the client's removed-member filter (lib/db/client.ts) and
+  // assignableMembersWhere's own `removedAt: null`, so it fails only if both go,
+  // or if the lookup moves to a nested load, which the client filter skips.
+  it("a removed member stays refused as owner (guards the two removed-member layers)", async () => {
+    const ceremonyId = await running(sharedBoard);
+    expect(await asRest(member, addActionRoute as RouteHandler, {}, "POST", { ceremonyId, text: "owned by a removed member", ownerId: removedId })).toBe(400);
+    expect(await call(addCeremonyActionTool, at({ ceremonyId, text: "owned by a removed member", ownerId: removedId }), member)).toEqual({ error: NOT_A_MEMBER });
+    expect(await prisma.retroActionItem.count({ where: { ownerId: removedId } })).toBe(0);
+  });
+});
+
+describe("every note and action write leaves one audit row", () => {
+  const rows = (action: string, entityId: string) => prisma.auditLog.findMany({ where: { orgId, action, entityId } });
+  /** What was written stays out of the trail, as on the other ceremony rows: neither the old text nor the new. */
+  const textFree = (row: { metadata: unknown }, ...texts: string[]) => {
+    const metadata = JSON.stringify(row.metadata);
+    expect(texts.filter((t) => metadata.includes(t))).toEqual([]);
+  };
+
+  it("notes: add, edit and delete through the routes; a refused edit records nothing", async () => {
+    const ceremonyId = await running(sharedBoard);
+    const added = await rest(member, addNoteRoute as RouteHandler, {}, "POST", { ceremonyId, columnKey: "went_well", text: "audited note text" });
+    expect(added.status).toBe(200);
+    const noteId = ((await added.json()) as { id: string }).id;
+    const add = await rows("ceremony.note.add", noteId);
+    expect(add).toHaveLength(1);
+    expect(add[0]).toMatchObject({ userId: member.userId, entity: "RetroNote" });
+    expect(add[0].metadata).toMatchObject({ ceremonyId, intervalId, columnKey: "went_well" });
+    textFree(add[0], "audited note text");
+
+    expect(await asRest(viewer, editNoteRoute as RouteHandler, { noteId }, "PATCH", { text: "not yours" })).toBe(403);
+    expect(await rows("ceremony.note.update", noteId)).toHaveLength(0);
+    expect(await asRest(member, editNoteRoute as RouteHandler, { noteId }, "PATCH", { text: "edited note text" })).toBe(200);
+    const update = await rows("ceremony.note.update", noteId);
+    expect(update).toHaveLength(1);
+    expect(update[0].metadata).toMatchObject({ ceremonyId, intervalId });
+    textFree(update[0], "audited note text", "edited note text");
+
+    expect(await asRest(member, deleteNoteRoute as RouteHandler, { noteId }, "DELETE")).toBe(200);
+    const removed = await rows("ceremony.note.delete", noteId);
+    expect(removed).toHaveLength(1);
+    expect(removed[0].metadata).toMatchObject({ ceremonyId, intervalId });
+    textFree(removed[0], "audited note text", "edited note text");
+  });
+
+  it("actions: add, edit and delete through the routes", async () => {
+    const ceremonyId = await running(sharedBoard);
+    const added = await rest(member, addActionRoute as RouteHandler, {}, "POST", { ceremonyId, text: "audited action text" });
+    expect(added.status).toBe(200);
+    const actionId = ((await added.json()) as { id: string }).id;
+    const add = await rows("ceremony.action.add", actionId);
+    expect(add).toHaveLength(1);
+    expect(add[0]).toMatchObject({ userId: member.userId, entity: "RetroActionItem" });
+    expect(add[0].metadata).toMatchObject({ ceremonyId, intervalId });
+    textFree(add[0], "audited action text");
+
+    // The edit changes the text too, so the row has an old and a new text to leave out.
+    expect(await asRest(member, editActionRoute as RouteHandler, { actionId }, "PATCH", { ownerId: viewer.userId, text: "edited action text" })).toBe(200);
+    const update = await rows("ceremony.action.update", actionId);
+    expect(update).toHaveLength(1);
+    expect(update[0].metadata).toMatchObject({ ceremonyId, intervalId, changed: ["text", "ownerId"] });
+    textFree(update[0], "audited action text", "edited action text");
+
+    expect(await asRest(member, deleteActionRoute as RouteHandler, { actionId }, "DELETE")).toBe(200);
+    const removed = await rows("ceremony.action.delete", actionId);
+    expect(removed).toHaveLength(1);
+    expect(removed[0].metadata).toMatchObject({ ceremonyId, intervalId, promotedWorkItemId: null });
+    textFree(removed[0], "audited action text", "edited action text");
+  });
+
+  it("a write through the assistant is marked as the assistant's", async () => {
+    const ceremonyId = await running(sharedBoard);
+    const out = await call(addCeremonyNoteTool, at({ ceremonyId, columnKey: "improve", text: "via the assistant" }), member);
+    expect(out.error).toBeUndefined();
+    const add = await rows("ceremony.note.add", (out.note as { id: string }).id);
+    expect(add).toHaveLength(1);
+    expect(add[0].metadata).toMatchObject({ via: "assistant" });
+    textFree(add[0], "via the assistant");
   });
 });
 
