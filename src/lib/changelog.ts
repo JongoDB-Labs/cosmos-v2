@@ -49,7 +49,7 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.560.4",
+    version: "2.560.5",
     date: "2026-11-14",
     title: "Calendar feed links follow single sign-on and member removal, and show join links",
     highlights: [
@@ -76,6 +76,37 @@ const RELEASES: Release[] = [
       {
         kind: "fix",
         text: "On a phone, screen readers now name the settings section picker, and the Revoke button on a calendar link has enough contrast to read.",
+      },
+    ],
+  },
+  {
+    version: "2.560.4",
+    date: "2026-11-14",
+    title: "Exports show only what you could read in the app",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The organization export (the JSON archive and each CSV) now asks for the same access as each list in the app. Without CRM access it leaves out CRM contacts, partners, products and contracts, including contracts not filed under a project. Without meeting access it leaves out meetings, and the same goes for projects, work items, sprints, notes and time entries. The archive leaves such a section out rather than listing it empty, and its CSV is refused, as revenues and expenses already were without Finance access.",
+      },
+      {
+        kind: "fix",
+        text: "Meetings, work items and sprints in the organization export follow the same rules as their lists, so a policy that hides them from you on a project hides them from your export too.",
+      },
+      {
+        kind: "fix",
+        text: "The organization archive no longer says whether each member has two-factor sign-in turned on. The app shows that to no one but the person themselves.",
+      },
+      {
+        kind: "fix",
+        text: "A project's Excel exports and its SharePoint copy leave out the vendor register, and the contract on each deliverable, unless you can read contracts on that project. The export dialog no longer offers the vendor register to someone without CRM access.",
+      },
+      {
+        kind: "fix",
+        text: "Linking a deliverable to a contract on another project, or to one you can't read, now says the contract was not found, the same as for one that doesn't exist.",
+      },
+      {
+        kind: "fix",
+        text: "Money columns in CSV exports are written as plain numbers again, not as quoted text.",
       },
     ],
   },

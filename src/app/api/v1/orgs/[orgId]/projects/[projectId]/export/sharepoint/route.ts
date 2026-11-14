@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requirePermission } from "@/lib/rbac/check";
 import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
+import { mayReadContract } from "@/lib/crm/contract-scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { buildProjectWorkbook } from "@/lib/pm/export";
@@ -71,7 +72,10 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     // The registers' money (cost impact, vendor and CLIN figures) by the same
     // rule as the screens: finance on THIS project.
     const includeMoney = await canSeeProjectMoney(ctx, projectId);
-    const buf = await buildProjectWorkbook(orgId, projectId, { includeCost, includeMoney });
+    // The vendor register and the deliverables' contracts by the contract
+    // list's rule: CRM_READ on this project, policies included.
+    const includeContracts = await mayReadContract(ctx, projectId);
+    const buf = await buildProjectWorkbook(orgId, projectId, { includeCost, includeMoney, includeContracts });
     const folder = sp.folder ? `${sp.folder.replace(/^\/+|\/+$/g, "")}/` : "";
     const filename = `${project.key}-pm-dashboard.xlsx`;
     const uploadPath = `/sites/${sp.siteId}/drives/${sp.driveId}/root:/${folder}${filename}:/content`;
