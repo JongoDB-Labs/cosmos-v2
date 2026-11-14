@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { keyTimeRoster, readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -18,6 +18,12 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  *
  * Backs both the status shown on the time-tracking page and a supervisor's
  * view of which weeks are waiting on them.
+ *
+ * A key limited to some projects lists only its minter and the people tied to
+ * its projects (`keyTimeRoster`, shared by every per-person time route). A
+ * timesheet is one person's week and has no project of its own, so it can't
+ * take the project ceiling the entries take. The worker must be inside the
+ * roster, and an approver outside it goes unnamed, with their id withheld.
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -34,7 +40,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const status = sp.get("status");
     const periodStart = sp.get("periodStart");
 
-    const allowed = await readableTimeUserIds(ctx);
+    const { allowed, has: inRoster } = await keyTimeRoster(ctx, await readableTimeUserIds(ctx));
     if (allowed && userId && !allowed.includes(userId)) {
       // Same contract as the entries route: naming someone outside your scope
       // is a denial, not a silently narrowed result.
@@ -82,7 +88,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // the worker hit: a status with no answer to "waiting on whom?".
     const ids = [
       ...new Set(rows.flatMap((r) => [r.userId, ...r.approverIds])),
-    ];
+    ].filter(inRoster);
     const names = new Map<string, string>();
     if (ids.length > 0) {
       const users = await prisma.user.findMany({
@@ -92,8 +98,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       for (const u of users) names.set(u.id, u.displayName);
     }
 
+    // Ids too, not just names: an approver outside the roster is withheld
+    // whole. Every id is kept for a session or an org-wide key.
+    const inside = (id: string | null) => (id && inRoster(id) ? id : null);
     const data = rows.map((r) => ({
       ...r,
+      approverIds: r.approverIds.filter(inRoster),
+      laborApprovedById: inside(r.laborApprovedById),
+      costApprovedById: inside(r.costApprovedById),
       workerName: names.get(r.userId) ?? null,
       // A name per routed approver, in the stored order. An id with no user row
       // (a deleted account) is dropped rather than rendered as a raw UUID.

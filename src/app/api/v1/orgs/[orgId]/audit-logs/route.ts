@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { requirePermission } from "@/lib/rbac/check";
+import { refuseProjectScopedKey } from "@/lib/auth/key-gate";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
 import type { Prisma } from "@prisma/client";
@@ -14,6 +15,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, listAuditLogs);
     const { params: { orgId }, query } = await parseRequest(listAuditLogs, request, params);
+    // An audit row has no project: the log records what happened anywhere in
+    // the org, so a key limited to some projects can't read it, whatever its
+    // scopes.
+    refuseProjectScopedKey(ctx);
     requirePermission(ctx, Permission.AUDIT_LOG_READ);
 
     const { page, limit, action, entity, userId, startDate, endDate } = query;

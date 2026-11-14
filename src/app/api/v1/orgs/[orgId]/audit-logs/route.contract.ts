@@ -8,7 +8,9 @@ export const listAuditLogs = defineRoute({
   path: "/orgs/{orgId}/audit-logs",
   operationId: "listAuditLogs",
   summary: "List audit log entries",
-  description: "Newest first, a page at a time. Needs audit-log access (org admins by default).",
+  description:
+    "Newest first, a page at a time. Needs audit-log access (org admins by default). " +
+    "Refused to a project-scoped key: the log covers the whole organization.",
   tags: ["Audit"],
   stability: "stable",
   scopes: ["audit:read"],

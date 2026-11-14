@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
-import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { keyTimeRoster, readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { totalHours } from "@/lib/time/time-off";
@@ -115,7 +115,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const from = sp.get("from");
     const to = sp.get("to");
 
-    const allowed = await readableTimeUserIds(ctx); // null = may read everybody
+    // null = may read everybody. A key limited to some projects is held to its
+    // minter and its projects' people (`keyTimeRoster`), as every per-person
+    // time route is.
+    const { allowed } = await keyTimeRoster(ctx, await readableTimeUserIds(ctx));
 
     let who: Prisma.TimeOffRequestWhereInput;
     if (team) {
