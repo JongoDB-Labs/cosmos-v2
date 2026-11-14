@@ -47,7 +47,8 @@ export function SettingsNav({
           value={active?.href ?? "/settings"}
           onValueChange={(href) => href && router.push(`/${orgSlug}${href}`)}
         >
-          <SelectTrigger className="w-full">
+          {/* Named: a combobox takes no name from the value it shows (axe button-name). */}
+          <SelectTrigger className="w-full" aria-label="Settings section">
             <SelectValue placeholder="Settings section" />
           </SelectTrigger>
           <SelectContent>
