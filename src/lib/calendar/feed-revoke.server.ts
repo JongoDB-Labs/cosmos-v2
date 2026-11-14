@@ -34,7 +34,7 @@ export async function revokeMemberCalendarFeedsIn(
     userId: string;
     memberId: string;
     actorUserId: string;
-    reason: "removed" | "reinstated";
+    reason: "removed" | "reinstated" | "account_deleted";
     ipAddress?: string;
   },
 ): Promise<number> {

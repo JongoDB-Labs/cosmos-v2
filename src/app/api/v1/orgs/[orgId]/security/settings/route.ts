@@ -133,10 +133,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // AU-11: enforce the gov retention floor (>=3yr) for GOV-class tenants.
     data.auditRetentionDays = clampGovRetentionDays(org.tenantClass, data.auditRetentionDays);
 
-    // Snapshot the prior posture so we can detect a *tightening* below (false→true).
+    // The current account-request settings, for the check below. Whether SSO or
+    // MFA is being turned on is read again inside the save's transaction.
     const prior = await prisma.orgSecuritySettings.findUnique({
       where: { orgId },
-      select: { ssoEnforced: true, mfaRequired: true, allowedDomains: true, accountRequestMode: true },
+      select: { allowedDomains: true, accountRequestMode: true },
     });
 
     // ALLOWLIST with no domains configured is NOT a restriction: an empty list
@@ -167,67 +168,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       if (lockout) return lockoutResponse(lockout);
     }
 
-    const settings = await prisma.orgSecuritySettings.upsert({
-      where: { orgId },
-      create: {
-        orgId,
-        ...data,
-        ssoConnectionId: data.ssoConnectionId ?? null,
-        ...(actionRestrictions !== undefined && { actionRestrictions }),
-      },
-      update: {
-        ...(data.mfaRequired !== undefined && { mfaRequired: data.mfaRequired }),
-        ...(data.sessionTimeoutMins !== undefined && { sessionTimeoutMins: data.sessionTimeoutMins }),
-        ...(data.ipAllowlistEnabled !== undefined && { ipAllowlistEnabled: data.ipAllowlistEnabled }),
-        ...(data.scimEnabled !== undefined && { scimEnabled: data.scimEnabled }),
-        ...(data.ssoEnforced !== undefined && { ssoEnforced: data.ssoEnforced }),
-        ...(data.ssoConnectionId !== undefined && { ssoConnectionId: data.ssoConnectionId }),
-        ...(data.allowedDomains !== undefined && { allowedDomains: data.allowedDomains }),
-        ...(data.auditRetentionDays !== undefined && { auditRetentionDays: data.auditRetentionDays }),
-        ...(data.accountRequestMode !== undefined && { accountRequestMode: data.accountRequestMode }),
-        ...(data.maxSessionAgeMins !== undefined && { maxSessionAgeMins: data.maxSessionAgeMins }),
-        ...(data.idleTimeoutMins !== undefined && { idleTimeoutMins: data.idleTimeoutMins }),
-        ...(data.maxConcurrentSessions !== undefined && { maxConcurrentSessions: data.maxConcurrentSessions }),
-        ...(actionRestrictions !== undefined && { actionRestrictions }),
-        ...(data.memberApiKeysEnabled !== undefined && { memberApiKeysEnabled: data.memberApiKeysEnabled }),
-      },
-    });
-
-    // What changed, and the new value of each session cap. Restrictions are
-    // recorded by count only: the rules themselves are on the settings row.
-    const changed = Object.entries(data).filter(([, v]) => v !== undefined).map(([k]) => k);
-    if (actionRestrictions !== undefined) changed.push("actionRestrictions");
-    const capValues: Record<string, string> = {};
-    for (const k of ["maxSessionAgeMins", "idleTimeoutMins", "maxConcurrentSessions"] as const) {
-      if (data[k] !== undefined) capValues[k] = String(data[k]);
-    }
-    const restrictionCount = Array.isArray(actionRestrictions) ? actionRestrictions.length : null;
-
-    await logAudit({
-      orgId,
-      userId: ctx.userId,
-      action: "security_settings.updated",
-      entity: "org_security_settings",
-      entityId: settings.id,
-      metadata: {
-        changes: changed.join(", "),
-        ...capValues,
-        ...(restrictionCount !== null && {
-          actionRestrictions: `${restrictionCount} rule${restrictionCount === 1 ? "" : "s"}`,
-        }),
-      } as Record<string, string>,
-      ipAddress: getIpAddress(request),
-    });
-
-    // When a GOV org TIGHTENS its auth posture (SSO enforced or MFA required,
-    // false→true), revoke all existing member sessions so weaker-assurance
-    // sessions (Google / pre-enforcement) can't ride past the new floor. Only
-    // on the rising edge — re-saving an already-strict policy is a no-op.
-    const tightenedSso =
-      data.ssoEnforced === true && prior?.ssoEnforced !== true;
-    const tightenedMfa =
-      data.mfaRequired === true && prior?.mfaRequired !== true;
-
     // In EVERY org, turning on Require MFA also revokes the API keys of
     // everyone who can't manage keys. The MFA floor binds sessions in every org
     // (orgSessionFloors), and a key has no sign-in to check against it, so a
@@ -236,55 +176,124 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // themselves. The response says how many went, so the admin who saved
     // knows.
     //
-    // Every calendar link in the org goes in the same transaction, admins'
-    // included. A link has no sign-in to check against the floor either, and
-    // nobody can see or revoke anyone else's link, so the reason admins' keys
-    // stay doesn't hold for links. Each person makes a new one after signing
-    // in under the new rule.
+    // Every calendar link in the org goes too, admins' included. A link has no
+    // sign-in to check against the floor either, and nobody can see or revoke
+    // anyone else's link, so the reason admins' keys stay doesn't hold for
+    // links. Each person makes a new one after signing in under the new rule.
+    //
+    // The setting, its audit row and both revocations commit together or not
+    // at all. Written apart, a failed revocation left Require MFA on with the
+    // keys and links still working, and the next save was no longer the rising
+    // edge (false to true), so nothing ever revoked them. The edge is read
+    // inside the transaction for the same reason: re-saving an already-strict
+    // policy revokes nothing.
     //
     // `ssoEnforced` revokes no keys or links: no sign-in path reads it. The
     // single sign-on rule that binds them is the org's enforced IdP connection
     // (orgRequiresSso), and it is checked each time a key is used or a link is
     // fetched, not here: see keyInactiveReason and feedInactiveReason.
-    let apiKeysRevoked = 0;
-    let calendarFeedsRevoked = 0;
-    if (tightenedMfa) {
-      const holders = await keyHoldersWithoutManage(orgId);
-      ({ apiKeysRevoked, calendarFeedsRevoked } = await prisma.$transaction(async (tx) => {
-        const prefixes = holders.length > 0
-          ? await deleteApiKeysIn(tx, { orgId, createdById: { in: holders } })
-          : [];
-        if (prefixes.length > 0) {
-          await logAudit({
-            orgId,
-            userId: ctx.userId,
-            action: "security_settings.api_keys_revoked",
-            entity: "org_security_settings",
-            entityId: settings.id,
-            metadata: {
-              reason: "mfa_required",
-              revokedCount: prefixes.length,
-              prefixes,
-            },
-            ipAddress: getIpAddress(request),
-          }, tx);
-        }
-        const feedIds = await revokeCalendarFeedsIn(tx, { orgId });
-        if (feedIds.length > 0) {
-          await logAudit({
-            orgId,
-            userId: ctx.userId,
-            action: "security_settings.calendar_feeds_revoked",
-            entity: "org_security_settings",
-            entityId: settings.id,
-            metadata: { reason: "mfa_required", revokedCount: feedIds.length, feedIds },
-            ipAddress: getIpAddress(request),
-          }, tx);
-        }
-        return { apiKeysRevoked: prefixes.length, calendarFeedsRevoked: feedIds.length };
-      }));
-    }
+    //
+    // Who can't manage keys is read first, outside the transaction: it loads
+    // each key maker's permissions, and only matters if MFA is being turned on.
+    const holders = data.mfaRequired === true ? await keyHoldersWithoutManage(orgId) : [];
+    const { settings, tightenedSso, tightenedMfa, apiKeysRevoked, calendarFeedsRevoked } = await prisma.$transaction(async (tx) => {
+      const before = await tx.orgSecuritySettings.findUnique({
+        where: { orgId },
+        select: { ssoEnforced: true, mfaRequired: true },
+      });
+      const settings = await tx.orgSecuritySettings.upsert({
+        where: { orgId },
+        create: {
+          orgId,
+          ...data,
+          ssoConnectionId: data.ssoConnectionId ?? null,
+          ...(actionRestrictions !== undefined && { actionRestrictions }),
+        },
+        update: {
+          ...(data.mfaRequired !== undefined && { mfaRequired: data.mfaRequired }),
+          ...(data.sessionTimeoutMins !== undefined && { sessionTimeoutMins: data.sessionTimeoutMins }),
+          ...(data.ipAllowlistEnabled !== undefined && { ipAllowlistEnabled: data.ipAllowlistEnabled }),
+          ...(data.scimEnabled !== undefined && { scimEnabled: data.scimEnabled }),
+          ...(data.ssoEnforced !== undefined && { ssoEnforced: data.ssoEnforced }),
+          ...(data.ssoConnectionId !== undefined && { ssoConnectionId: data.ssoConnectionId }),
+          ...(data.allowedDomains !== undefined && { allowedDomains: data.allowedDomains }),
+          ...(data.auditRetentionDays !== undefined && { auditRetentionDays: data.auditRetentionDays }),
+          ...(data.accountRequestMode !== undefined && { accountRequestMode: data.accountRequestMode }),
+          ...(data.maxSessionAgeMins !== undefined && { maxSessionAgeMins: data.maxSessionAgeMins }),
+          ...(data.idleTimeoutMins !== undefined && { idleTimeoutMins: data.idleTimeoutMins }),
+          ...(data.maxConcurrentSessions !== undefined && { maxConcurrentSessions: data.maxConcurrentSessions }),
+          ...(actionRestrictions !== undefined && { actionRestrictions }),
+          ...(data.memberApiKeysEnabled !== undefined && { memberApiKeysEnabled: data.memberApiKeysEnabled }),
+        },
+      });
 
+      // What changed, and the new value of each session cap. Restrictions are
+      // recorded by count only: the rules themselves are on the settings row.
+      const changed = Object.entries(data).filter(([, v]) => v !== undefined).map(([k]) => k);
+      if (actionRestrictions !== undefined) changed.push("actionRestrictions");
+      const capValues: Record<string, string> = {};
+      for (const k of ["maxSessionAgeMins", "idleTimeoutMins", "maxConcurrentSessions"] as const) {
+        if (data[k] !== undefined) capValues[k] = String(data[k]);
+      }
+      const restrictionCount = Array.isArray(actionRestrictions) ? actionRestrictions.length : null;
+
+      await logAudit({
+        orgId,
+        userId: ctx.userId,
+        action: "security_settings.updated",
+        entity: "org_security_settings",
+        entityId: settings.id,
+        metadata: {
+          changes: changed.join(", "),
+          ...capValues,
+          ...(restrictionCount !== null && {
+            actionRestrictions: `${restrictionCount} rule${restrictionCount === 1 ? "" : "s"}`,
+          }),
+        } as Record<string, string>,
+        ipAddress: getIpAddress(request),
+      }, tx);
+
+      // The rising edge (false to true), from the row as this transaction read it.
+      const tightenedSso = data.ssoEnforced === true && before?.ssoEnforced !== true;
+      const tightenedMfa = data.mfaRequired === true && before?.mfaRequired !== true;
+      if (!tightenedMfa) return { settings, tightenedSso, tightenedMfa, apiKeysRevoked: 0, calendarFeedsRevoked: 0 };
+      const prefixes = holders.length > 0
+        ? await deleteApiKeysIn(tx, { orgId, createdById: { in: holders } })
+        : [];
+      if (prefixes.length > 0) {
+        await logAudit({
+          orgId,
+          userId: ctx.userId,
+          action: "security_settings.api_keys_revoked",
+          entity: "org_security_settings",
+          entityId: settings.id,
+          metadata: {
+            reason: "mfa_required",
+            revokedCount: prefixes.length,
+            prefixes,
+          },
+          ipAddress: getIpAddress(request),
+        }, tx);
+      }
+      const feedIds = await revokeCalendarFeedsIn(tx, { orgId });
+      if (feedIds.length > 0) {
+        await logAudit({
+          orgId,
+          userId: ctx.userId,
+          action: "security_settings.calendar_feeds_revoked",
+          entity: "org_security_settings",
+          entityId: settings.id,
+          metadata: { reason: "mfa_required", revokedCount: feedIds.length, feedIds },
+          ipAddress: getIpAddress(request),
+        }, tx);
+      }
+      return { settings, tightenedSso, tightenedMfa, apiKeysRevoked: prefixes.length, calendarFeedsRevoked: feedIds.length };
+    });
+
+    // When a GOV org TIGHTENS its auth posture (SSO enforced or MFA required,
+    // false→true), revoke all existing member sessions so weaker-assurance
+    // sessions (Google / pre-enforcement) can't ride past the new floor. Only
+    // on the rising edge — re-saving an already-strict policy is a no-op.
     if (org.tenantClass === "GOV" && (tightenedSso || tightenedMfa)) {
       const revoked = await revokeOrgSessions(orgId);
       await logAudit({

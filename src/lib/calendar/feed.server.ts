@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { getBrand } from "@/lib/brand";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { isProjectVisible } from "@/lib/rbac/project-access";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
@@ -139,14 +139,14 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
         })
       : [];
 
-  // Sprints: the project must still be one this person can see (team-scoped
-  // projects), checked once per project. Meetings were read by their own rule.
-  const otherProjects = [
-    ...new Set(intervals.map((r) => r.projectId).filter((p): p is string => !!p)),
-  ];
-  const seen = new Set<string>();
-  for (const pid of otherProjects) if (await isProjectVisible(ctx, pid)) seen.add(pid);
-  const visible = <T extends { projectId: string | null }>(r: T) => !r.projectId || seen.has(r.projectId);
+  // Sprints by the sprint API's own rule (requireProjectRead): SPRINT_READ with
+  // any policy on it for that project (a member's rule, a work role's, a
+  // conditional org restriction), and the project visible to them. Checked
+  // once per project. Work items and meetings were read by their APIs' rules
+  // above (getReadableProjectIds, readableMeetingsWhere).
+  const sprintProjects = [...new Set(intervals.map((r) => r.projectId))];
+  const readable = new Set<string>();
+  for (const pid of sprintProjects) if (await canReadInProject(ctx, pid, "SPRINT_READ")) readable.add(pid);
   const keys = new Map(
     (await prisma.project.findMany({ where: { id: { in: [...new Set(workItems.map((w) => w.projectId))] } }, select: { id: true, key: true } })).map(
       (p) => [p.id, p.key] as const,
@@ -177,7 +177,7 @@ export async function renderFeed(token: string, args: { origin: string; now?: Da
       // marking in either makes the row busy.
       restricted: restricted(m.projectId, m.title, m.meetingUrl),
     })),
-    intervals: intervals.filter(visible).map((i) => ({
+    intervals: intervals.filter((i) => readable.has(i.projectId)).map((i) => ({
       id: i.id, name: i.name, projectKey: i.project.key, startDate: i.startDate, endDate: i.endDate,
       updatedAt: null, restricted: restricted(i.projectId, i.name, i.goal),
     })),

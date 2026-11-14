@@ -181,7 +181,7 @@ export async function deleteMemberKeysIn(
     memberId: string;
     /** Who did it: the admin, or the person themselves on an SSO sign-in. */
     actorUserId: string;
-    reason: "removed" | "reinstated";
+    reason: "removed" | "reinstated" | "account_deleted";
     ipAddress?: string;
   },
 ): Promise<number> {

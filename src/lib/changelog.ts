@@ -59,7 +59,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "Removing someone from your organization now revokes their calendar feed links, as it already deleted their API keys. Adding them back, or their signing in again through single sign-on, doesn't bring the old links back. Turning on Require MFA revokes everyone's calendar feed links, and the save message says how many.",
+        text: "Removing someone from your organization now revokes their calendar feed links, as it already deleted their API keys. Adding them back, or their signing in again through single sign-on, doesn't bring the old links back. Deleting someone's account does the same in every organization they belong to. Turning on Require MFA revokes everyone's calendar feed links, and the save message says how many.",
       },
       {
         kind: "fix",
@@ -67,7 +67,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "Calendar feed links with sprints switched on now work. Until now such a link served nothing.",
+        text: "Calendar feed links with sprints switched on now work. Until now such a link served nothing. A link shows only the sprints its owner may read: a rule that hides one project's sprints from someone hides them from their link too.",
       },
       {
         kind: "improvement",

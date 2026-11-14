@@ -11,7 +11,7 @@
 // spec running in parallel.
 import { describe, it, expect, vi, afterAll } from "vitest";
 import { NextRequest } from "next/server";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 import { newFeedToken } from "@/lib/calendar/feed-token";
@@ -29,11 +29,17 @@ vi.mock("next/headers", () => ({
 }));
 vi.mock("react", async (orig) => ({ ...(await orig<typeof import("react")>()), cache: <T,>(fn: T) => fn }));
 vi.mock("next/cache", async (orig) => ({ ...(await orig<typeof import("next/cache")>()), revalidateTag: () => undefined }));
+// The real revocation, wrapped so one test can make it fail.
+vi.mock("@/lib/calendar/feed-revoke.server", async (orig) => {
+  const m = await orig<typeof import("@/lib/calendar/feed-revoke.server")>();
+  return { ...m, revokeCalendarFeedsIn: vi.fn(m.revokeCalendarFeedsIn) };
+});
 
 import { POST as addMember } from "../members/route";
 import { DELETE as removeMember } from "../members/[memberId]/route";
 import { PUT as putSecurity } from "../security/settings/route";
 import { completeSsoLogin, type SsoClaims } from "@/lib/auth/sso";
+import { revokeCalendarFeedsIn } from "@/lib/calendar/feed-revoke.server";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const DAY = 24 * 60 * 60 * 1000;
@@ -73,6 +79,18 @@ async function link(orgId: string, p: Person, extra: { revokedAt?: Date } = {}) 
   const { id } = await prisma.calendarFeed.create({ data: { orgId, userId: p.userId, tokenHash, options: {}, ...extra } });
   return { id, token, tokenHash };
 }
+/** An API key row the person made, the way the key route stores one. */
+async function key(orgId: string, p: Person) {
+  const prefix = randomBytes(6).toString("hex");
+  const keyHash = createHash("sha256").update(randomBytes(24)).digest("hex");
+  const { id } = await prisma.apiKey.create({
+    data: { orgId, name: "fixture", prefix, keyHash, scopes: ["read"], createdById: p.userId, projectIds: [] },
+  });
+  return id;
+}
+const keyExists = async (id: string) => !!(await prisma.apiKey.findUnique({ where: { id }, select: { id: true } }));
+const mfaOn = async (orgId: string) =>
+  (await prisma.orgSecuritySettings.findUnique({ where: { orgId }, select: { mfaRequired: true } }))?.mfaRequired ?? false;
 const serves = async (token: string) => (await renderFeed(token, { origin: ORIGIN })) !== null;
 const revokedAt = async (id: string) => (await prisma.calendarFeed.findUniqueOrThrow({ where: { id } })).revokedAt;
 
@@ -205,5 +223,75 @@ describe("turning on Require MFA ends the org's calendar links", () => {
     const audit = await prisma.auditLog.findFirst({ where: { orgId: o.id, action: "security_settings.calendar_feeds_revoked" } });
     expect(audit?.metadata).toMatchObject({ reason: "mfa_required", revokedCount: 2 });
     expect((audit!.metadata as { feedIds: string[] }).feedIds.sort()).toEqual(links.map((l) => l.id).sort());
+  });
+
+  it("saving Require MFA again revokes nothing: a link and a key made after the first save keep working", async () => {
+    const o = await org({ tenantClass: "COMMERCIAL" });
+    const admin = await person(o.id, "ADMIN");
+    const member = await person(o.id, "MEMBER");
+    const first = await link(o.id, member);
+    const firstKey = await key(o.id, member);
+    const params = { params: Promise.resolve({ orgId: o.id }) };
+
+    asSession(admin);
+    const on = await putSecurity(req("PUT", { mfaRequired: true }), params);
+    expect(on.status).toBe(200);
+    // Positive control: the first save is the rising edge and ends both.
+    expect(await on.json()).toMatchObject({ mfaRequired: true, apiKeysRevoked: 1, calendarFeedsRevoked: 1 });
+    expect(await keyExists(firstKey)).toBe(false);
+    expect(await serves(first.token)).toBe(false);
+
+    // Made under the new rule.
+    const later = await link(o.id, member);
+    const laterKey = await key(o.id, member);
+    expect(await serves(later.token)).toBe(true);
+
+    asSession(admin);
+    const again = await putSecurity(req("PUT", { mfaRequired: true }), params);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ mfaRequired: true, apiKeysRevoked: 0, calendarFeedsRevoked: 0 });
+    expect(await revokedAt(later.id)).toBeNull();
+    expect(await serves(later.token)).toBe(true);
+    expect(await keyExists(laterKey)).toBe(true);
+    expect(await prisma.auditLog.count({ where: { orgId: o.id, action: "security_settings.calendar_feeds_revoked" } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { orgId: o.id, action: "security_settings.api_keys_revoked" } })).toBe(1);
+  });
+
+  it("a revocation that fails leaves Require MFA off with every key and link in place, so saving again still ends them", async () => {
+    const o = await org({ tenantClass: "COMMERCIAL" });
+    const admin = await person(o.id, "ADMIN");
+    const member = await person(o.id, "MEMBER");
+    const l = await link(o.id, member);
+    const k = await key(o.id, member);
+    const params = { params: Promise.resolve({ orgId: o.id }) };
+    expect(await serves(l.token)).toBe(true); // positive control
+
+    const revoke = vi.mocked(revokeCalendarFeedsIn);
+    const callsBefore = revoke.mock.calls.length;
+    revoke.mockRejectedValueOnce(new Error("revocation failed"));
+    asSession(admin);
+    const failed = await putSecurity(req("PUT", { mfaRequired: true }), params);
+    expect(failed.status).toBe(500);
+    // The failure was the one injected, at the link revocation.
+    expect(revoke.mock.calls.length).toBe(callsBefore + 1);
+
+    // Nothing of the save committed: not the setting, not the key deletion,
+    // not its audit rows.
+    expect(await mfaOn(o.id)).toBe(false);
+    expect(await keyExists(k)).toBe(true);
+    expect(await revokedAt(l.id)).toBeNull();
+    expect(await serves(l.token)).toBe(true);
+    expect(await prisma.auditLog.count({
+      where: { orgId: o.id, action: { in: ["security_settings.updated", "security_settings.api_keys_revoked"] } },
+    })).toBe(0);
+
+    // So the next save is still the rising edge, and ends them.
+    asSession(admin);
+    const again = await putSecurity(req("PUT", { mfaRequired: true }), params);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ mfaRequired: true, apiKeysRevoked: 1, calendarFeedsRevoked: 1 });
+    expect(await mfaOn(o.id)).toBe(true);
+    expect(await keyExists(k)).toBe(false);
+    expect(await serves(l.token)).toBe(false);
   });
 });

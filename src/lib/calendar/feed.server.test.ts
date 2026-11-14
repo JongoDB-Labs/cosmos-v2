@@ -10,6 +10,8 @@ import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 import { renderFeed } from "./feed.server";
 import { newFeedToken } from "./feed-token";
 import type { FeedOptions } from "./feed-events";
+import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
+import { canReadInProject } from "@/lib/rbac/require-project-read";
 
 const NOW = new Date("2026-10-22T12:00:00Z");
 const ORIGIN = "https://example.com";
@@ -109,6 +111,21 @@ describe("renderFeed (e2e DB)", () => {
     expect(after).toContain("SUMMARY:Sprint review"); // the deny is that project's only
   });
 
+  it("leaves out a work item the person may not read, by the rule the work-item list uses", async () => {
+    const { org, owner, token, open } = await setup();
+    const ics = async () => unfold((await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics);
+    expect(await ics()).toMatch(/SUMMARY:OP\w*-1 Ship the exporter/); // the positive control
+    await prisma.orgMember.updateMany({
+      where: { orgId: org.id, userId: owner.id },
+      data: { abacRules: { rules: [{ effect: "deny", actions: ["ITEM_READ"], conditions: [{ attr: "projectId", op: "eq", value: open.id }] }] } },
+    });
+    const after = await ics();
+    expect(after).not.toContain("Ship the exporter");
+    // The deny is that project's only: the other project's item keeps its day.
+    expect(after).toContain("DTSTART;VALUE=DATE:20261102");
+    expect(after).toContain("SUMMARY:Sprint review");
+  });
+
   it("is byte-identical across fetches when nothing changed (ETag-stable)", async () => {
     const { token } = await setup();
     const a = await renderFeed(token, { origin: ORIGIN, now: NOW });
@@ -140,6 +157,49 @@ describe("renderFeed (e2e DB)", () => {
     // Lifted again, the link is as it was.
     await prisma.orgSecuritySettings.update({ where: { orgId: org.id }, data: { actionRestrictions: {} } });
     expect(await ics()).toBe(before);
+  });
+
+  it("leaves out a sprint the person may not read by the sprint API's own rule (a deny on one project)", async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const org = await prisma.organization.create({ data: { name: `cfa ${stamp}`, slug: `cfa-${stamp}` } });
+    orgIds.push(org.id);
+    await patchOrgSettings(org.id, { merge: { key: "calendarFeeds", fields: { enabled: true } } });
+    const project = async (key: string) =>
+      prisma.project.create({ data: { orgId: org.id, name: key, key: `${key}${stamp.slice(-3).toUpperCase()}` } });
+    const denied = await project("DN");
+    const open = await project("OK");
+    for (const [p, name] of [[denied, "Denied sprint"], [open, "Open sprint"]] as const) {
+      await prisma.interval.create({
+        data: { orgId: org.id, projectId: p.id, number: 1, name, startDate: new Date("2026-10-20T00:00:00Z"), endDate: new Date("2026-11-02T00:00:00Z") },
+      });
+    }
+    // A rule a member's own policy can carry: no sprints on one project.
+    const rule = { rules: [{ effect: "deny", actions: ["SPRINT_READ"], conditions: [{ attr: "projectId", op: "eq", value: denied.id }] }] };
+    const person = async (key: string, abacRules?: object) => {
+      const user = await prisma.user.create({ data: { email: `cfa-${key}-${stamp}@feeds.test`, displayName: `Sprint ${key} ${stamp}` } });
+      userIds.push(user.id);
+      const member = await prisma.orgMember.create({ data: { orgId: org.id, userId: user.id, role: "MEMBER", ...(abacRules && { abacRules }) } });
+      for (const p of [denied, open]) await prisma.projectMember.create({ data: { projectId: p.id, orgMemberId: member.id, role: "MEMBER" } });
+      const { token, tokenHash } = newFeedToken();
+      await prisma.calendarFeed.create({
+        data: { orgId: org.id, userId: user.id, tokenHash, options: { workItems: false, meetings: false, intervals: true, busyOnly: false } },
+      });
+      const ics = unfold((await renderFeed(token, { origin: ORIGIN, now: NOW }))!.ics);
+      const ctx = (await loadMemberAuthContext(org.id, user.id))!;
+      return { ics, api: { denied: await canReadInProject(ctx, denied.id, "SPRINT_READ"), open: await canReadInProject(ctx, open.id, "SPRINT_READ") } };
+    };
+
+    // The control: no rule, both sprints, and the sprint API agrees.
+    const control = await person("control");
+    expect(control.api).toEqual({ denied: true, open: true });
+    expect(control.ics).toContain("Denied sprint");
+    expect(control.ics).toContain("Open sprint");
+
+    // The rule: the sprint API refuses that project, so the feed leaves its sprint out.
+    const ruled = await person("ruled", rule);
+    expect(ruled.api).toEqual({ denied: false, open: true });
+    expect(ruled.ics).not.toContain("Denied sprint");
+    expect(ruled.ics).toContain("Open sprint");
   });
 
   it("where the org requires single sign-on, serves only a link made through the org's IdP", async () => {
