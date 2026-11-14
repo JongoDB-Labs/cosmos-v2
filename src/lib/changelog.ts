@@ -55,11 +55,11 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "fix",
-        text: "Searching for % or _ in the command palette (⌘K) or the @-mention picker finds only names that contain that character. Before, either one matched every name of every kind. The same goes for the workflow simulator's item picker, the assistant's searches, and the API's search filter on CRM contacts, partners, products and a project's work items.",
+        text: "Searching for % or _ in the command palette (⌘K) or the @-mention picker finds only names that contain that character. Before, either one matched every name of every kind. The same goes for the workflow simulator's item picker, the assistant's searches, and the API's search filter on CRM contacts, partners, products and a project's work items. In chat search, from:% and in:_ now look for those characters in a name too, instead of matching every author or channel.",
       },
       {
         kind: "fix",
-        text: "The command palette's search has a rate limit, as the Issues search does. Ordinary typing stays well inside it.",
+        text: "The command palette (⌘K) and the @-mention picker run the same search, and now share one rate limit, as the Issues search has. Ordinary typing stays well inside it.",
       },
       {
         kind: "fix",

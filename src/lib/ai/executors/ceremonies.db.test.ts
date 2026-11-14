@@ -342,7 +342,11 @@ describe("an action item's owner is a current member of the org", () => {
     expect(await prisma.retroActionItem.count({ where: { ownerId: deactivatedId } })).toBe(0);
   });
 
-  it("a removed member is refused as owner when the action is created", async () => {
+  // Not the change above: a removed member was refused before it too. Two layers
+  // hold this, the client's removed-member filter (lib/db/client.ts) and
+  // assignableMembersWhere's own `removedAt: null`, so it fails only if both go,
+  // or if the lookup moves to a nested load, which the client filter skips.
+  it("a removed member stays refused as owner (guards the two removed-member layers)", async () => {
     const ceremonyId = await running(sharedBoard);
     expect(await asRest(member, addActionRoute as RouteHandler, {}, "POST", { ceremonyId, text: "owned by a removed member", ownerId: removedId })).toBe(400);
     expect(await call(addCeremonyActionTool, at({ ceremonyId, text: "owned by a removed member", ownerId: removedId }), member)).toEqual({ error: NOT_A_MEMBER });
@@ -352,6 +356,11 @@ describe("an action item's owner is a current member of the org", () => {
 
 describe("every note and action write leaves one audit row", () => {
   const rows = (action: string, entityId: string) => prisma.auditLog.findMany({ where: { orgId, action, entityId } });
+  /** What was written stays out of the trail, as on the other ceremony rows: neither the old text nor the new. */
+  const textFree = (row: { metadata: unknown }, ...texts: string[]) => {
+    const metadata = JSON.stringify(row.metadata);
+    expect(texts.filter((t) => metadata.includes(t))).toEqual([]);
+  };
 
   it("notes: add, edit and delete through the routes; a refused edit records nothing", async () => {
     const ceremonyId = await running(sharedBoard);
@@ -362,18 +371,21 @@ describe("every note and action write leaves one audit row", () => {
     expect(add).toHaveLength(1);
     expect(add[0]).toMatchObject({ userId: member.userId, entity: "RetroNote" });
     expect(add[0].metadata).toMatchObject({ ceremonyId, intervalId, columnKey: "went_well" });
-    // What was written stays out of the trail, as on the other ceremony rows.
-    expect(JSON.stringify(add[0].metadata)).not.toContain("audited note text");
+    textFree(add[0], "audited note text");
 
     expect(await asRest(viewer, editNoteRoute as RouteHandler, { noteId }, "PATCH", { text: "not yours" })).toBe(403);
     expect(await rows("ceremony.note.update", noteId)).toHaveLength(0);
     expect(await asRest(member, editNoteRoute as RouteHandler, { noteId }, "PATCH", { text: "edited note text" })).toBe(200);
     const update = await rows("ceremony.note.update", noteId);
     expect(update).toHaveLength(1);
-    expect(JSON.stringify(update[0].metadata)).not.toContain("edited note text");
+    expect(update[0].metadata).toMatchObject({ ceremonyId, intervalId });
+    textFree(update[0], "audited note text", "edited note text");
 
     expect(await asRest(member, deleteNoteRoute as RouteHandler, { noteId }, "DELETE")).toBe(200);
-    expect(await rows("ceremony.note.delete", noteId)).toHaveLength(1);
+    const removed = await rows("ceremony.note.delete", noteId);
+    expect(removed).toHaveLength(1);
+    expect(removed[0].metadata).toMatchObject({ ceremonyId, intervalId });
+    textFree(removed[0], "audited note text", "edited note text");
   });
 
   it("actions: add, edit and delete through the routes", async () => {
@@ -385,17 +397,20 @@ describe("every note and action write leaves one audit row", () => {
     expect(add).toHaveLength(1);
     expect(add[0]).toMatchObject({ userId: member.userId, entity: "RetroActionItem" });
     expect(add[0].metadata).toMatchObject({ ceremonyId, intervalId });
-    expect(JSON.stringify(add[0].metadata)).not.toContain("audited action text");
+    textFree(add[0], "audited action text");
 
-    expect(await asRest(member, editActionRoute as RouteHandler, { actionId }, "PATCH", { ownerId: viewer.userId })).toBe(200);
+    // The edit changes the text too, so the row has an old and a new text to leave out.
+    expect(await asRest(member, editActionRoute as RouteHandler, { actionId }, "PATCH", { ownerId: viewer.userId, text: "edited action text" })).toBe(200);
     const update = await rows("ceremony.action.update", actionId);
     expect(update).toHaveLength(1);
-    expect(update[0].metadata).toMatchObject({ changed: ["ownerId"] });
+    expect(update[0].metadata).toMatchObject({ ceremonyId, intervalId, changed: ["text", "ownerId"] });
+    textFree(update[0], "audited action text", "edited action text");
 
     expect(await asRest(member, deleteActionRoute as RouteHandler, { actionId }, "DELETE")).toBe(200);
     const removed = await rows("ceremony.action.delete", actionId);
     expect(removed).toHaveLength(1);
-    expect(removed[0].metadata).toMatchObject({ ceremonyId, promotedWorkItemId: null });
+    expect(removed[0].metadata).toMatchObject({ ceremonyId, intervalId, promotedWorkItemId: null });
+    textFree(removed[0], "audited action text", "edited action text");
   });
 
   it("a write through the assistant is marked as the assistant's", async () => {
@@ -405,6 +420,7 @@ describe("every note and action write leaves one audit row", () => {
     const add = await rows("ceremony.note.add", (out.note as { id: string }).id);
     expect(add).toHaveLength(1);
     expect(add[0].metadata).toMatchObject({ via: "assistant" });
+    textFree(add[0], "via the assistant");
   });
 });
 
