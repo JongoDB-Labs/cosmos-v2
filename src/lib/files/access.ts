@@ -239,7 +239,10 @@ export function documentVisibilityWhere(
   const notDenied = deniedProjectIds.size
     ? { OR: [{ projectId: null }, { projectId: { notIn: [...deniedProjectIds] } }] }
     : null;
-  const restrictedBounds = [keyCeiling, notDenied].filter((c) => c !== null);
+  // "Org-wide files only" means restricted ones too: a restricted file filed in
+  // a project is no more org-wide for being readable.
+  const orgOnly = visibleProjectIds === null ? { projectId: null } : null;
+  const restrictedBounds = [orgOnly, keyCeiling, notDenied].filter((c) => c !== null);
 
   // No grant on a restricted file counts without the bit for reading files, as
   // readableDocument decides: a key's scopes bind before its minter's role, its

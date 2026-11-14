@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.560.3",
+    date: "2026-11-14",
+    title: "Project-limited API keys see less, and lists name only what you can see",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key limited to some projects can no longer read or export the audit log. The log covers the whole organization, so such a key is refused, as it already was for webhooks. Org-wide keys with audit access and signed-in admins read it as before.",
+      },
+      {
+        kind: "fix",
+        text: "An API key limited to some projects now lists timesheets only for people on those projects, and names only approvers on them. Signed-in people and org-wide keys see the same timesheets as before.",
+      },
+      {
+        kind: "fix",
+        text: "The organization activity feed no longer shows hours logged on a project you can't open, so it no longer shows that project's name. Hours on projects you can see, and on no project, still appear.",
+      },
+      {
+        kind: "fix",
+        text: "Asking the document library for organization files only now leaves out restricted files filed in a project, as it already did for the rest.",
+      },
+    ],
+  },
+  {
     version: "2.559.0",
     date: "2026-11-13",
     title: "Your own Outlook meetings on the Program Management calendar",

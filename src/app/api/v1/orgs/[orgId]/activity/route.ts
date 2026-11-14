@@ -5,6 +5,7 @@ import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError } from "@/lib/api-helpers";
 import { getReadableProjectIds } from "@/lib/work-items/query/scope";
 import { readableTimeUserIds, timeProjectCeiling } from "@/lib/time/scope";
+import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { redactRates } from "@/lib/time/visibility";
 import { mergePage, decodeCursor, type FeedItem } from "@/lib/activity/merge";
@@ -25,6 +26,9 @@ const EMPTY = { data: [], nextCursor: null as string | null };
  * a TIME_READ_ALL holder. A reader holding one permission and not the other sees
  * that half of the feed and no trace of the other, rather than a 403 or, worse,
  * somebody else's hours. Only a reader with NEITHER is refused.
+ *
+ * Every entry names its project, so neither half shows an entry on a project
+ * the caller can't see, whoever logged it.
  *
  * The two sources measure "when" on different clocks on purpose: a work item
  * changed at an INSTANT, an hour was worked on a DAY. Both answer "when it
@@ -200,6 +204,12 @@ async function timeEvents(
       ...(allowed !== null ? { userId: { in: allowed } } : {}),
       ...(userFilter ? { userId: userFilter } : {}),
       ...(projectFilter ? { projectId: projectFilter } : ceiling ? { projectId: ceiling } : {}),
+      // Readable hours can sit on a project the caller can't open: a report of
+      // theirs on a project limited to its members. /time-entries still returns
+      // those, since a supervisor signs for them there. The feed would also
+      // publish the project's key and name, and nobody approves from it, so it
+      // drops them as the work-item half does. Time on no project stays.
+      ...(await visibleProjectRecordsWhere(ctx)),
     },
     select: {
       id: true,

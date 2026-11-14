@@ -4,6 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
+import { scopedRosterUserIds } from "@/lib/members/scoped-roster.server";
 import { success, handleApiError } from "@/lib/api-helpers";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -18,6 +19,12 @@ type RouteParams = { params: Promise<{ orgId: string }> };
  *
  * Backs both the status shown on the time-tracking page and a supervisor's
  * view of which weeks are waiting on them.
+ *
+ * A key limited to some projects lists only the people tied to them. A
+ * timesheet is one person's week and has no project of its own, so it can't
+ * take the project ceiling the entries take (`timeProjectCeiling`). It takes the
+ * roster rule every route that lists people applies (`scopedRosterUserIds`):
+ * the worker must be inside it, and an approver outside it goes unnamed.
  */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -34,7 +41,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const status = sp.get("status");
     const periodStart = sp.get("periodStart");
 
-    const allowed = await readableTimeUserIds(ctx);
+    // Null roster: a session or an org-wide key, so no narrowing.
+    const [readable, roster] = await Promise.all([readableTimeUserIds(ctx), scopedRosterUserIds(ctx)]);
+    const inRoster = (id: string) => !roster || roster.includes(id);
+    const allowed = roster ? (readable ?? roster).filter(inRoster) : readable;
     if (allowed && userId && !allowed.includes(userId)) {
       // Same contract as the entries route: naming someone outside your scope
       // is a denial, not a silently narrowed result.
@@ -82,7 +92,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // the worker hit: a status with no answer to "waiting on whom?".
     const ids = [
       ...new Set(rows.flatMap((r) => [r.userId, ...r.approverIds])),
-    ];
+    ].filter(inRoster);
     const names = new Map<string, string>();
     if (ids.length > 0) {
       const users = await prisma.user.findMany({
