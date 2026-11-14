@@ -75,7 +75,8 @@ export function BoardQueryBar({
       {/* `variant="inline"`: this band already draws the border and padding, so
           the builder's own card would be framing inside framing. Measured on
           prod, that card cost 26 of the band's 147 vertical pixels.
-          The builder's own Clear empties the query: back to the board's scope. */}
+          The builder's Clear (inside its search or query box) empties the
+          query: back to the board's scope. */}
       <QueryBuilder
         orgId={orgId}
         schema={q.schema}
@@ -98,13 +99,15 @@ export function BoardQueryBar({
           enough to push the last control onto a line of its own and back --
           moving the whole board down and up each time. Still the live region
           a screen reader hears. Above the board's sticky header row (Table's
-          thead is z-10), which otherwise hid its lower half. */}
+          thead is z-10), which otherwise hid its lower half. Its top 2px under
+          the row's controls (they end 8px above the band's edge): centred on
+          the edge, it covered the bottom 2px of the last one. */}
       <span
         aria-live="polite"
-        className="pointer-events-none absolute bottom-0 right-4 z-20 translate-y-1/2 text-xs leading-none"
+        className="pointer-events-none absolute right-4 top-[calc(100%-6px)] z-20 text-xs leading-none"
       >
         {q.pending ? (
-          <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[var(--text-muted)]">
+          <span className="inline-block rounded-full border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[var(--text-muted)]">
             Filtering…
           </span>
         ) : (

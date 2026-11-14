@@ -21,7 +21,7 @@
 // puts what it is handed. jsdom computes no layout, so this asserts the DOM
 // rows the layout is made of; the pixels are measured in e2e.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, within, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, within, fireEvent, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 if (!("ResizeObserver" in globalThis)) {
@@ -163,12 +163,13 @@ describe("the board's query bar is one row in Filters mode", () => {
     const row = rowOf(screen.getByRole("textbox", { name: "Search work items" }));
     const controls = within(row as HTMLElement).getAllByRole("button");
     expect(controls.at(-1)?.textContent).toBe("New work item");
-    // Clear moved into the row too. Left beside the builder, it would sit to
-    // the right of New work item, and the board's primary action would no
-    // longer end the band.
-    const clear = screen.getByRole("button", { name: "Clear" });
-    expect(row.contains(clear)).toBe(true);
-    expect(clear.compareDocumentPosition(movers().create) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Clear is no item of the row: it is inside the search box, at its right
+    // edge, out of the flow. Beside the builder it ended the band instead of
+    // New work item; as an item of the row it moved the board, appearing or
+    // held in place.
+    const clear = screen.getByRole("button", { name: "Clear search and filters" });
+    expect(clear.parentElement).toBe(screen.getByRole("textbox", { name: "Search work items" }).parentElement);
+    expect(clear.className).toMatch(/\babsolute\b/);
   });
 });
 
@@ -191,11 +192,12 @@ describe("in CQL mode they share the Add filter row, not the editor's", () => {
     for (const [name, el] of Object.entries(movers())) {
       expect(editorRow.contains(el), `${name} squeezed into the editor's row`).toBe(false);
     }
-    // Clear is on the Add filter line. Held in place in the editor's row, it
-    // narrowed the editor, and the query wrapped onto one more line.
-    const clear = screen.getByRole("button", { name: "Clear" });
-    expect(editorRow.contains(clear)).toBe(false);
-    expect(rowOf(screen.getByRole("combobox", { name: "Add filter" }).closest('[data-testid="query-chips"]')!.parentElement!).contains(clear)).toBe(true);
+    // Clear is inside the query box, out of the flow. Held in place in the
+    // editor's row it narrowed the editor; on the Add filter line, at some
+    // widths it took a line of its own.
+    const clear = screen.getByRole("button", { name: "Clear search and filters" });
+    expect(clear.parentElement!.contains(screen.getByRole("textbox", { name: "Query" }))).toBe(true);
+    expect(clear.className).toMatch(/\babsolute\b/);
   });
 
   it("draws no second row under the builder", () => {
@@ -269,17 +271,85 @@ describe("what the merged row still does", () => {
     }
   });
 
-  it("holds Clear's place while there is nothing to clear, out of sight and out of reach", () => {
+  it("shows Clear inside the search box only when there is something to clear", () => {
+    const setCql = vi.fn();
+    renderBar({ setCql });
+    const search = screen.getByRole("textbox", { name: "Search work items" }) as HTMLInputElement;
+    // Nothing to clear: no Clear at all, held in place or otherwise.
+    expect(screen.queryByRole("button", { name: /clear/i })).toBeNull();
+    expect(screen.queryByText("Clear")).toBeNull();
+    expect(search.className).not.toMatch(/\bpr-8\b/);
+    // Typed text is something to clear, before it is applied.
+    fireEvent.change(search, { target: { value: "radar" } });
+    const clear = screen.getByRole("button", { name: "Clear search and filters" });
+    // Room for it on the right, so the text never runs under it.
+    expect(search.className).toMatch(/\bpr-8\b/);
+    // The tab stop right after the box.
+    const stops = [...document.querySelectorAll<HTMLElement>("button, input, select, textarea, [tabindex]")].filter(
+      (e) => e.tabIndex >= 0 && !e.hasAttribute("disabled"),
+    );
+    expect(stops.indexOf(clear)).toBe(stops.indexOf(search) + 1);
+    // It clears what Clear cleared: the whole query, and the box with it.
+    fireEvent.click(clear);
+    expect(setCql).toHaveBeenLastCalledWith("");
+    expect(search.value).toBe("");
+    expect(document.activeElement).toBe(search);
+  });
+
+  it("shows Clear for a filter with nothing typed", () => {
+    renderBar({ cql: "priority = HIGH" });
+    expect(screen.getByRole("button", { name: "Clear search and filters" })).toBeTruthy();
+  });
+
+  it("offers Run as a query under the search box, out of the row, while the box has focus", () => {
+    const setCql = vi.fn();
+    const setMode = vi.fn();
+    renderBar({ setCql, setMode });
+    const search = screen.getByRole("textbox", { name: "Search work items" });
+    act(() => search.focus());
+    fireEvent.change(search, { target: { value: "priority = high" } });
+    const run = screen.getByRole("button", { name: "Run as a query" });
+    // Out of the flow, hung from the bar's bottom edge: no item of the row,
+    // so it moves nothing as the phrase is typed. And announced when it
+    // appears. It is the search box's (its tab stop follows the box's), and
+    // nothing positioned stands between it and the bar, whose edge it hangs
+    // from: under the box itself, it covered the row's next line.
+    const live = run.closest('[aria-live="polite"]')!;
+    expect(live.parentElement!.contains(search)).toBe(true);
+    expect(live.className).toMatch(/\babsolute\b/);
+    expect(live.className).toMatch(/\btop-full\b/);
+    expect(live.className).not.toMatch(/\b(left|right)-/);
+    const band = search.closest(".border-b")!;
+    expect(band.className).toMatch(/\brelative\b/);
+    for (let el = live.parentElement; el && el !== band; el = el.parentElement) {
+      expect(el.className, "a positioned box between the suggestion and the bar").not.toMatch(/\b(relative|absolute|fixed|sticky)\b/);
+    }
+    // Pressing it keeps the box's focus: Safari focuses no button on a press,
+    // and the box's blur would hide it before the click landed.
+    expect(fireEvent.mouseDown(run)).toBe(false);
+    fireEvent.click(run);
+    expect(setCql).toHaveBeenLastCalledWith("priority = high");
+    expect(setMode).toHaveBeenLastCalledWith("advanced");
+  });
+
+  it("puts the suggestion away on Escape until the text changes, and when focus leaves the box", () => {
     renderBar();
-    // Not a button anyone can find, focus or hear...
-    expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
-    // ...but in the row, taking its width, so the first filter doesn't
-    // re-wrap the row and move the board.
-    const held = screen.getByText("Clear").closest("button")!;
-    expect(held.className).toMatch(/\binvisible\b/);
-    expect(held.getAttribute("aria-hidden")).toBe("true");
-    expect(held.hasAttribute("inert")).toBe(true);
-    expect(rowOf(screen.getByRole("textbox", { name: "Search work items" })).contains(held)).toBe(true);
+    const search = screen.getByRole("textbox", { name: "Search work items" });
+    const run = () => screen.queryByRole("button", { name: "Run as a query" });
+    fireEvent.change(search, { target: { value: "priority = high" } });
+    // Not without focus in the box.
+    expect(run()).toBeNull();
+    act(() => search.focus());
+    expect(run()).toBeTruthy();
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(run()).toBeNull();
+    fireEvent.change(search, { target: { value: "priority = highest" } });
+    expect(run()).toBeTruthy();
+    // Tabbing on to Clear keeps it: focus is still in the box.
+    act(() => screen.getByRole("button", { name: "Clear search and filters" }).focus());
+    expect(run()).toBeTruthy();
+    act(() => screen.getByRole("button", { name: "Select" }).focus());
+    expect(run()).toBeNull();
   });
 
   it("keeps swimlanes and the actions when the schema has not arrived", () => {

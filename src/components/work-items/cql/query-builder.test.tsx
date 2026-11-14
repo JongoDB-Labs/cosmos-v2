@@ -251,6 +251,19 @@ describe("QueryBuilder — CQL", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
     expect(onCqlChange).toHaveBeenLastCalledWith("");
   });
+
+  it("keeps Clear and Run as a query as buttons in the row here, off a board", () => {
+    // A board's bar puts Clear inside the box and the suggestion under it
+    // (board-query-bar.one-row.test.tsx). This page keeps both as they were.
+    renderBar("assignee = me");
+    expect(screen.getByRole("button", { name: "Clear" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Clear search and filters" })).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search work items" }), { target: { value: "priority = high" } });
+    const run = screen.getByRole("button", { name: "Run as a query" });
+    expect(run.closest('[aria-live="polite"]')).toBeNull();
+    fireEvent.click(run);
+    expect(onCqlChange).toHaveBeenLastCalledWith("priority = high");
+  });
 });
 
 // ── FR ad579c82 ──────────────────────────────────────────────────────────────

@@ -55,7 +55,11 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "improvement",
-        text: "The board header takes less room. With the query language on, a board's scope, Swimlanes, Select and New work item now sit in the filter bar's own row instead of a row underneath it. On a sprint board, the sprint's name, status, dates and progress continue the row of sprint pills. In CQL mode, Kanban and Table boards start a row higher, and a sprint board at 1280px up to two rows higher. On a phone in CQL mode the header is about half as tall. No board's header is taller than before, and nothing was removed.",
+        text: "The board header takes less room. With the query language on, a board's scope, Swimlanes, Select and New work item now sit in the filter bar's own row instead of a row underneath it. On a sprint board, the sprint's name, status, dates and progress continue the row of sprint pills. In CQL mode, Kanban and Table boards start a row higher, and a sprint board at 1280px up to two rows higher. On a phone in CQL mode the header is about half as tall. No board's header is taller than before at any screen width, and nothing was removed.",
+      },
+      {
+        kind: "improvement",
+        text: "In a board's filter bar, Clear is now an × at the right end of the search box, or of the query box in CQL mode. It shows only when there is something to clear, and still clears the search and every filter. \"Run as a query\" now appears under the search box while you type something that looks like a query. Neither one moves the board any more.",
       },
       {
         kind: "improvement",
@@ -64,6 +68,10 @@ const RELEASES: Release[] = [
       {
         kind: "fix",
         text: "On a phone, the query box in CQL mode gets a line of its own. It used to be squeezed to a few letters wide beside Run query and Format.",
+      },
+      {
+        kind: "fix",
+        text: "\"Run as a query\" now opens CQL mode with what you typed in it. It used to open an empty query box, on boards and on the Work Items page.",
       },
     ],
   },

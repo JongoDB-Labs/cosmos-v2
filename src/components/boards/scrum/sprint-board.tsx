@@ -275,7 +275,9 @@ export function SprintPicker({
     // "Manage" say what the row is, and the label cost horizontal space on the
     // row ffe324aa is about.
     <div>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {/* 6px between pills, as on main: at 8px, "All items" no longer fit
+          beside them on a 360px phone and took a line of its own. */}
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <button
           type="button"
           onClick={onManage}
@@ -460,7 +462,7 @@ function SprintSummaryLine({ sprint }: { sprint: IntervalWithCount }) {
     <div className="contents text-xs text-[var(--text-muted)]">
       {/* `max-w-full` + a truncating name: on a phone a long sprint name ends
           in an ellipsis inside the band rather than running off its edge. */}
-      <div className="ml-1 inline-flex min-w-0 max-w-full items-center gap-2 whitespace-nowrap">
+      <div className="ml-1.5 inline-flex min-w-0 max-w-full items-center gap-2 whitespace-nowrap">
         <h2 className="min-w-0 truncate text-sm font-semibold text-[var(--text)]" title={name}>
           {name}
         </h2>
@@ -478,7 +480,7 @@ function SprintSummaryLine({ sprint }: { sprint: IntervalWithCount }) {
         )}
       </div>
       {sprint.status === "ACTIVE" && (
-        <span className="inline-flex items-center gap-2 whitespace-nowrap">
+        <span className="ml-0.5 inline-flex items-center gap-2 whitespace-nowrap">
           <span>
             {daysRemaining} day{daysRemaining === 1 ? "" : "s"} left
           </span>
@@ -504,7 +506,7 @@ function SprintSummaryLine({ sprint }: { sprint: IntervalWithCount }) {
           per-sprint modal that the pills opened; the pills now scope the board,
           so the report follows the selection here instead of being lost. */}
       {report && (
-        <span className="inline-flex items-center gap-2 whitespace-nowrap">
+        <span className="ml-0.5 inline-flex items-center gap-2 whitespace-nowrap">
           <span>
             Velocity <span className={strong}>{report.velocity ?? report.completedStoryPoints ?? 0} pts</span>
           </span>
@@ -517,7 +519,7 @@ function SprintSummaryLine({ sprint }: { sprint: IntervalWithCount }) {
         </span>
       )}
       {sprint.goal ? (
-        <span className="inline-flex min-w-0 grow basis-32 items-center gap-1" title={sprint.goal}>
+        <span className="ml-0.5 inline-flex min-w-0 grow basis-32 items-center gap-1" title={sprint.goal}>
           <Target className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span className="truncate">{sprint.goal}</span>
         </span>

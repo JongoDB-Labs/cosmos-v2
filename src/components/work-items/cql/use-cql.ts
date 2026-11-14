@@ -13,7 +13,7 @@
  *                  filtered list is shareable and survives a reload. Other
  *                  params (`?item=` deep links) are left alone.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useSearchParams, usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
@@ -109,13 +109,21 @@ export function useCqlUrlState(): {
   const modeParam = searchParams.get("mode");
   const mode: QueryMode | null = modeParam === "basic" || modeParam === "advanced" ? modeParam : null;
 
+  // What the last replace wrote, and the render it came from. A second replace
+  // before the next render builds on it: built on this render's
+  // `searchParams`, it started from the URL before the first and undid it.
+  // "Run as a query" sets the query and then the mode, and the mode's replace
+  // dropped the query: CQL opened without it.
+  const written = useRef<{ from: URLSearchParams; params: URLSearchParams } | null>(null);
   const replace = useCallback(
     (patch: Record<string, string | null>) => {
-      const next = new URLSearchParams(searchParams.toString());
+      const base = written.current?.from === searchParams ? written.current.params : searchParams;
+      const next = new URLSearchParams(base.toString());
       for (const [k, v] of Object.entries(patch)) {
         if (v === null || v === "") next.delete(k);
         else next.set(k, v);
       }
+      written.current = { from: searchParams, params: next };
       const qs = next.toString();
       // Shallow, through the History API (which the App Router syncs into
       // useSearchParams): the query is client state, read by WorkItemsView and by

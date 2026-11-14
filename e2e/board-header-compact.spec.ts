@@ -1,6 +1,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "./fixtures/auth";
 import { resetQueryLanguage, setQueryLanguage } from "./fixtures/work-items-query";
+import MAIN_HEIGHTS from "./board-header-compact.main.json";
 
 /**
  * The board header takes fewer rows, never more, and every control is still in it.
@@ -8,26 +9,43 @@ import { resetQueryLanguage, setQueryLanguage } from "./fixtures/work-items-quer
  * The board's scope line, swimlanes and actions moved into the query bar's own
  * row, and a sprint's name, dates and summary into the row of sprint pills.
  * Unit tests pin which row each control is rendered in; only a browser can say
- * how tall the header comes out and whether each control is still on screen,
- * so this spec measures both, at the sizes where the layout was at risk.
+ * how tall the header comes out and whether each control is still on screen.
+ * Height is the first band's top to the query band's bottom.
  *
- * Height budgets are the header's height on main before this change, measured
- * on this spec's own boards and sizes (`next dev`, the seeded gallery): first
- * band's top to the query band's bottom. The header may come out shorter than
- * main, never taller. `SLACK` covers sub-pixel rounding only; one wrapped line
- * costs 28px or more. A wrapping regression found in review (Timeline at 1024:
- * 145 -> 171px), deleting the board's controls from the bar, and a search that
- * moves the board (Clear not holding its place) each fail here.
+ * Height is checked two ways, both against main before this change:
+ *
+ *   - Within every load, a sweep from 360 to 1920px in 24px steps, in both
+ *     modes: at no width taller than main. Main's heights are in
+ *     `board-header-compact.main.json`, measured by this same sweep on main
+ *     (`next dev`, the seeded gallery), once in Linux Chromium (CI's) and
+ *     once on a Mac. The two set text a pixel or two apart, and that moves a
+ *     wrap at some widths: main's heights differ between them at 114 of 1188
+ *     points, and this layout in Linux came out taller than the Mac's main at
+ *     5 of the 396 checked here (and than Linux's main at none). A review
+ *     found the row a line taller than main on most boards between 768 and
+ *     810px, where no fixed size here looked.
+ *   - At each load's own size, a budget: main's height there, or this
+ *     layout's own plus SLACK where that is less, so giving back what the
+ *     change saved fails too (the scope on a line of its own at 1280: 126 ->
+ *     146px).
+ *
+ * And on the sprint board, the same height at every width of the sweep while a
+ * query-like phrase is typed, with a search applied, and after it is cleared:
+ * Clear and "Run as a query" take no room in the row.
  *
  * Runs against the seeded board gallery (`prisma/seed/test-fixtures.ts`). It
  * switches the query language on for the org (the bar measured here only
  * exists with it on) and off again afterwards, as `journey-board-cql.spec.ts`
- * does. Five page loads in all: each is about 10s under `next dev` in CI.
+ * does. Five page loads and 13 sweeps of about 4s each: about 75s in all
+ * locally, on a Mac or in Linux Chromium.
  */
 const ORG = process.env.E2E_ORG_SLUG ?? "test-org";
 const GALLERY = process.env.E2E_GALLERY_PROJECT_KEY ?? "GALLERY";
 const EMAIL = "alice@test.local";
+/** How far over its own measured height a load may come out. One wrapped line costs 16px or more. */
 const SLACK = 6;
+/** Sub-pixel rounding between machines, for the sweep's comparisons. */
+const ROUNDING = 0.5;
 
 type Mode = "Filters" | "CQL";
 
@@ -38,11 +56,36 @@ function bands(page: Page) {
   return { query, pills };
 }
 
-async function headerHeight(page: Page) {
-  const { query, pills } = bands(page);
-  const q = (await query.boundingBox())!;
-  const p = (await pills.count()) ? await pills.boundingBox() : null;
-  return Math.round((q.y + q.height - (p ? p.y : q.y)) * 10) / 10;
+/**
+ * The header's height once it stops changing: no transition running, then
+ * three frames alike. Buttons change size over 150ms at the 768px breakpoint,
+ * and the CQL editor re-wraps as they do (measured at 768: it grew for 185ms,
+ * and a settle of two equal readings returned 455 of its 651px). A loading
+ * placeholder (the editor's, pulsing) is not settled either. NaN when it never
+ * settles, so the comparison that reads it fails.
+ */
+function headerHeight(page: Page): Promise<number> {
+  return page.evaluate(async () => {
+    const read = () => {
+      const query = document.querySelector('[role="group"][aria-label="How to filter"]')!.closest(".border-b")!;
+      const manage = [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Manage");
+      const top = (manage?.closest(".border-b") ?? query).getBoundingClientRect().top;
+      return { h: Math.round((query.getBoundingClientRect().bottom - top) * 10) / 10, loading: !!query.querySelector(".animate-pulse") };
+    };
+    const moving = () =>
+      document.getAnimations().some((a) => a.playState === "running" && Number.isFinite(a.effect?.getComputedTiming().endTime));
+    const frame = () => new Promise((r) => requestAnimationFrame(r));
+    const t0 = performance.now();
+    let last = read().h;
+    for (let same = 0; same < 3; ) {
+      if (performance.now() - t0 > 15_000) return NaN;
+      await frame();
+      const now = read();
+      same = now.h === last && !now.loading && !moving() ? same + 1 : 0;
+      last = now.h;
+    }
+    return last;
+  });
 }
 
 /**
@@ -81,18 +124,7 @@ async function useMode(page: Page, mode: Mode) {
   // and while one runs every hit test lands on <html>, the transition's layer.
   // Not `getAnimations()`: finished animations linger in that list.
   await page.waitForFunction(() => !document.documentElement.matches(":active-view-transition"), null, { timeout: 15_000 });
-  await settle(page);
-}
-
-/** Two equal readings of the header's height, 150ms apart. */
-async function settle(page: Page) {
-  await expect
-    .poll(async () => {
-      const a = await headerHeight(page);
-      await page.waitForTimeout(150);
-      return a === (await headerHeight(page));
-    })
-    .toBe(true);
+  await headerHeight(page);
 }
 
 /**
@@ -135,9 +167,19 @@ async function expectControls(page: Page, at: string, controls: [string, Locator
   expect(overflow, `${at}: the page scrolls sideways`).toBeLessThanOrEqual(0);
 }
 
-async function expectBudget(page: Page, at: string, budget: number) {
+/**
+ * Main's height at a load's size, and this layout's own there (measured, `next
+ * dev`, the seeded gallery). The budget is the lesser of main and own + SLACK.
+ * Linux Chromium and a Mac measured the same at every size here, but for main's
+ * phone CQL box: Linux sets it 120px shorter (592, 577 and 483px against 712,
+ * 697 and 603). Own + SLACK is under both.
+ */
+type Budget = { main: number; own: number };
+
+async function expectBudget(page: Page, at: string, { main, own }: Budget) {
+  const budget = Math.min(main, own + SLACK);
   const h = await headerHeight(page);
-  expect(h, `${at}: the header is ${h}px, taller than main's ${budget}px`).toBeLessThanOrEqual(budget + SLACK);
+  expect(h, `${at}: the header is ${h}px, over its budget of ${budget}px (main ${main}, this layout ${own})`).toBeLessThanOrEqual(budget);
 }
 
 /** What the query bar always draws, per mode. */
@@ -183,48 +225,152 @@ const timelineControls = (p: Page): [string, Locator][] => [
 
 const PHONE = { width: 390, height: 844 };
 
-/** The header's height at each width, read after it settles. Heights only: see openBoard. */
-async function heightsAt(page: Page, widths: readonly number[]) {
-  const out: string[] = [];
-  for (const width of widths) {
+type Board = keyof typeof READY;
+type Heights = Record<string, number>;
+type Main = Record<Board, Record<Mode, Heights>>;
+/** Main's heights in CI's Linux Chromium, and on a Mac (see the top of the file). */
+const MAIN: { linux: Main; darwin: Main } = MAIN_HEIGHTS;
+
+/** Main's heights as measured on the OS this browser runs on: a Mac's, or else Linux's. */
+async function mainHere(page: Page): Promise<Main> {
+  // Not process.platform: the browser can run elsewhere (a Linux browser
+  // driven from a Mac). Not the user agent: the Desktop Chrome profile says
+  // Windows.
+  const mac = await page.evaluate(() => navigator.platform.startsWith("Mac"));
+  return MAIN[mac ? "darwin" : "linux"];
+}
+
+/** The sweep: 360-1920px in 24px steps, the widths main was measured at. */
+const WIDTHS = Array.from({ length: 66 }, (_, i) => 360 + 24 * i);
+
+/**
+ * The header's height at every width of the sweep. It resizes the page, so it
+ * runs after a load's other checks (see openBoard).
+ */
+async function sweep(page: Page): Promise<Heights> {
+  const out: Heights = {};
+  for (const width of WIDTHS) {
     await page.setViewportSize({ width, height: 800 });
-    await settle(page);
-    out.push(`${width}px: ${await headerHeight(page)}`);
+    out[width] = await headerHeight(page);
   }
   return out;
 }
 
+/** The widths where `got` is taller than `than`, as "768px: 113 > 81". */
+const tallerThan = (got: Heights, than: Heights) =>
+  WIDTHS.filter((w) => !(got[w] <= than[w] + ROUNDING)).map((w) => `${w}px: ${got[w]} > ${than[w]}`);
+
+/** The widths where `got` differs from `was`, as "768px: 81 -> 113". */
+const changedFrom = (got: Heights, was: Heights) =>
+  WIDTHS.filter((w) => !(Math.abs(got[w] - was[w]) <= ROUNDING)).map((w) => `${w}px: ${was[w]} -> ${got[w]}`);
+
+/** Sweep in the mode shown, then in the other: at no width taller than main. */
+async function expectWithinMain(page: Page, slug: Board, at: string, first: Mode) {
+  const main = (await mainHere(page))[slug];
+  const got: Partial<Record<Mode, Heights>> = {};
+  for (const mode of [first, first === "Filters" ? "CQL" : "Filters"] as const) {
+    await useMode(page, mode);
+    got[mode] = await sweep(page);
+    expect(tallerThan(got[mode], main[mode]), `${at} ${mode}: taller than main at`).toEqual([]);
+  }
+  return got as Record<Mode, Heights>;
+}
+
 /**
- * Applying a filter must not move the board, nor clearing it. Clear holds its
- * place in the row while there is nothing to clear. When it appeared on the
- * first search instead, it pushed the row's last control onto a line of its
- * own and the columns moved down 32px.
+ * Neither "Run as a query" nor Clear moves the board: the header is the same
+ * height at every width of the sweep with a query-like phrase typed (both
+ * showing), with a search applied (Clear showing), and after Clear.
  *
- * That only happens where the row is one Clear short of full: a window about
- * Clear's width, which moves with the board and its controls (on the sprint
- * board, 1456-1528px measured with Clear not held). So the header is read
- * across a sweep of widths, empty and then with a search applied, and must
- * match at every one. It resizes the page, so it runs last on its load.
+ * As items of the row, each took a line of its own wherever the row was one
+ * item short of full, and the board jumped: the suggestion as the phrase was
+ * typed (Kanban at 1280: 49 -> 81px), Clear on the first filter (the sprint
+ * board at 1280, 32px), and a Clear held in place while there was nothing to
+ * clear cost the line all the time instead (768-810px on most boards).
  */
-async function expectNoJump(page: Page, at: string, widths: readonly number[]) {
+async function expectNoJump(page: Page, at: string, empty: Heights) {
   const search = page.getByRole("textbox", { name: "Search work items" });
-  const before = await heightsAt(page, widths);
+  const suggestion = page.getByRole("button", { name: "Run as a query" });
+  const clear = page.getByRole("button", { name: "Clear search and filters" });
+
+  await search.click();
+  await search.pressSequentially("priority = high");
+  await expect(suggestion).toBeVisible();
+  await expect(clear).toBeVisible();
+  expect(changedFrom(await sweep(page), empty), `${at}: typing a query moved the board at`).toEqual([]);
+  await expect(suggestion, "the suggestion went while the box still had focus").toBeVisible();
+
   await search.fill("review");
   await search.press("Enter");
   await expect(page.getByText("Gallery item in progress")).toHaveCount(0, { timeout: 15_000 });
   await expect(page.getByText("Gallery item in review").first()).toBeVisible();
-  const clear = page.getByRole("button", { name: "Clear", exact: true });
-  await expect(clear).toBeVisible();
-  expect(await heightsAt(page, widths), `${at}: applying a search moved the board`).toEqual(before);
+  await expect(suggestion).toHaveCount(0);
+  expect(changedFrom(await sweep(page), empty), `${at}: applying a search moved the board at`).toEqual([]);
+
   await clear.click();
   await expect(page.getByText("Gallery item in progress").first()).toBeVisible({ timeout: 15_000 });
+  await expect(search).toHaveValue("");
   await expect(clear).toHaveCount(0);
-  await settle(page);
-  expect(await heightsAt(page, widths.slice(-1)), `${at}: clearing the search moved the board`).toEqual(before.slice(-1));
+  expect(changedFrom(await sweep(page), empty), `${at}: clearing the search moved the board at`).toEqual([]);
 }
 
-/** 1280, then 1392-1584px in 16px steps: the sprint board's window with room either side. */
-const SWEEP = [1280, ...Array.from({ length: 13 }, (_, i) => 1392 + 16 * i)] as const;
+/**
+ * "Run as a query" is a suggestion: under the search box, on top of the board,
+ * over none of the bar's controls, reached by keyboard straight after Clear,
+ * put away by Escape, and it still runs the text as a query. On the sprint
+ * board (its items say when a search has landed).
+ */
+async function expectSuggestion(page: Page, at: string) {
+  const search = page.getByRole("textbox", { name: "Search work items" });
+  const suggestion = page.getByRole("button", { name: "Run as a query" });
+  const clear = page.getByRole("button", { name: "Clear search and filters" });
+  await search.click();
+  await search.pressSequentially("priority = high");
+  await expect(suggestion).toBeVisible();
+
+  const where = await suggestion.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const box = document.querySelector('input[aria-label="Search work items"]')!.getBoundingClientRect();
+    const band = el.closest(".border-b")!;
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const covered = [...band.querySelectorAll('button, input, select, textarea, a[href], [role="combobox"]')]
+      .filter((c) => c !== el && !el.contains(c))
+      .filter((c) => {
+        const b = c.getBoundingClientRect();
+        return b.width > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
+      })
+      .map((c) => (c.getAttribute("aria-label") || c.textContent || c.tagName).trim());
+    return { onTop: !!hit && (hit === el || el.contains(hit)), covered, under: r.top >= box.bottom, left: r.left - box.left };
+  });
+  expect(where.onTop, `${at}: the suggestion is under something`).toBe(true);
+  expect(where.covered, `${at}: the suggestion covers the bar's controls`).toEqual([]);
+  expect(where.under, `${at}: the suggestion is not under the search box`).toBe(true);
+  expect(Math.abs(where.left), `${at}: the suggestion is not at the search box's left edge`).toBeLessThanOrEqual(1);
+
+  // Keyboard: the box, then Clear, then the suggestion. Leaving the box
+  // applies the phrase as a search (any blur does): let that land first, or
+  // the box is reset to it under the next thing typed (as on main).
+  await page.keyboard.press("Tab");
+  await expect(clear).toBeFocused();
+  await expect(page.getByText("Gallery item in progress")).toHaveCount(0, { timeout: 15_000 });
+  await page.keyboard.press("Tab");
+  await expect(suggestion).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(suggestion).toHaveCount(0);
+  await expect(search).toBeFocused();
+  await clear.click();
+  await expect(page.getByText("Gallery item in progress").first()).toBeVisible({ timeout: 15_000 });
+  await expect(search).toHaveValue("");
+  await expect(search).toBeFocused();
+  // Pressed, it runs the text as a query.
+  await search.pressSequentially("priority = MEDIUM");
+  await suggestion.click();
+  await expect(page.getByRole("button", { name: "CQL" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("textbox", { name: "Query" })).toContainText("priority = MEDIUM");
+  // Clear is in the query box in CQL too; it empties the query.
+  await clear.click();
+  await expect(clear).toHaveCount(0);
+  await expect.poll(() => new URL(page.url()).searchParams.get("cql")).toBeNull();
+}
 
 test.describe("Board header — fewer rows", () => {
   test.afterAll(async ({ browser }) => {
@@ -236,14 +382,14 @@ test.describe("Board header — fewer rows", () => {
     await setQueryLanguage(page.request, true);
   });
 
-  test("scrum at 1280: within main's height in both modes, every moved control works, and a search never moves the board", async ({ page }) => {
-    test.setTimeout(150_000);
+  test("scrum at 1280: within budget in both modes, every moved control works, never taller than main, and a search never moves the board", async ({ page }) => {
+    test.setTimeout(240_000);
     await openBoard(page, "scrum", { width: 1280, height: 800 });
-    const budget = { Filters: 150, CQL: 187.6 };
 
     await useMode(page, "Filters");
-    await expectBudget(page, "scrum@1280 Filters", budget.Filters);
+    await expectBudget(page, "scrum@1280 Filters", { main: 150, own: 126 });
     await expectControls(page, "scrum@1280 Filters", [...queryBar(page, "Filters"), ...scrumControls(page)]);
+    await expectSuggestion(page, "scrum@1280");
 
     // Swimlanes: grouping by priority draws a lane, each a labelled strip of
     // columns (kanban-board.tsx). None exists with swimlanes off, when the one
@@ -282,23 +428,23 @@ test.describe("Board header — fewer rows", () => {
     await expect(page.getByRole("button", { name: "Select", exact: true })).toBeVisible();
 
     await useMode(page, "CQL");
-    await expectBudget(page, "scrum@1280 CQL", budget.CQL);
+    await expectBudget(page, "scrum@1280 CQL", { main: 187.6, own: 131.6 });
     await expectControls(page, "scrum@1280 CQL", [...queryBar(page, "CQL"), ...scrumControls(page)]);
 
-    // Last, because it resizes the page.
-    await useMode(page, "Filters");
-    await expectNoJump(page, "scrum Filters", SWEEP);
+    // Last, because they resize the page.
+    const swept = await expectWithinMain(page, "scrum", "scrum (loaded at 1280)", "CQL");
+    await expectNoJump(page, "scrum (loaded at 1280) Filters", swept.Filters);
   });
 
   test("scrum on a phone: within main's height, and the CQL box gets a line of its own", async ({ page }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(150_000);
     await openBoard(page, "scrum", PHONE);
     await useMode(page, "Filters");
-    await expectBudget(page, "scrum@390 Filters", 258);
+    await expectBudget(page, "scrum@390 Filters", { main: 258, own: 254 });
     await expectControls(page, "scrum@390 Filters", [...queryBar(page, "Filters"), ...scrumControls(page)]);
 
     await useMode(page, "CQL");
-    await expectBudget(page, "scrum@390 CQL", 712);
+    await expectBudget(page, "scrum@390 CQL", { main: 712, own: 360 });
     await expectControls(page, "scrum@390 CQL", [...queryBar(page, "CQL"), ...scrumControls(page)]);
     // It was about 45px wide: Run query and Format took the line first, and
     // the placeholder wrapped a few letters per line.
@@ -306,14 +452,16 @@ test.describe("Board header — fewer rows", () => {
     expect(box.width).toBeGreaterThan(200);
     const run = (await page.getByRole("button", { name: /Run query/ }).boundingBox())!;
     expect(run.y, "Run query is beside the query box, not under it").toBeGreaterThanOrEqual(box.y + box.height - 1);
+
+    await expectWithinMain(page, "scrum", "scrum (loaded at 390)", "CQL");
   });
 
   for (const [size, budget] of [
-    [{ width: 1024, height: 768 }, { Filters: 145, CQL: 202.2 }],
-    [PHONE, { Filters: 243, CQL: 697 }],
+    [{ width: 1024, height: 768 }, { Filters: { main: 145, own: 141 }, CQL: { main: 202.2, own: 198.2 } }],
+    [PHONE, { Filters: { main: 243, own: 235 }, CQL: { main: 697, own: 341 } }],
   ] as const) {
-    test(`timeline at ${size.width}: its long toolbar wraps within main's height`, async ({ page }) => {
-      test.setTimeout(90_000);
+    test(`timeline at ${size.width}: its long toolbar wraps within budget, and never taller than main`, async ({ page }) => {
+      test.setTimeout(150_000);
       await openBoard(page, "timeline", size);
       for (const mode of ["Filters", "CQL"] as const) {
         const at = `timeline@${size.width} ${mode}`;
@@ -321,11 +469,12 @@ test.describe("Board header — fewer rows", () => {
         await expectBudget(page, at, budget[mode]);
         await expectControls(page, at, [...queryBar(page, mode), ...timelineControls(page)]);
       }
+      await expectWithinMain(page, "timeline", `timeline (loaded at ${size.width})`, "CQL");
     });
   }
 
-  test("table on a phone: within main's height, with its own toolbar", async ({ page }) => {
-    test.setTimeout(90_000);
+  test("table on a phone: within budget, with its own toolbar, and never taller than main", async ({ page }) => {
+    test.setTimeout(150_000);
     await openBoard(page, "table", PHONE);
     const table = (p: Page): [string, Locator][] => [
       ["Group by", p.getByRole("combobox", { name: "Group by" })],
@@ -333,10 +482,14 @@ test.describe("Board header — fewer rows", () => {
       ["Compact rows", p.getByRole("button", { name: "Compact rows" })],
       newWorkItem(p),
     ];
-    for (const [mode, budget] of [["Filters", 149], ["CQL", 603]] as const) {
+    for (const [mode, budget] of [
+      ["Filters", { main: 149, own: 113 }],
+      ["CQL", { main: 603, own: 219 }],
+    ] as const) {
       await useMode(page, mode);
       await expectBudget(page, `table@390 ${mode}`, budget);
       await expectControls(page, `table@390 ${mode}`, [...queryBar(page, mode), ...table(page)]);
     }
+    await expectWithinMain(page, "table", "table (loaded at 390)", "CQL");
   });
 });
