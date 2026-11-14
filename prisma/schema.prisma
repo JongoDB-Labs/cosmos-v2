@@ -6510,6 +6510,11 @@ model CalendarFeed {
   lastFetchedAt DateTime? @map("last_fetched_at")
   revokedAt     DateTime? @map("revoked_at")
   createdAt     DateTime  @default(now()) @map("created_at")
+  /// The IdpConnection the session that made the link signed in through, if
+  /// single sign-on (Session.idpConnId). Where the org requires SSO, the link
+  /// is served only when this is the org's connection; null fails closed. The
+  /// rule a member's API key is held to (ApiKey.idpConnId).
+  idpConnId     String?   @map("idp_conn_id") @db.Uuid
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)

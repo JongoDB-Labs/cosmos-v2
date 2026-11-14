@@ -49,13 +49,94 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.560.8",
+    version: "2.561.3",
     date: "2026-11-14",
     title: "Address and name lookups match exactly",
     highlights: [
       {
         kind: "fix",
         text: "Signing in with a password, asking for a password reset, single sign-on, invitations, account requests and the sign-in allowlist now find an account by its exact email address, ignoring case only. The same goes for project keys and organization names in links, for label, role, partner and status names, for matching rows on import, and for `=` on text fields in queries.",
+      },
+    ],
+  },
+  {
+    version: "2.561.2",
+    date: "2026-11-14",
+    title: "Search finds % and _ as text, and retro writes are audited",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Searching for % or _ in the command palette (⌘K) or the @-mention picker finds only names that contain that character. Before, either one matched every name of every kind. The same goes for the workflow simulator's item picker, the assistant's searches, and the API's search filter on CRM contacts, partners, products and a project's work items. In chat search, from:% and in:_ now look for those characters in a name too, instead of matching every author or channel.",
+      },
+      {
+        kind: "fix",
+        text: "The command palette (⌘K) and the @-mention picker run the same search, and now share one rate limit, as the Issues search has. Ordinary typing stays well inside it.",
+      },
+      {
+        kind: "fix",
+        text: "A retro action item can't be given to someone whose account is deactivated. Editing an action already refused them; adding one now does too.",
+      },
+      {
+        kind: "fix",
+        text: "Adding, editing and deleting retro notes and action items now shows in the audit log, with who did it and when. The text of a note or action stays out of the log.",
+      },
+    ],
+  },
+  {
+    version: "2.561.1",
+    date: "2026-11-14",
+    title: "Calendar feed links follow single sign-on and member removal, and show join links",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Where your organization requires single sign-on, a calendar feed link works only if you made it after signing in through the organization's single sign-on, as for an API key. Links made before, or through another sign-in, stop updating, and Settings, Preferences says so under each one. Sign in through single sign-on and create a new link there.",
+      },
+      {
+        kind: "fix",
+        text: "Removing someone from your organization now revokes their calendar feed links, as it already deleted their API keys. Adding them back, or their signing in again through single sign-on, doesn't bring the old links back. Deleting someone's account does the same in every organization they belong to. Turning on Require MFA revokes everyone's calendar feed links, and the save message says how many.",
+      },
+      {
+        kind: "fix",
+        text: "A calendar feed link is held to the organization's access restrictions for everyone, owners included. An owner's own session can still undo a restriction, but their link no longer gets past one.",
+      },
+      {
+        kind: "fix",
+        text: "Calendar feed links with sprints switched on now work. Until now such a link served nothing. A link shows only the sprints its owner may read: a rule that hides one project's sprints from someone hides them from their link too.",
+      },
+      {
+        kind: "improvement",
+        text: "A meeting in your calendar feed now carries its join links in the event's description: its video link, and its Teams link when it has one. Meetings the feed shows only as busy never do.",
+      },
+      {
+        kind: "fix",
+        text: "On a phone, screen readers now name the settings section picker, and the Revoke button on a calendar link has enough contrast to read.",
+      },
+    ],
+  },
+  {
+    version: "2.561.0",
+    date: "2026-11-14",
+    title: "The board header takes less room",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "The board header takes less room. With the query language on, a board's scope, Swimlanes, Select and New work item now sit in the filter bar's own row instead of a row underneath it. On a sprint board, the sprint's name, status, dates and progress continue the row of sprint pills. In CQL mode, Kanban and Table boards start a row higher, and a sprint board at 1280px up to two rows higher. On a phone in CQL mode the header is about half as tall. Nothing was removed. The header is never taller than before, except in CQL mode on Timeline and Dashboard boards between 628 and 639px wide: there it is up to 20px taller, because the query box now gets a full line of its own instead of being squeezed beside its buttons.",
+      },
+      {
+        kind: "improvement",
+        text: "In a board's filter bar, Clear is now an × at the right end of the search box, or of the query box in CQL mode. It shows only when there is something to clear, and still clears the search and every filter. \"Run as a query\" now appears under the search box while you type something that looks like a query. Neither one moves the board any more.",
+      },
+      {
+        kind: "improvement",
+        text: "When a board's scope is too long for its row, a More button beside it shows the whole query, so reading it no longer takes a mouse. A scope that fits is shown whole.",
+      },
+      {
+        kind: "fix",
+        text: "On a phone, the query box in CQL mode gets a line of its own. It used to be squeezed to a few letters wide beside Run query and Format.",
+      },
+      {
+        kind: "fix",
+        text: "\"Run as a query\" now opens CQL mode with what you typed in it. It used to open an empty query box, on boards and on the Work Items page.",
       },
     ],
   },
