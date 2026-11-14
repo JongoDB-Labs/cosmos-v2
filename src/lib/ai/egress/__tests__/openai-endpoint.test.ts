@@ -69,6 +69,16 @@ describe("an OpenAI-compatible endpoint", () => {
     expect(hits.get("/ok/chat/completions")).toBe(1);
   });
 
+  it("is not opened by the SSO list: SSO_ALLOW_PRIVATE_CIDRS is for identity providers only", async () => {
+    vi.stubEnv(ENV, "");
+    vi.stubEnv("SSO_ALLOW_PRIVATE_CIDRS", "127.0.0.0/8");
+    await expect(callModel({ ...turn, credential: cred(`${base}/ok`) })).rejects.toThrow(/isn't public/);
+    expect(hits.get("/ok/chat/completions")).toBeUndefined();
+    // Control: the org-admin list does open it.
+    vi.stubEnv(ENV, "127.0.0.0/8");
+    expect((await callModel({ ...turn, credential: cred(`${base}/ok`) })).text).toBe("hello");
+  });
+
   it("streams through the same checks", async () => {
     vi.stubEnv(ENV, "127.0.0.0/8");
     const deltas: string[] = [];

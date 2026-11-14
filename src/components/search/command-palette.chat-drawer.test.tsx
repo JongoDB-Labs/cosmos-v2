@@ -34,6 +34,8 @@ vi.mock("next/navigation", () => ({
 
 import { CommandPalette } from "./command-palette";
 import { DrawerProvider, useDrawers } from "@/components/drawers/drawer-provider";
+import { PermissionsProvider } from "@/components/providers/permissions-provider";
+import { RolePermissions, permissionNames } from "@/lib/rbac/permissions";
 
 // Surfaces the currently-open docked drawer tool so the test can assert the
 // palette opened the chat drawer in place (rather than navigating away).
@@ -42,12 +44,17 @@ function DrawerProbe() {
   return <div data-testid="drawer-tool">{tool ?? "none"}</div>;
 }
 
+// A member: the palette offers Chat only to someone holding CHAT_USE.
 function renderPalette() {
   return render(
-    <DrawerProvider>
-      <DrawerProbe />
-      <CommandPalette orgs={[{ id: "org-1", slug: "acme" }]} />
-    </DrawerProvider>,
+    <PermissionsProvider
+      orgs={[{ id: "org-1", slug: "acme", role: "MEMBER", permissions: permissionNames(RolePermissions.MEMBER) }]}
+    >
+      <DrawerProvider>
+        <DrawerProbe />
+        <CommandPalette orgs={[{ id: "org-1", slug: "acme" }]} />
+      </DrawerProvider>
+    </PermissionsProvider>,
   );
 }
 

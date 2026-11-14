@@ -51,6 +51,8 @@ import {
   useDrawers,
   type DrawerTool,
 } from "@/components/drawers/drawer-provider";
+import { usePermissions } from "@/components/providers/permissions-provider";
+import { TOPBAR_NAV, visibleTopbarNav } from "@/components/layouts/topbar-nav";
 import {
   ENTITY_ORDER,
   ENTITY_LABEL,
@@ -131,6 +133,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { openDrawer } = useDrawers();
+  const { can } = usePermissions();
   const orgSlug = pathname.split("/")[1];
   const currentOrg = orgs.find((o) => o.slug === orgSlug);
 
@@ -313,10 +316,17 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     [openDrawer],
   );
 
+  // Chat, Notes and Meetings are offered as the topbar offers them, by its own
+  // gate (topbar-nav.ts): every chat route needs CHAT_USE, so Chat offered to a
+  // viewer only opened the drawer's no-access state. `can()` follows the keys
+  // the server sends, so a work role that grants CHAT_USE brings Chat back.
+  const topbarGated = new Set(TOPBAR_NAV.map((item) => item.id));
+  const topbarAllowed = new Set(visibleTopbarNav(can).map((item) => item.id));
+
   // Quick-jump destinations — the bulk of the "operations" expansion. Each is a
   // real workspace route, or a docked drawer (Chat has no page, only its
   // drawer); they're filtered live by whatever you type after ">".
-  const navItems: ({ id: string; label: string; icon: React.ReactNode } & (
+  const allNavItems: ({ id: string; label: string; icon: React.ReactNode } & (
     | { suffix: string; drawer?: undefined }
     | { suffix?: undefined; drawer: DrawerTool }
   ))[] = [
@@ -335,6 +345,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     { id: "feedback", label: "Feedback", suffix: "/feedback", icon: <MessageSquarePlus className="h-4 w-4 shrink-0 text-muted-foreground" /> },
     { id: "settings", label: "Settings", suffix: "/settings", icon: <Settings className="h-4 w-4 shrink-0 text-muted-foreground" /> },
   ];
+  const navItems = allNavItems.filter((n) => !topbarGated.has(n.id) || topbarAllowed.has(n.id));
 
   const grouped = results.reduce(
     (acc, result) => {

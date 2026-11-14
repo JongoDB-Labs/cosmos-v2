@@ -24,6 +24,12 @@
 //    A `return` inside a nested callback leaves only the callback, so there the
 //    branch must throw. A result that is ignored, unused or ANDed with
 //    anything else does not count.
+//  - A check certifies its own kind of write only, and only the writes after
+//    it: every write site needs a check of its kind earlier in its unit (a
+//    held refusal counts where its `if` acts on it). Giving a work role is the
+//    grant ceiling's (workRoleCeilingRefusal, isPermissionSubset); taking one
+//    away, editing or deleting one is the ceiling on current role's
+//    (currentWorkRoleRefusal), counted without the org's restrictions.
 //  - Comments and strings are not calls, so prose can't satisfy the guard.
 //
 // Exemptions are by file and function name, each with a reason, and a test
@@ -37,7 +43,8 @@ import ts from "typescript";
 const SRC = join(process.cwd(), "src");
 
 type Kind = "grant" | "change";
-type Unit = { writes: Set<Kind>; checks: Set<Kind> };
+/** Per kind, where each write starts and where each check takes effect (source offsets). */
+type Unit = { writes: Map<Kind, number[]>; checks: Map<Kind, number[]> };
 
 /** Prisma model accessor → the methods that grant access, and the ones that change or remove it. */
 const MODEL_WRITES: Record<string, Record<Kind, string[]>> = {
@@ -79,7 +86,9 @@ const REFUSALS: Record<string, Kind[]> = {
   orgRoleGrantRefusal: ["grant"],
   isPermissionSubset: ["grant"],
   currentAccessRefusal: ["change"],
-  workRoleCeilingRefusal: ["grant", "change"],
+  // Giving a work role, or new grants to one: the base after the org's
+  // restrictions, since a grant outlives the restriction.
+  workRoleCeilingRefusal: ["grant"],
   // The ceiling on current role, counted without the org's restrictions: it
   // may let a work role be taken away, edited or deleted, never given.
   currentWorkRoleRefusal: ["change"],
@@ -190,8 +199,12 @@ function exits(stmt: ts.Node, returnCounts: boolean): boolean {
   return found;
 }
 
-/** Is `node` the whole condition (parenthesised or negated at most) of an `if` that exits the unit? */
-function gatesExit(node: ts.Node): boolean {
+/**
+ * When `node` is the whole condition (parenthesised or negated at most) of an
+ * `if` that exits the unit: where that exit has been taken, i.e. the end of its
+ * branch. Null otherwise.
+ */
+function exitGate(node: ts.Node): number | null {
   let e = node;
   while (
     e.parent &&
@@ -199,10 +212,10 @@ function gatesExit(node: ts.Node): boolean {
       (ts.isPrefixUnaryExpression(e.parent) && e.parent.operator === ts.SyntaxKind.ExclamationToken))
   ) e = e.parent;
   const stmt = e.parent;
-  if (!stmt || !ts.isIfStatement(stmt) || stmt.expression !== e) return false;
+  if (!stmt || !ts.isIfStatement(stmt) || stmt.expression !== e) return null;
   // A `return` leaves the unit only when the `if` sits directly in the unit's own function.
   const returnCounts = nearestFunction(stmt) === outermostFunction(stmt);
-  return exits(stmt.thenStatement, returnCounts);
+  return exits(stmt.thenStatement, returnCounts) ? stmt.thenStatement.getEnd() : null;
 }
 
 /** Is an `assert*` call here able to stop the unit? Not when a `catch` around it swallows the throw. */
@@ -221,17 +234,20 @@ function analyse(source: string, fileName: string): Map<string, Unit> {
     fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const units = new Map<string, Unit>();
   const unit = (id: string) => {
-    if (!units.has(id)) units.set(id, { writes: new Set(), checks: new Set() });
+    if (!units.has(id)) units.set(id, { writes: new Map(), checks: new Map() });
     return units.get(id)!;
   };
-  const held: { unit: string; name: string; kinds: Kind[] }[] = [];
-  const tested = new Set<string>();
+  const add = (to: Map<Kind, number[]>, kind: Kind, at: number) => to.set(kind, [...(to.get(kind) ?? []), at]);
+  const write = (n: ts.Node, kind: Kind) => add(unit(unitOf(n)).writes, kind, n.getStart());
+  const held: { unit: string; name: string; kinds: Kind[]; at: number }[] = [];
+  /** `<unit>\0<identifier>` → where each `if` that exits on it takes effect. */
+  const tested = new Map<string, number[]>();
 
   const rawWrites = (n: ts.Node, text: string) => {
     for (const m of text.matchAll(RAW_WRITE)) {
       const verb = m[1].toUpperCase();
-      if (!verb.startsWith("DELETE")) unit(unitOf(n)).writes.add("grant");
-      if (!verb.startsWith("INSERT")) unit(unitOf(n)).writes.add("change");
+      if (!verb.startsWith("DELETE")) write(n, "grant");
+      if (!verb.startsWith("INSERT")) write(n, "change");
     }
   };
 
@@ -242,7 +258,7 @@ function analyse(source: string, fileName: string): Map<string, Unit> {
       if (ts.isPropertyAccessExpression(n.expression)) {
         const writes = own(MODEL_WRITES, calleeName(n.expression.expression));
         for (const kind of ["grant", "change"] as const) {
-          if (writes?.[kind].includes(n.expression.name.text)) unit(unitOf(n)).writes.add(kind);
+          if (writes?.[kind].includes(n.expression.name.text)) write(n, kind);
         }
       }
       if (name && RAW_APIS.has(name)) for (const a of n.arguments) rawWrites(n, a.getText());
@@ -250,14 +266,15 @@ function analyse(source: string, fileName: string): Map<string, Unit> {
       if (asserts) {
         const stmt = ts.isAwaitExpression(n.parent) ? n.parent.parent : n.parent;
         if (stmt && ts.isExpressionStatement(stmt) && propagates(stmt)) {
-          for (const k of asserts) unit(unitOf(n)).checks.add(k);
+          for (const k of asserts) add(unit(unitOf(n)).checks, k, stmt.getEnd());
         }
       }
       const refusals = own(REFUSALS, name);
       if (refusals) {
-        if (gatesExit(n)) for (const k of refusals) unit(unitOf(n)).checks.add(k);
+        const gate = exitGate(n);
+        if (gate !== null) for (const k of refusals) add(unit(unitOf(n)).checks, k, gate);
         else if (ts.isVariableDeclaration(n.parent) && n.parent.initializer === n && ts.isIdentifier(n.parent.name)) {
-          held.push({ unit: unitOf(n), name: n.parent.name.text, kinds: refusals });
+          held.push({ unit: unitOf(n), name: n.parent.name.text, kinds: refusals, at: n.getEnd() });
         }
       }
     }
@@ -268,26 +285,41 @@ function analyse(source: string, fileName: string): Map<string, Unit> {
     if (ts.isPropertyAssignment(n) && NESTED_RELATIONS.has(textOf(n.name) ?? "") &&
         ts.isObjectLiteralExpression(n.initializer) &&
         n.initializer.properties.some((p) => NESTED_GRANTS.has(textOf(p.name) ?? ""))) {
-      unit(unitOf(n)).writes.add("grant");
+      write(n, "grant");
     }
-    if (ts.isIdentifier(n) && gatesExit(n)) tested.add(`${unitOf(n)}\0${n.text}`);
+    if (ts.isIdentifier(n)) {
+      const gate = exitGate(n);
+      if (gate !== null) {
+        const key = `${unitOf(n)}\0${n.text}`;
+        tested.set(key, [...(tested.get(key) ?? []), gate]);
+      }
+    }
     ts.forEachChild(n, visit);
   };
   visit(sf);
 
   for (const h of held) {
-    if (tested.has(`${h.unit}\0${h.name}`)) for (const k of h.kinds) unit(h.unit).checks.add(k);
+    // Acted on after it is computed; an earlier `if` on the same name is another value.
+    for (const gate of tested.get(`${h.unit}\0${h.name}`) ?? []) {
+      if (gate > h.at) for (const k of h.kinds) add(unit(h.unit).checks, k, gate);
+    }
   }
   for (const [id, u] of units) if (u.writes.size === 0) units.delete(id);
   return units;
 }
 
-/** `<file>#<unit>:<kind>` for each write whose unit lacks the matching check and has no exemption. */
+/** Does every write of `kind` in `u` come after a check of that kind? */
+function everySiteChecked(u: Unit, kind: Kind): boolean {
+  const checks = u.checks.get(kind) ?? [];
+  return (u.writes.get(kind) ?? []).every((at) => checks.some((c) => c <= at));
+}
+
+/** `<file>#<unit>:<kind>` for each kind of write with a site no earlier check of that kind covers, unless exempt. */
 function missing(file: string, units: Map<string, Unit>): string[] {
   const out: string[] = [];
   for (const [name, u] of units) {
     const id = `${file}#${name}`;
-    for (const kind of u.writes) if (!u.checks.has(kind) && !ALLOWED[kind][id]) out.push(`${id}:${kind}`);
+    for (const kind of u.writes.keys()) if (!everySiteChecked(u, kind) && !ALLOWED[kind][id]) out.push(`${id}:${kind}`);
   }
   return out.sort();
 }
@@ -383,6 +415,52 @@ describe("the guard flags each shape that got past it before (fixtures)", () => 
     }`)).toEqual(["fixture.ts#PUT:grant"]);
   });
 
+  it("the ceiling on giving a work role does not certify taking one away (per kind)", () => {
+    // Taking a work role away, editing or deleting one is the ceiling on
+    // current role (currentWorkRoleRefusal), counted without the org's
+    // restrictions; the grant ceiling is stricter, and on those paths it was
+    // the restriction that stopped admins taking away roles they could remove
+    // along with their holder. One call used to count for both kinds.
+    expect(check(`export async function DELETE() {
+      if (workRoleCeilingRefusal(ctx, grants)) return forbidden();
+      await prisma.workRole.delete({ where: { id } });
+    }`)).toEqual(["fixture.ts#DELETE:change"]);
+    expect(check(`export async function PUT() {
+      if (workRoleCeilingRefusal(ctx, grants)) return forbidden();
+      await prisma.orgMemberWorkRole.deleteMany({});
+      await prisma.orgMemberWorkRole.createMany({ data: [] });
+    }`)).toEqual(["fixture.ts#PUT:change"]);
+  });
+
+  it("a check counts only for the writes after it (per write site)", () => {
+    expect(check(`export async function DELETE() {
+      await prisma.orgMember.delete({ where: { id } });
+      if (currentAccessRefusal(ctx, m.role)) return forbidden();
+    }`)).toEqual(["fixture.ts#DELETE:change"]);
+    // Two writes of one kind, checked between them: the first is unchecked.
+    expect(check(`export async function PUT() {
+      await prisma.orgMemberWorkRole.createMany({ data: [] });
+      if (workRoleCeilingRefusal(ctx, grants)) return forbidden();
+      await prisma.orgMemberWorkRole.createMany({ data: [] });
+    }`)).toEqual(["fixture.ts#PUT:grant"]);
+    // A held refusal counts where it is acted on, not where it is computed.
+    expect(check(`export async function DELETE() {
+      const refusal = currentAccessRefusal(ctx, m.role);
+      await prisma.orgMember.delete({ where: { id } });
+      if (refusal) return forbidden(refusal);
+    }`)).toEqual(["fixture.ts#DELETE:change"]);
+    // An `if` on the same name before the refusal is computed tests another value.
+    expect(check(`export async function DELETE() {
+      for (const refusal of earlier) { if (refusal) return forbidden(); }
+      const refusal = currentAccessRefusal(ctx, m.role);
+      await prisma.orgMember.delete({ where: { id } });
+    }`)).toEqual(["fixture.ts#DELETE:change"]);
+    expect(check(`export async function POST() {
+      await prisma.invitation.create({ data: {} });
+      assertCanGrantOrgRole(ctx, role);
+    }`)).toEqual(["fixture.ts#POST:grant"]);
+  });
+
   it("raw SQL and a nested create are writes", () => {
     expect(check("export async function f() { await prisma.$executeRaw`UPDATE org_members SET role = 'OWNER'`; }"))
       .toEqual(["fixture.ts#f:change", "fixture.ts#f:grant"]);
@@ -419,9 +497,28 @@ describe("the guard flags each shape that got past it before (fixtures)", () => 
     }`)).toEqual([]);
     expect(check(`export async function PUT() {
       await prisma.$transaction(async (tx) => {
-        if (workRoleCeilingRefusal(ctx, mask)) throw new ForbiddenError("over");
+        if (currentWorkRoleRefusal(ctx, mask)) throw new ForbiddenError("over");
         await tx.orgMemberWorkRole.deleteMany({});
       });
+    }`)).toEqual([]);
+    // A roster replaced whole (work-roles/[roleId]/members): giving is checked
+    // when it adds anyone, taking away otherwise, both before either write.
+    expect(check(`export async function PUT() {
+      if (adds) {
+        if (workRoleCeilingRefusal(r.ctx, grants)) return refused("over");
+      } else if (currentWorkRoleRefusal(r.ctx, grants)) {
+        return refused("over");
+      }
+      await prisma.$transaction([
+        prisma.orgMemberWorkRole.deleteMany({ where: {} }),
+        prisma.orgMemberWorkRole.createMany({ data: [] }),
+      ]);
+    }`)).toEqual([]);
+    // Held, then acted on, then written.
+    expect(check(`export async function DELETE() {
+      const refusal = currentAccessRefusal(ctx, m.role);
+      if (refusal) return forbidden(refusal);
+      await prisma.orgMember.delete({ where: { id } });
     }`)).toEqual([]);
   });
 });

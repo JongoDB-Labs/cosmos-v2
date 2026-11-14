@@ -56,6 +56,10 @@ interface TeamRoleDialogProps {
   /** Ids the actor may take away from someone who holds them, which an org
    *  restriction can make wider than `grantableRoleIds`. Defaults to that list. */
   removableRoleIds?: string[];
+  /** The org roles the actor may give (`grantableOrgRoles`, from the server).
+   *  The tier select offers only these, plus the member's own so it can show
+   *  it; the server refuses any other. */
+  grantableTiers: string[];
   /** The viewer is an owner of the org: only they may make someone an owner. */
   viewerIsOwner: boolean;
   onClose: () => void;
@@ -103,12 +107,20 @@ export function TeamRoleDialog({
   workRoleOptions,
   grantableRoleIds,
   removableRoleIds,
+  grantableTiers,
   viewerIsOwner,
   onClose,
 }: TeamRoleDialogProps) {
   const router = useRouter();
   const isOwner = member.role === "OWNER";
-  const tierRoles = viewerIsOwner ? ROLES_FOR_OWNERS : ASSIGNABLE_ROLES;
+  const tierRoles = useMemo(() => {
+    const offered = new Set(grantableTiers);
+    return Object.fromEntries(
+      Object.entries(viewerIsOwner ? ROLES_FOR_OWNERS : ASSIGNABLE_ROLES).filter(
+        ([role]) => offered.has(role) || role === member.role,
+      ),
+    );
+  }, [grantableTiers, viewerIsOwner, member.role]);
   // Making someone an owner is confirmed by name before anything is saved.
   const [confirmingOwner, setConfirmingOwner] = useState(false);
 

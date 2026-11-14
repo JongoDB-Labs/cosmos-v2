@@ -11,6 +11,8 @@
 //       failure message and keeps the dialog open
 //   (f) "Owner" is offered only to a viewer who is an owner, and making someone
 //       an owner asks for confirmation by name before anything is sent
+//   (g) the tier select offers only the tiers the server says the actor may
+//       grant (`grantableOrgRoles`), plus the member's own so it can show it
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -94,7 +96,11 @@ function mockFetch(overrides?: { rolesStatus?: number; rolesError?: string; tier
 
 type Member = { id: string; name: string; role: string; workRoleIds: string[] };
 
-function renderDialog(member: Member, viewerIsOwner = false, removableRoleIds?: string[]) {
+/** What `grantableOrgRoles` gives an owner, and an admin. */
+const OWNER_TIERS = ["OWNER", "ADMIN", "BILLING_ADMIN", "MEMBER", "VIEWER", "GUEST"];
+const ADMIN_TIERS = OWNER_TIERS.filter((r) => r !== "OWNER");
+
+function renderDialog(member: Member, viewerIsOwner = false, removableRoleIds?: string[], grantableTiers?: string[]) {
   const onClose = vi.fn();
   render(
     <TeamRoleDialog
@@ -102,6 +108,7 @@ function renderDialog(member: Member, viewerIsOwner = false, removableRoleIds?: 
       member={member}
       workRoleOptions={WORK_ROLE_OPTIONS}
       grantableRoleIds={GRANTABLE}
+      grantableTiers={grantableTiers ?? (viewerIsOwner ? OWNER_TIERS : ADMIN_TIERS)}
       {...(removableRoleIds ? { removableRoleIds } : {})}
       viewerIsOwner={viewerIsOwner}
       onClose={onClose}
@@ -264,6 +271,34 @@ describe("TeamRoleDialog — unified tier + work-role assignment", () => {
     // The tier PUT landed; the dialog stays open (never closes) on the roles error.
     expect(puts().some((c) => /\/members\/m1$/.test(c.url) && (c.body as { role?: string }).role === "ADMIN")).toBe(true);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("TeamRoleDialog — only tiers the actor may grant (g)", () => {
+  const tiers = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByLabelText("Primary tier"));
+    return (await screen.findAllByRole("option")).map((o) => o.textContent?.trim());
+  };
+
+  it("offers someone who manages members through a work role no Admin and no Billing Admin", async () => {
+    mockFetch();
+    const user = userEvent.setup();
+    renderDialog({ id: "m1", name: "Ada", role: "MEMBER", workRoleIds: [] }, false, undefined, ["MEMBER", "VIEWER", "GUEST"]);
+    expect(await tiers(user)).toEqual(["Member", "Viewer", "Guest"]);
+  });
+
+  it("keeps the member's own tier listed, so the select can show it", async () => {
+    mockFetch();
+    const user = userEvent.setup();
+    renderDialog({ id: "m1", name: "Ada", role: "ADMIN", workRoleIds: [] }, false, undefined, ["MEMBER", "VIEWER", "GUEST"]);
+    expect(await tiers(user)).toEqual(["Admin", "Member", "Viewer", "Guest"]);
+  });
+
+  it("offers an admin every tier but Owner (control)", async () => {
+    mockFetch();
+    const user = userEvent.setup();
+    renderDialog({ id: "m1", name: "Ada", role: "MEMBER", workRoleIds: [] });
+    expect(await tiers(user)).toEqual(["Admin", "Billing Admin", "Member", "Viewer", "Guest"]);
   });
 });
 

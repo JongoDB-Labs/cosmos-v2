@@ -21,7 +21,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     if (!hasPermission(ctx.permissions, Permission.CHAT_USE)) {
       return new Response("Forbidden", { status: 403 });
     }
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
     if (!member || !canSeeChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       return new Response("Forbidden", { status: 403 });

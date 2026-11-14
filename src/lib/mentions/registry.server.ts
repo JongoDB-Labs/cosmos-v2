@@ -23,7 +23,7 @@ import type { BoardLike } from "@/lib/rbac/board-visibility";
 import { orgDocumentVisibilityWhere } from "@/lib/files/access";
 import { readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { memberDisclosure, type MemberDisclosure } from "@/lib/members/scoped-roster.server";
-import { mayUseChat, canSeeChannelGiven } from "@/lib/chat/access";
+import { mayUseChat, canSeeChannelGiven, visibleChannelProjectIds } from "@/lib/chat/access";
 import {
   ENTITY_ORDER,
   type EntityRef,
@@ -34,6 +34,7 @@ import { entityUrl } from "./urls";
 import { parseTicketQuery } from "./ticket-query";
 import { ATTRIBUTE_BUDGET_MS, itemAttributeMatch, type AttributeMatch } from "./item-attributes.server";
 import { withStatementTimeout } from "@/lib/query/timeout.server";
+import { escapeLike } from "@/lib/query/like";
 import type { Prisma } from "@prisma/client";
 
 import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
@@ -142,7 +143,8 @@ type Handler = {
   resolve(ids: string[], scope: SearchScope): Promise<Raw[]>;
 };
 
-const ci = (q: string) => ({ contains: q, mode: "insensitive" as const });
+/** A name match: case-insensitive, and the search text is text, `%` and `_` included. */
+const ci = (q: string) => ({ contains: escapeLike(q), mode: "insensitive" as const });
 
 /** Minimal structural view of a Prisma model delegate (avoids fighting the
  *  generated overloads while staying `any`-free). */
@@ -601,8 +603,9 @@ export async function resolveBacklinks(opts: {
   );
 
   // chatMessage sources → their channel, for a reader who may use chat and
-  // see that channel (a public one, or one they are in), as the chat routes
-  // decide. A private channel's name or a DM is not shown to anyone else.
+  // see that channel (a public one, or one they are in, under no project or one
+  // they can see), as the chat routes decide. A private channel's name, a DM or
+  // a team-scoped project's channel is not shown to anyone else.
   const msgIds = mayUseChat(opts.ctx) ? idsOf("chatMessage") : [];
   const msgs = msgIds.length
     ? await prisma.chatMessage.findMany({
@@ -611,21 +614,28 @@ export async function resolveBacklinks(opts: {
       })
     : [];
   const channelIds = [...new Set(msgs.map((m) => m.channelId))];
-  const [channelRows, memberOf] = channelIds.length
+  const [channelRows, memberOf, projectsSeen] = channelIds.length
     ? await Promise.all([
         prisma.chatChannel.findMany({
           where: { id: { in: channelIds }, orgId },
-          select: { id: true, name: true, kind: true, isPrivate: true, isGeneral: true, orgId: true },
+          select: { id: true, name: true, kind: true, isPrivate: true, isGeneral: true, orgId: true, projectId: true },
         }),
         prisma.chatChannelMember.findMany({
           where: { channelId: { in: channelIds }, userId: opts.ctx.userId },
           select: { channelId: true, role: true },
         }),
+        visibleChannelProjectIds(opts.ctx),
       ])
-    : [[], []];
+    : [[], [], []];
   const membership = new Map(memberOf.map((m) => [m.channelId, m]));
+  const seen = new Set(projectsSeen);
   const channels = channelRows.filter((c) =>
-    canSeeChannelGiven({ channel: c, member: membership.get(c.id) ?? null, viewerOrgId: orgId, orgRole: opts.ctx.orgRole }),
+    canSeeChannelGiven({
+      channel: { ...c, projectVisible: !c.projectId || seen.has(c.projectId) },
+      member: membership.get(c.id) ?? null,
+      viewerOrgId: orgId,
+      orgRole: opts.ctx.orgRole,
+    }),
   );
   const chanById = new Map(channels.map((c) => [c.id, c]));
   const msgToChan = new Map(msgs.map((m) => [m.id, chanById.get(m.channelId)]));

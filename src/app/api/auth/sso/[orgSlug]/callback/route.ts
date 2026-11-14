@@ -7,6 +7,7 @@ import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import {
   completeSsoLogin,
+  describeSsoError,
   extractClaims,
   getOidcConfig,
   SSO_TX_COOKIE,
@@ -15,10 +16,19 @@ import {
 import { setRememberedOrgCookie } from "@/lib/auth/remembered-org";
 
 /**
- * SSO callback. openid-client validates the authorization response — code
- * exchange, ID-token signature (JWKS), issuer, audience, state, and nonce —
- * then we extract claims and hand off to completeSsoLogin (the security core:
- * subject-match, ADMIN cap, gov AAL floor, session mint).
+ * SSO callback. openid-client checks the authorization response (state, and the
+ * issuer when the IdP sends one), exchanges the code at the token endpoint with
+ * the PKCE verifier and the client secret, and checks the ID token's claims:
+ * issuer, audience, expiry, issued-at and nonce. Then we extract claims and hand
+ * off to completeSsoLogin (the security core: subject-match, ADMIN cap, gov AAL
+ * floor, session mint).
+ *
+ * It does NOT check the ID token's signature, and fetches no JWKS for it. What
+ * authenticates the token is TLS to the token endpoint: it came straight from
+ * the IdP over HTTPS, in exchange for our client secret, which OpenID Connect
+ * Core 1.0 §3.1.3.7 lets stand in for the signature. SSO_ALLOW_INSECURE_ISSUER=1
+ * over plain http removes that: anyone on the network path between Cosmos and
+ * the IdP can then hand back an ID token of their own.
  */
 
 type RouteParams = { params: Promise<{ orgSlug: string }> };
@@ -69,7 +79,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return redirectToLogin(origin, "sso_not_configured");
   }
 
-  // 3. openid-client validates code + signature + state + nonce + iss + aud.
+  // 3. openid-client checks state, exchanges the code, and checks the ID token's
+  //    iss + aud + exp + iat + nonce (not its signature: see the top of file).
   let claimsRaw: Record<string, unknown>;
   try {
     const config = await getOidcConfig(conn);
@@ -91,9 +102,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
     claimsRaw = idClaims as Record<string, unknown>;
   } catch (err) {
-    // M1: log only the message, never the full error object (openid-client errors
-    // can carry the token-endpoint response body / raw ID-token internals).
-    console.error("[sso] code grant / token validation failed", { orgSlug, error: (err as Error).message });
+    // M1: never the full error object: openid-client errors carry the token
+    // response (the tokens themselves), the callback's parameters (the code) or
+    // the IdP's error body. describeSsoError keeps each Error in the cause chain
+    // by name, code and message only, so a refused address or a bad token still
+    // shows behind openid-client's "something went wrong".
+    console.error("[sso] code grant / token validation failed", { orgSlug, error: describeSsoError(err) });
     return redirectToLogin(origin, "auth_failed");
   }
 

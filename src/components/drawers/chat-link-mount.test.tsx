@@ -39,6 +39,7 @@ vi.mock("@/components/chat/channel-view", () => ({
 }));
 
 import { PermissionsProvider } from "@/components/providers/permissions-provider";
+import { RolePermissions, permissionNames } from "@/lib/rbac/permissions";
 import { DrawerProvider } from "./drawer-provider";
 import { DockedDrawer } from "./docked-drawer";
 import { ChatLinkMount } from "./chat-link-mount";
@@ -46,8 +47,10 @@ import { ChatLinkMount } from "./chat-link-mount";
 function app() {
   return (
     <QueryClientProvider client={new QueryClient()}>
-      {/* A role that holds CHAT_USE: the drawer offers chat only then. */}
-      <PermissionsProvider orgs={[{ id: "org-1", slug: "acme", role: "MEMBER" }]}>
+      {/* A member's keys hold CHAT_USE: the drawer offers chat only then. */}
+      <PermissionsProvider
+        orgs={[{ id: "org-1", slug: "acme", role: "MEMBER", permissions: permissionNames(RolePermissions.MEMBER) }]}
+      >
         <DrawerProvider>
           <ChatLinkMount />
           <DockedDrawer orgId="org-1" orgSlug="acme" userId="u1" />

@@ -7,6 +7,7 @@ import { DashboardShell } from "@/components/layouts/dashboard-shell";
 import { isSystemAdmin } from "@/lib/internal/access";
 import { getEnabledModulesByOrg } from "@/lib/entitlements";
 import { getEnabledPluginsByOrg } from "@/lib/plugins/enablement";
+import { sessionPermissionKeysByOrg } from "@/lib/rbac/effective-permissions";
 import { PluginEnablementProvider } from "@/components/plugins/plugin-slot";
 import "@/lib/plugins/registry/index";
 import { CommandPalette } from "@/components/search/command-palette";
@@ -63,9 +64,10 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
   });
 
   const orgIds = user.memberships.map((m) => m.org.id);
-  const [moduleMap, pluginMap] = await Promise.all([
+  const [moduleMap, pluginMap, permissionKeys] = await Promise.all([
     getEnabledModulesByOrg(orgIds),
     getEnabledPluginsByOrg(orgIds),
+    sessionPermissionKeysByOrg(user.id, orgIds),
   ]);
 
   const orgs = user.memberships.map((m) => ({
@@ -88,6 +90,16 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
       navLayout: readNavLayout(m.org.settings),
   }));
 
+  // What the client's can() answers from: per org, the permission KEYS the
+  // server's own checks hold (work roles, override, restrictions), never the
+  // role alone and never a mask. Only the permissions provider gets them.
+  const permissionOrgs = orgs.map(({ id, slug, role }) => ({
+    id,
+    slug,
+    role,
+    permissions: permissionKeys.get(id) ?? [],
+  }));
+
   // Seed the brand from the user's sole org when unambiguous. (No synchronous
   // URL read is possible here under Cache Components, and no x-pathname header
   // is published — verified against origin/main.) Multi-org accounts fall back
@@ -99,7 +111,7 @@ async function AuthedShell({ children }: { children: React.ReactNode }) {
 
   return (
     <BrandProvider value={brand}>
-      <PermissionsProvider orgs={orgs}>
+      <PermissionsProvider orgs={permissionOrgs}>
         <BackgroundProvider darkUrl={prefs?.bgDarkUrl} lightUrl={prefs?.bgLightUrl} />
         <ApplySavedSkin skinId={prefs?.skinId ?? null} orgDefaultSkinId={orgDefaultSkinId} />
         <BugReporter />

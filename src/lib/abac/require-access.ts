@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { ForbiddenError, inKeyProjectScope, type AuthContext } from "@/lib/rbac/check";
-import { type PermissionKey } from "@/lib/rbac/permissions";
+import { Permission, type PermissionKey } from "@/lib/rbac/permissions";
 import {
   evaluateAccess,
   type AbacRelationship,
@@ -76,6 +76,28 @@ export async function requireAccess(
     rules: ctx.abacRules,
   });
   if (!ok) throw new ForbiddenError("Access denied by policy");
+}
+
+/**
+ * The policy half of `requireAccess`: the deny rules that reference `action`,
+ * and a project-limited key's scope, WITHOUT the bit check.
+ *
+ * For a caller whose authority to do `action` another gate has already
+ * decided, namely `requireProjectManage`, which admits a project's MANAGER
+ * without the org-wide bit. `requireAccess` there refuses that manager on the
+ * bit and undoes the gate. Calling nothing lets every caller that gate admits
+ * slip past a conditional restriction on the action. This applies the
+ * restriction to all of them.
+ *
+ * It grants nothing, only takes away, so it is never a gate on its own: call
+ * it after the one that decides who may act at all.
+ */
+export async function requirePolicy(
+  ctx: AuthContext,
+  action: PermissionKey,
+  resource: ResourceAttributes,
+): Promise<void> {
+  await requireAccess({ ...ctx, permissions: ctx.permissions | Permission[action] }, action, resource);
 }
 
 /**

@@ -93,8 +93,14 @@ const SESSION_ONLY_ADMIN = new Set(["listSsoProvisionedAccounts", "clearSsoProvi
  * caller's own mailbox through their own Outlook connection, which no key in
  * Cosmos is given. Pinned by name, so a new zero-bit handler still fails this
  * test until someone lists it here and says why.
+ *
+ * The assignee picker's member visibility is new and session-only too, though
+ * its handler does check a bit (ITEM_UPDATE, which items:write's mask holds),
+ * so the scan would count that scope as reaching it. No key ever has: it tells
+ * the person assigning in the browser which members can see the project, and
+ * a key has no picker.
  */
-const NEW_SESSION_ONLY = new Set(["listAgileOverlay", "listOutlookOverlay"]);
+const NEW_SESSION_ONLY = new Set(["listAgileOverlay", "listOutlookOverlay", "listProjectMemberVisibility"]);
 /**
  * Not an exception, a gap in what this test reads: these handlers gate a key
  * on COMMENT_CREATE (`{ key: "COMMENT_CREATE", session: "COMMENT_READ" }`) since

@@ -183,8 +183,10 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   // columnKey above), and an open workflow's `id` embeds that key → all three are handles,
   // never readable. `toCategory` is the 4-value enum; `requiresInput` a boolean.
   work_item_transition: ["toCategory", "requiresInput"],
-  // listBoards returns id/projectId/type/sortOrder(+name). `name`/`slug` are content/url-ish → dropped.
-  board: ["id", "projectId", "type", "sortOrder", "createdAt"],
+  // listBoards returns id/projectId/type/sortOrder/createdAt/ownedByMe(+name). `name`/`slug` are
+  // content/url-ish → dropped. `ownedByMe` is a boolean about the caller (did they make this
+  // board), like team's `isMine`: it decides whether they may rename it, and names no one.
+  board: ["id", "projectId", "type", "sortOrder", "createdAt", "ownedByMe"],
   // Saved views (saved filters): list/create/update/share return id/visibility/
   // projectId/teamId/ownerId/flags/updatedAt, flat. `name`/`description` are the
   // owner's words, `ownerName`/`teamName`/`projectKey` are names and `url` embeds
@@ -316,7 +318,7 @@ const NATIVE_TOOL_ENTITY: Record<string, string> = {
   archive_work_item: "work_item",
   list_transitions: "work_item_transition", transition_item: "work_item",
   list_notes: "note",
-  create_note: "note", update_note: "note", delete_note: "note",
+  create_note: "note", update_note: "note", share_note: "note", delete_note: "note",
   add_comment: "comment", list_comments: "comment", delete_comment: "comment",
   log_time: "time_entry", list_time_entries: "time_entry",
   list_projects: "project",

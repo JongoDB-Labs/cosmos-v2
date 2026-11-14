@@ -48,6 +48,14 @@ spec:
             - { name: SSO_VAULT_KEY, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: SSO_VAULT_KEY } } }
             - { name: WORM_MANIFEST_HMAC_KEY, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: WORM_MANIFEST_HMAC_KEY } } }
             - { name: INTERNAL_ADMINS, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: INTERNAL_ADMINS } } }
+            {{- with .Values.sso.allowPrivateCidrs }}
+            # Private ranges an org's SSO issuer may be on, for SSO only (values.yaml `sso`).
+            - { name: SSO_ALLOW_PRIVATE_CIDRS, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.outbound.allowPrivateCidrs }}
+            # Private ranges the endpoints org admins configure may be on (values.yaml `outbound`).
+            - { name: OUTBOUND_ALLOW_PRIVATE_CIDRS, value: {{ . | quote }} }
+            {{- end }}
           resources: {{- toYaml .Values.app.resources | nindent 12 }}
           readinessProbe:
             httpGet: { path: /api/health, port: 3000 }
