@@ -45,6 +45,7 @@ import {
   type EntityDef,
   type EntityImportReport,
 } from "@/lib/import/entity-fields";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface ColumnOpt { key: string; name: string }
 interface TypeOpt { id: string; name: string }
@@ -389,7 +390,7 @@ function GenericImportFlow({
           body: JSON.stringify({ entity: def.key, mode, mapping, rows: parsed.rows }),
         },
       );
-      if (!res.ok) throw new Error(`Import failed (${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       const data = (await res.json()) as EntityImportReport | { data: EntityImportReport };
       const rep = "data" in data ? data.data : data;
       if (mode === "validate") {

@@ -51,6 +51,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { LoadError } from "@/components/ui/load-error";
 import { OutlookInvitePanel } from "./outlook-invite";
 import { TeamsJoinLink, TeamsMeetingPanel } from "./teams-meeting";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface MeetingDetailProps {
   orgId: string;
@@ -151,7 +152,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         setMeeting(null);
         return;
       }
-      if (!meetingRes.ok) throw new Error();
+      if (!meetingRes.ok) throw await fetchErrorOf(meetingRes);
       const data = await meetingRes.json();
       setMeeting(data);
       setNotes(data.notes || "");
@@ -180,7 +181,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) throw new Error("Failed to update meeting status");
+      if (!res.ok) throw await fetchErrorOf(res);
       setRefreshKey((k) => k + 1);
     } catch (err) {
       console.error(err);
@@ -212,7 +213,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         // normalizes to UTC for storage.
         body: JSON.stringify({ meetingDate: new Date(rescheduleValue).toISOString() }),
       });
-      if (!res.ok) throw new Error("Failed to reschedule meeting");
+      if (!res.ok) throw await fetchErrorOf(res);
       setRescheduleOpen(false);
       setRefreshKey((k) => k + 1);
     } catch (err) {
@@ -229,7 +230,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
       const res = await fetch(`/api/v1/orgs/${orgId}/meetings/${meetingId}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Failed to delete meeting");
+      if (!res.ok) throw await fetchErrorOf(res);
       setDeleteOpen(false);
       // Return to wherever we came from (the meetings list / drawer).
       router.back();
@@ -248,7 +249,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes }),
       });
-      if (!res.ok) throw new Error("Failed to save notes");
+      if (!res.ok) throw await fetchErrorOf(res);
       const data = await res.json();
       setMeeting(data);
     } catch (err) {
@@ -294,7 +295,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
           body: JSON.stringify(body),
         }
       );
-      if (!res.ok) throw new Error("Failed to save attendee update");
+      if (!res.ok) throw await fetchErrorOf(res);
       setAttendeeUpdates((prev) => {
         const next = { ...prev };
         delete next[attendee.id];
@@ -320,7 +321,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
           body: JSON.stringify({ userId: newAttendeeUserId }),
         }
       );
-      if (!res.ok) throw new Error("Failed to add attendee");
+      if (!res.ok) throw await fetchErrorOf(res);
       setAddAttendeeOpen(false);
       setNewAttendeeUserId("");
       setRefreshKey((k) => k + 1);
@@ -339,7 +340,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         `/api/v1/orgs/${orgId}/meetings/${meetingId}/attendees/${attendeeId}`,
         { method: "DELETE" },
       );
-      if (!res.ok) throw new Error("Failed to remove attendee");
+      if (!res.ok) throw await fetchErrorOf(res);
       setPendingRemove(null);
       setRefreshKey((k) => k + 1);
     } catch (err) {
@@ -358,7 +359,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ meetingUrl: url }),
       });
-      if (!res.ok) throw new Error("Failed to save meeting link");
+      if (!res.ok) throw await fetchErrorOf(res);
       setVideoUrlDraft("");
       setRefreshKey((k) => k + 1);
     } catch (err) {
@@ -381,7 +382,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         notifyError(new Error(b.error), b.error);
         return;
       }
-      if (!res.ok) throw new Error("Failed to generate Meet link");
+      if (!res.ok) throw await fetchErrorOf(res);
       setRefreshKey((k) => k + 1);
     } catch (err) {
       console.error(err);
@@ -398,7 +399,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         `/api/v1/orgs/${orgId}/meetings/${meetingId}/video/sync-artifacts`,
         { method: "POST" }
       );
-      if (!res.ok) throw new Error("Failed to sync artifacts");
+      if (!res.ok) throw await fetchErrorOf(res);
       const data = await res.json();
       if (data.ready === false) {
         notifyError(new Error(data.message), data.message);
@@ -425,7 +426,7 @@ export function MeetingDetail({ orgId, meetingId }: MeetingDetailProps) {
         notifyError(new Error(b.error), b.error);
         return;
       }
-      if (!res.ok) throw new Error("Failed to generate summary");
+      if (!res.ok) throw await fetchErrorOf(res);
       setRefreshKey((k) => k + 1);
     } catch (err) {
       console.error(err);

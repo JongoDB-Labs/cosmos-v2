@@ -18,6 +18,7 @@ import { notifyError } from "@/lib/errors/notify";
 import { RAG_META } from "./key-result-checkin-dialog";
 import { krProgressPercent } from "@/lib/okr/progress";
 import type { Objective, OrgMember } from "@/types/models";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 type Rag = "GREEN" | "YELLOW" | "RED";
 
@@ -100,7 +101,7 @@ export function OkrHealthView({
           fetch(`${basePath}/key-result-checkins`),
           fetch(`/api/v1/orgs/${orgId}/members`),
         ]);
-        if (!ciRes.ok) throw new Error("Failed to load check-ins");
+        if (!ciRes.ok) throw await fetchErrorOf(ciRes);
         const ci: Checkin[] = await ciRes.json();
         const mem: OrgMember[] = memRes.ok ? await memRes.json() : [];
         if (cancelled) return;

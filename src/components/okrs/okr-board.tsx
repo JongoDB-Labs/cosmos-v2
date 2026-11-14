@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -152,7 +152,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to create objective");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       const created: Objective = await res.json();
       setObjectives((prev) => [...prev, created]);
@@ -183,7 +183,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
         }
       );
 
-      if (!res.ok) throw new Error("Failed to create key result");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       const createdKr: KeyResult = await res.json();
 
@@ -208,7 +208,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
         body: JSON.stringify({ currentValue }),
       });
 
-      if (!res.ok) throw new Error("Failed to update key result");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       const updated = await res.json();
 
@@ -236,7 +236,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderedIds: next.map((o) => o.id) }),
       });
-      if (!res.ok) throw new Error("Failed to reorder objectives");
+      if (!res.ok) throw await fetchErrorOf(res);
     } catch (err) {
       setObjectives(previous); // rollback on failure
       console.error("Failed to reorder objectives:", err);
@@ -274,7 +274,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to update objective");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       const updated: Objective = await res.json();
       setObjectives((prev) =>
@@ -303,7 +303,7 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
         method: "DELETE",
       });
 
-      if (!res.ok) throw new Error("Failed to delete objective");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       setObjectives((prev) => prev.filter((o) => o.id !== objectiveId));
       setDeleteTarget(null);

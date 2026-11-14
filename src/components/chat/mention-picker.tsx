@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useEffect, useState } from "react";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export type OrgUser = {
   id: string;
@@ -24,7 +25,7 @@ export function useOrgMembers(orgId: string) {
     queryKey: key,
     queryFn: async () => {
       const r = await fetch(`/api/v1/orgs/${orgId}/members`);
-      if (!r.ok) throw new Error("Failed to load members");
+      if (!r.ok) throw await fetchErrorOf(r, "Failed to load members");
       const j = await r.json();
       // success() returns data directly — the members route passes the array.
       // Defensively handle { members: [...] } or { data: [...] } wrapping too.

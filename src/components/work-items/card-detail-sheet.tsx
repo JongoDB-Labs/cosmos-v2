@@ -112,6 +112,7 @@ import {
   highlightLabel,
   isWorkItemHighlight,
 } from "@/lib/work-items/highlights";
+import { fetchErrorOf, FetchError } from "@/lib/query/json-fetcher";
 
 interface CardDetailSheetProps {
   item: WorkItem | null;
@@ -595,7 +596,7 @@ export function CardDetailSheet({
       const res = await fetch(`${basePath}/${item.id}/watch`, {
         method: next ? "POST" : "DELETE",
       });
-      if (!res.ok) throw new Error("Failed");
+      if (!res.ok) throw await fetchErrorOf(res);
     } catch (err) {
       setWatching(!next); // revert
       notifyError(err, "Couldn't update watch state.");
@@ -746,7 +747,7 @@ export function CardDetailSheet({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ assigneeIds: next }),
         });
-        if (!res.ok) throw new Error("Failed to update");
+        if (!res.ok) throw await fetchErrorOf(res);
         const updated: WorkItem = await res.json();
         onUpdate(updated);
         // The assigner's only signal that someone they just added hears
@@ -780,7 +781,7 @@ export function CardDetailSheet({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ customFields: { [key]: value } }),
         });
-        if (!res.ok) throw new Error("Failed to update");
+        if (!res.ok) throw await fetchErrorOf(res);
         const updated: WorkItem = await res.json();
         onUpdate(updated);
       } catch (err) {
@@ -860,7 +861,7 @@ export function CardDetailSheet({
           parentId: item.id,
         }),
       });
-      if (!res.ok) throw new Error(`Failed to add sub-item (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       const child: WorkItem = await res.json();
       const childRef = {
         id: child.id,
@@ -896,7 +897,7 @@ export function CardDetailSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ parentId: null }),
       });
-      if (!res.ok) throw new Error(`Failed to remove sub-item (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       // Sync the cached parent's children (same staleness class as BR 7d1ae4d2).
       if (item) {
         onUpdate({
@@ -933,7 +934,8 @@ export function CardDetailSheet({
           }),
         ),
       );
-      if (results.some((r) => !r.ok)) throw new Error("Failed to reorder");
+      const failed = results.find((r) => !r.ok);
+      if (failed) throw await fetchErrorOf(failed);
       onChildrenReordered?.();
     } catch (err) {
       setChildren(prev);
@@ -964,7 +966,7 @@ export function CardDetailSheet({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ [field]: value }),
         });
-        if (!res.ok) throw new Error(`Failed to save ${field} (HTTP ${res.status})`);
+        if (!res.ok) throw await fetchErrorOf(res);
         const updated: WorkItem = await res.json();
         savedText.current[field] = value;
         onUpdate(updated);
@@ -1008,7 +1010,7 @@ export function CardDetailSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       });
-      if (!res.ok) throw new Error("Failed to add comment");
+      if (!res.ok) throw await fetchErrorOf(res);
       const comment: Comment = await res.json();
       setComments((prev) => [...prev, comment]);
       return true;
@@ -1027,7 +1029,7 @@ export function CardDetailSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
       });
-      if (!res.ok) throw new Error(`Failed to edit comment (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       const updated: Comment = await res.json();
       setComments((prev) =>
         prev.map((c) => (c.id === id ? { ...c, content: updated.content } : c)),
@@ -1045,7 +1047,7 @@ export function CardDetailSheet({
       const res = await fetch(`${basePath}/${item.id}/comments/${id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error(`Failed to delete comment (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       setComments((prev) => prev.filter((c) => c.id !== id));
     } catch (err) {
       notifyError(err, "Couldn't delete the comment.");
@@ -1060,7 +1062,7 @@ export function CardDetailSheet({
     setActionPending("split");
     try {
       const res = await fetch(`${basePath}/${item.id}/split-assignees`, { method: "POST" });
-      if (!res.ok) throw new Error(`Failed to split (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       const result: {
         keptAssigneeId: string;
         copies: { id: string; ticketNumber: number }[];
@@ -1095,7 +1097,7 @@ export function CardDetailSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ withChildren }),
       });
-      if (!res.ok) throw new Error(`Failed to duplicate (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       const dupe: WorkItem = await res.json();
       onDuplicate?.(dupe);
     } catch (err) {
@@ -1112,7 +1114,7 @@ export function CardDetailSheet({
     try {
       const res = await fetch(`${basePath}/${item.id}`, { method: "DELETE" });
       // DELETE returns 204; a raw fetch doesn't reject on non-2xx.
-      if (!res.ok) throw new Error(`Failed to delete (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       const deletedId = item.id;
       setConfirmDelete(false);
       onOpenChange(false);
@@ -1153,7 +1155,7 @@ export function CardDetailSheet({
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "Failed to merge");
+        throw new FetchError(res.status, body, body?.error ?? "Failed to merge");
       }
       const { merged, into } = (await res.json()) as { merged: WorkItem; into: WorkItem };
       setColumnKey(merged.columnKey);

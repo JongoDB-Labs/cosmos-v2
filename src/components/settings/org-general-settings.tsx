@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { notifyError } from "@/lib/errors/notify";
+import { FetchError } from "@/lib/query/json-fetcher";
 
 interface OrgGeneralSettingsProps {
   orgId: string;
@@ -116,7 +117,7 @@ export function OrgGeneralSettings({ orgId, canUpdate, initial }: OrgGeneralSett
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't save organization settings.");
+        throw new FetchError(res.status, j, j.error ?? "Couldn't save organization settings.");
       }
       // A slug rename changes the workspace URL — the current route's
       // [orgSlug] is now stale, so hard-navigate to the new one.

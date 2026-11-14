@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { ChatForbiddenError } from "@/lib/chat/chat-forbidden";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export type ChatChannelSummary = {
   id: string;
@@ -33,7 +34,7 @@ export function useChatChannels(orgId: string) {
     queryFn: async () => {
       const r = await fetch(`/api/v1/orgs/${orgId}/chat/channels`);
       if (r.status === 403) throw new ChatForbiddenError();
-      if (!r.ok) throw new Error("Failed to load channels");
+      if (!r.ok) throw await fetchErrorOf(r, "Failed to load channels");
       // success() in api-helpers.ts calls NextResponse.json(data) with no
       // wrapping — the route passes { channels } directly so json.channels
       // is the array.

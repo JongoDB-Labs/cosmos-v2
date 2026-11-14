@@ -114,6 +114,29 @@ describe("ProjectTeamsSection", () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 
+  it("says why a team wasn't created, in the toast", async () => {
+    // The 409's reason was read into a plain Error, which notifyError never
+    // shows: the toast said "Couldn't create the team." over a reason the user
+    // could act on. The real notifyError decides what the toast says.
+    const user = userEvent.setup();
+    stubReads();
+    const reason = "A team with that name already exists in this project.";
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      Response.json({ title: "Conflict", status: 409, code: "conflict", detail: reason, error: reason }, { status: 409 }),
+    ) as unknown as typeof fetch;
+
+    renderSection();
+    await user.type(await screen.findByLabelText("New team name"), "Alpha");
+    await user.click(screen.getByRole("button", { name: /Create team/i }));
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    const real = await vi.importActual<typeof import("@/lib/errors/notify")>("@/lib/errors/notify");
+    const [err, fallback] = vi.mocked(notifyError).mock.calls[0];
+    real.notifyError(err, fallback);
+    const { toast } = await import("sonner");
+    expect(toast.error).toHaveBeenCalledWith(reason);
+  });
+
   it("offers only unassigned humans when adding to a team", async () => {
     const user = userEvent.setup();
     stubReads();

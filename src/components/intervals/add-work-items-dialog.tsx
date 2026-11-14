@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { notifyError } from "@/lib/errors/notify";
 import { Search } from "lucide-react";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 /**
  * "Add work items to a sprint" picker (FR 0e31d1ef). Interval planning previously
@@ -73,7 +74,7 @@ export function AddWorkItemsDialog({
     (async () => {
       try {
         const res = await fetch(`${basePath}/work-items`);
-        if (!res.ok) throw new Error("Failed to load work items");
+        if (!res.ok) throw await fetchErrorOf(res);
         const all: WorkItemLite[] = await res.json();
         if (!cancelled) setItems(all);
       } catch (err) {
@@ -134,7 +135,7 @@ export function AddWorkItemsDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: [...selected], update: { intervalId: interval.id } }),
       });
-      if (!res.ok) throw new Error("Failed to add work items");
+      if (!res.ok) throw await fetchErrorOf(res);
       onAdded();
       onOpenChange(false);
     } catch (err) {

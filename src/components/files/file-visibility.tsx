@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { Button } from "@/components/ui/button";
 import { notifyError } from "@/lib/errors/notify";
@@ -59,7 +59,7 @@ export function FileVisibility({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ visibility: next }),
       });
-      if (!res.ok) throw new Error((await res.text()) || "Could not change that");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not change that");
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: listKey }),
     onError: (e) => notifyError(e),
@@ -72,7 +72,7 @@ export function FileVisibility({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ userId }),
       });
-      if (!res.ok) throw new Error((await res.text()) || "Could not share it");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not share it");
     },
     onSuccess: () => {
       setAdding("");
@@ -84,7 +84,7 @@ export function FileVisibility({
   const unshare = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`${docUrl}/shares/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw await fetchErrorOf(res);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: sharesKey }),
     onError: (e) => notifyError(e),

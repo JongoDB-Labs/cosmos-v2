@@ -14,6 +14,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { notifyError } from "@/lib/errors/notify";
+import { FetchError } from "@/lib/query/json-fetcher";
 
 interface OrgDangerZoneProps {
   orgId: string;
@@ -44,7 +45,7 @@ export function OrgDangerZone({ orgId, orgName }: OrgDangerZoneProps) {
       });
       if (!res.ok && res.status !== 204) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't delete the organization.");
+        throw new FetchError(res.status, j, j.error ?? "Couldn't delete the organization.");
       }
       // The org (and this route's [orgSlug]) no longer exists — hard-navigate
       // to the root, which resolves to the org picker / onboarding.

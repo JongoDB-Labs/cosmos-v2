@@ -24,6 +24,7 @@ import {
   Search,
   Filter,
 } from "lucide-react";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface AuditLogEntry {
   id: string;
@@ -114,7 +115,7 @@ export function AuditLogViewer({ orgId }: { orgId: string }) {
       if (appliedFilters.endDate) params.set("endDate", appliedFilters.endDate);
 
       const res = await fetch(`/api/v1/orgs/${orgId}/audit-logs?${params.toString()}`);
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw await fetchErrorOf(res);
       const json = await res.json();
       setData({
         logs: json.logs ?? json.data ?? [],
@@ -167,7 +168,7 @@ export function AuditLogViewer({ orgId }: { orgId: string }) {
       const res = await fetch(
         `/api/v1/orgs/${orgId}/audit-logs/export?${params.toString()}`,
       );
-      if (!res.ok) throw new Error("Couldn't export the audit logs.");
+      if (!res.ok) throw await fetchErrorOf(res);
       const blob = await res.blob();
       downloadBlob(blob, `audit-logs.${format}`);
     } catch (err) {

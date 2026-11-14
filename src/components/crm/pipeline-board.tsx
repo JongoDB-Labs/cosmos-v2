@@ -27,6 +27,7 @@ import { ContactCard } from "./contact-card";
 import { ContactDetailSheet } from "./contact-detail-sheet";
 import { notifyError } from "@/lib/errors/notify";
 import type { CrmContact, OrgMember } from "@/types/models";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface PipelineBoardProps {
   orgId: string;
@@ -115,7 +116,7 @@ export function PipelineBoard({ orgId }: PipelineBoardProps) {
           fetch(`${basePath}/members`),
         ]);
 
-        if (!contactsRes.ok) throw new Error("Failed to load contacts");
+        if (!contactsRes.ok) throw await fetchErrorOf(contactsRes, "Failed to load contacts");
 
         const contactsData: CrmContact[] = await contactsRes.json();
         if (!cancelled) setContacts(contactsData);
@@ -231,7 +232,7 @@ export function PipelineBoard({ orgId }: PipelineBoardProps) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ stage: targetStage }),
           });
-          if (!res.ok) throw new Error(`Failed to move contact (HTTP ${res.status})`);
+          if (!res.ok) throw await fetchErrorOf(res);
         } catch (err) {
           console.error("Failed to update contact stage:", err);
           setContacts(beforeDragContactsRef.current);
@@ -269,7 +270,7 @@ export function PipelineBoard({ orgId }: PipelineBoardProps) {
         body: JSON.stringify({ name: newContactName.trim(), stage: stageKey }),
       });
 
-      if (!res.ok) throw new Error("Failed to create contact");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       const created: CrmContact = await res.json();
       setContacts((prev) => [...prev, created]);

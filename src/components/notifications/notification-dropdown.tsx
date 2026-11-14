@@ -18,6 +18,7 @@ import {
   announceNotificationsChanged,
   onNotificationsChanged,
 } from "@/lib/notifications/changed";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 function timeAgo(dateStr: string): string {
   const now = Date.now();
@@ -140,7 +141,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       const r = await fetch(
         `/api/v1/orgs/${orgId}/notifications/inbox?unreadOnly=false&limit=${PAGE_SIZE}${kindParam}&cursor=${encodeURIComponent(cursor)}`,
       );
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw await fetchErrorOf(r, `HTTP ${r.status}`);
       const page: InboxPage = await r.json();
       setNotifications((prev) => {
         const have = new Set(prev.map((n) => n.id));
@@ -215,7 +216,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       const res = await fetch(`/api/v1/orgs/${orgId}/notifications`, {
         method: "POST",
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await fetchErrorOf(res);
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadNotLoaded(0);
       announceNotificationsChanged("bell");
@@ -232,7 +233,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
       const res = await fetch(`/api/v1/orgs/${orgId}/notifications/${id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await fetchErrorOf(res);
       setNotifications((prev) => prev.filter((n) => n.id !== id));
       announceNotificationsChanged("bell");
     } catch (err) {
@@ -250,7 +251,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "clear" }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await fetchErrorOf(res);
       setNotifications([]);
       setUnreadNotLoaded(0);
       setCursor(null);
@@ -271,7 +272,7 @@ export function NotificationDropdown({ orgId }: NotificationDropdownProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ read }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await fetchErrorOf(res);
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, read } : n)),
       );

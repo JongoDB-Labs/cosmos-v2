@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.15",
+    date: "2026-11-14",
+    title: "Errors say what went wrong",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a save, move or delete is refused, the message now gives the reason the server gave, such as a name that is already taken or a sprint that can\u2019t join that Program Increment, instead of a general \u201cCouldn\u2019t save\u201d message.",
+      },
+      {
+        kind: "fix",
+        text: "A form that fails a check now names the field and what is wrong with it, instead of saying \u201cInvalid request\u201d.",
+      },
+      {
+        kind: "fix",
+        text: "A request whose body isn\u2019t valid JSON is now answered as a bad request (400) with that reason, instead of a server error (500). This matters most to anyone calling the API directly.",
+      },
+    ],
+  },
+  {
     version: "2.561.13",
     date: "2026-11-14",
     title: "People removed from an organization leave its lists",

@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { initBreadcrumbs, getBreadcrumbs } from "@/lib/telemetry/breadcrumbs";
 import { isReportableClientError } from "@/lib/telemetry/ignore-error";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
+import { notifyError } from "@/lib/errors/notify";
 
 /**
  * Turns an UNCAUGHT client error (window error / unhandledrejection) into a
@@ -57,10 +59,10 @@ export function BugReporter() {
                   }),
                 },
               );
-              if (!res.ok) throw new Error();
+              if (!res.ok) throw await fetchErrorOf(res);
               toast.success("Thanks — your report was filed.");
-            } catch {
-              toast.error("Couldn't send the report. Please try again.");
+            } catch (err) {
+              notifyError(err, "Couldn't send the report. Please try again.");
             }
           },
         },

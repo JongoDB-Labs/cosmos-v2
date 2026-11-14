@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface BoardTab {
   id: string;
@@ -155,7 +156,7 @@ export function ProjectBoardTabs({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       router.refresh();
     } catch (err) {
       notifyError(err, "Couldn't update your tabs.");
@@ -389,7 +390,7 @@ export function ProjectBoardTabs({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tabOrder: fullOrder }),
       });
-      if (!res.ok) throw new Error(`Failed to reorder (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       router.refresh();
     } catch (err) {
       setOptimisticOrder(null); // roll back the optimistic reorder
@@ -469,7 +470,7 @@ export function ProjectBoardTabs({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ defaultTab: tab.token }),
       });
-      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success(`"${tab.label}" is now your default tab.`);
       router.refresh();
     } catch (err) {
@@ -493,7 +494,7 @@ export function ProjectBoardTabs({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ settings: { defaultTab: tab.token } }),
       });
-      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success(`"${tab.label}" is now the default tab for everyone.`);
       router.refresh();
     } catch (err) {
@@ -525,7 +526,7 @@ export function ProjectBoardTabs({
             body: JSON.stringify({ name }),
           },
         );
-        if (!res.ok) throw new Error(`Failed to rename (HTTP ${res.status})`);
+        if (!res.ok) throw await fetchErrorOf(res);
       } else {
         const res = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/tab-prefs`, {
           method: "PUT",
@@ -534,7 +535,7 @@ export function ProjectBoardTabs({
             featureTabLabels: { ...featureTabLabels, [tab.feature!.feature]: name },
           }),
         });
-        if (!res.ok) throw new Error(`Failed to rename (HTTP ${res.status})`);
+        if (!res.ok) throw await fetchErrorOf(res);
       }
       toast.success(`Renamed to "${name}".`);
       setTabToRename(null);
@@ -555,7 +556,7 @@ export function ProjectBoardTabs({
         `/api/v1/orgs/${orgId}/projects/${projectId}/boards/${board.id}`,
         { method: "DELETE" },
       );
-      if (!res.ok) throw new Error(`Failed to delete board (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success(`Deleted "${board.name}".`);
       setBoardToDelete(null);
       // If we just deleted the board we're viewing, move to another board (or the

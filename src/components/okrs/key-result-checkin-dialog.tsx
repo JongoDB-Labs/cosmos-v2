@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import type { KeyResult } from "@/types/models";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export const RAG_META = {
   GREEN: { label: "On track", dot: "bg-green-500", ring: "ring-green-500", text: "text-green-600" },
@@ -76,7 +77,7 @@ export function KeyResultCheckinDialog({
           }),
         },
       );
-      if (!res.ok) throw new Error("Check-in failed");
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success("Checked in");
       onOpenChange(false);
       onDone();

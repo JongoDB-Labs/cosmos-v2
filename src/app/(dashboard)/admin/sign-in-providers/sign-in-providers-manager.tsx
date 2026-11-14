@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MicrosoftLogo, GoogleLogo } from "@/components/brand/provider-logos";
 import { notifyError } from "@/lib/errors/notify";
+import { FetchError } from "@/lib/query/json-fetcher";
 
 interface ProviderStatus {
   configured: boolean;
@@ -79,7 +80,7 @@ export function SignInProvidersManager() {
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't save the provider.");
+        throw new FetchError(r.status, j, j.error ?? "Couldn't save the provider.");
       }
       toast.success("Google sign-in saved.");
       setGClientSecret("");
@@ -128,7 +129,7 @@ export function SignInProvidersManager() {
       });
       if (!r.ok) {
         const j = (await r.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't save the provider.");
+        throw new FetchError(r.status, j, j.error ?? "Couldn't save the provider.");
       }
       toast.success("Microsoft sign-in saved.");
       setClientSecret(""); // never keep the secret in the form

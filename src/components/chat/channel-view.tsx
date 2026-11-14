@@ -22,6 +22,7 @@ import { useChatReadState } from "@/hooks/use-chat-read-state";
 import { usePinnedMessages } from "@/hooks/use-pinned-messages";
 import { PinnedPanel } from "./pinned-panel";
 import { COMMANDS } from "@/lib/chat/commands";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export function ChannelView({
   orgId,
@@ -303,14 +304,14 @@ export function ChannelView({
           `/api/v1/orgs/${orgId}/chat/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
           { method: "DELETE" },
         );
-        if (!r.ok) throw new Error("Couldn't remove the reaction.");
+        if (!r.ok) throw await fetchErrorOf(r);
       } else {
         const r = await fetch(`/api/v1/orgs/${orgId}/chat/messages/${messageId}/reactions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ emoji }),
         });
-        if (!r.ok) throw new Error("Couldn't add the reaction.");
+        if (!r.ok) throw await fetchErrorOf(r);
       }
     } catch (err) {
       notifyError(err, "Couldn't update the reaction.");
@@ -326,7 +327,7 @@ export function ChannelView({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ content: next }),
       });
-      if (!r.ok) throw new Error("Couldn't edit the message.");
+      if (!r.ok) throw await fetchErrorOf(r);
     } catch (err) {
       notifyError(err, "Couldn't edit the message.");
     }
@@ -337,7 +338,7 @@ export function ChannelView({
       const r = await fetch(`/api/v1/orgs/${orgId}/chat/messages/${id}`, {
         method: "DELETE",
       });
-      if (!r.ok) throw new Error("Couldn't delete the message.");
+      if (!r.ok) throw await fetchErrorOf(r);
     } catch (err) {
       notifyError(err, "Couldn't delete the message.");
     }
@@ -347,7 +348,7 @@ export function ChannelView({
     try {
       if (isPinned) {
         const r = await fetch(`/api/v1/orgs/${orgId}/chat/channels/${channelId}/pins/${messageId}`, { method: "DELETE" });
-        if (!r.ok) throw new Error("Couldn't unpin the message.");
+        if (!r.ok) throw await fetchErrorOf(r);
       } else {
         const r = await fetch(`/api/v1/orgs/${orgId}/chat/channels/${channelId}/pins`, {
           method: "POST",
@@ -358,7 +359,7 @@ export function ChannelView({
           toast.error("This channel has reached the 50-pin limit.");
           return;
         }
-        if (!r.ok) throw new Error("Couldn't pin the message.");
+        if (!r.ok) throw await fetchErrorOf(r);
       }
     } catch (err) {
       notifyError(err, "Couldn't update the pin.");
@@ -373,7 +374,7 @@ export function ChannelView({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id, content, parentMessageId: parentId }),
       });
-      if (!r.ok) throw new Error("Couldn't send the reply.");
+      if (!r.ok) throw await fetchErrorOf(r);
     } catch (err) {
       notifyError(err, "Couldn't send the reply.");
     }

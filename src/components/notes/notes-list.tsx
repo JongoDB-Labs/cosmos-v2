@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import type { Note } from "@/types/models";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface NotesListProps {
   orgId: string;
@@ -61,7 +62,7 @@ export function NotesList({ orgId }: NotesListProps) {
 
       try {
         const res = await fetch(`/api/v1/orgs/${orgId}/notes`);
-        if (!res.ok) throw new Error("Failed to load notes");
+        if (!res.ok) throw await fetchErrorOf(res, "Failed to load notes");
         const data: Note[] = await res.json();
         if (!cancelled) setNotes(data);
       } catch (err) {
@@ -119,7 +120,7 @@ export function NotesList({ orgId }: NotesListProps) {
       const res = await fetch(`/api/v1/orgs/${orgId}/notes/${noteId}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error(`Failed to delete note (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
     } catch (err) {
       console.error("Failed to delete note:", err);
       // Re-insert only THIS note (functional update — a whole-array snapshot
@@ -149,7 +150,7 @@ export function NotesList({ orgId }: NotesListProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ visibility }),
       });
-      if (!res.ok) throw new Error(`Failed (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
     } catch (err) {
       setNotes((p) =>
         p.map((n) => (n.id === note.id ? { ...n, visibility: prev } : n)),

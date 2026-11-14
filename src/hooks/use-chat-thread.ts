@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import type { ChatMessageDto } from "./use-chat-messages";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export function useChatThread(
   orgId: string,
@@ -16,7 +17,7 @@ export function useChatThread(
       const r = await fetch(
         `/api/v1/orgs/${orgId}/chat/channels/${channelId}/messages/${parentMessageId}/replies?limit=100`,
       );
-      if (!r.ok) throw new Error("Failed to load thread");
+      if (!r.ok) throw await fetchErrorOf(r, "Failed to load thread");
       const j = await r.json();
       return (j.replies ?? []) as ChatMessageDto[];
     },

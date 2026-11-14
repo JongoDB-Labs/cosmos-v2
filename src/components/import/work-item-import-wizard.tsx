@@ -17,6 +17,7 @@ import {
   type PriorityValue,
   type TargetFieldId,
 } from "@/lib/import/work-item-fields";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface ColumnOpt { key: string; name: string }
 interface TypeOpt { id: string; name: string }
@@ -152,7 +153,7 @@ export function WorkItemImportWizard(props: WizardProps) {
           }),
         },
       );
-      if (!res.ok) throw new Error(`Import failed (${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
       const data = (await res.json()) as ImportReport | { data: ImportReport };
       const rep = "data" in data ? data.data : data;
       if (mode === "validate") {

@@ -24,6 +24,7 @@ import {
   Loader2,
   type LucideIcon,
 } from "lucide-react";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 const iconMap: Record<string, LucideIcon> = {
   Columns3,
@@ -127,7 +128,7 @@ export function TemplateGallery({
     setLoadError(false);
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/templates/built-in`);
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw await fetchErrorOf(res);
       const json = await res.json();
       setTemplates(Array.isArray(json) ? json : json.data ?? []);
     } catch {
@@ -170,7 +171,7 @@ export function TemplateGallery({
           // so send the union of current + the new feature.
           body: JSON.stringify({ enabledFeatures: [...enabledFeatures, feature] }),
         });
-        if (!res.ok) throw new Error("Failed to enable feature");
+        if (!res.ok) throw await fetchErrorOf(res);
         toast.success(`${template.name} enabled`);
       }
       router.push(target);
@@ -198,7 +199,7 @@ export function TemplateGallery({
         }
       );
 
-      if (!res.ok) throw new Error("Failed to create board");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       const board = await res.json();
       toast.success("Board created");

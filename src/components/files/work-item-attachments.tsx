@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Paperclip, X } from "lucide-react";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { Button } from "@/components/ui/button";
 import { notifyError } from "@/lib/errors/notify";
@@ -63,7 +63,7 @@ export function WorkItemAttachments({
   const detach = useMutation({
     mutationFn: async (docId: string) => {
       const res = await fetch(`${base}/${docId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw await fetchErrorOf(res);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: key });
@@ -81,7 +81,7 @@ export function WorkItemAttachments({
         const body = new FormData();
         body.append("file", file);
         const res = await fetch(base, { method: "POST", body });
-        if (!res.ok) throw new Error((await res.text()) || `Could not attach ${file.name}`);
+        if (!res.ok) throw await fetchErrorOf(res, `Could not attach ${file.name}`);
       }
       qc.invalidateQueries({ queryKey: key });
       qc.invalidateQueries({ queryKey: ["org-documents"] });

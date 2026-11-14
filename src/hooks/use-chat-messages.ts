@@ -1,6 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export type ChatMessageReactionDto = {
   userId: string;
@@ -41,7 +42,7 @@ export function useChatMessages(orgId: string, channelId: string) {
       const r = await fetch(
         `/api/v1/orgs/${orgId}/chat/channels/${channelId}/messages?limit=50`,
       );
-      if (!r.ok) throw new Error("Failed to load messages");
+      if (!r.ok) throw await fetchErrorOf(r, "Failed to load messages");
       const j = await r.json();
       return (j.messages ?? []) as ChatMessageDto[];
     },

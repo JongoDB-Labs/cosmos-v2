@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
+import { notifyError } from "@/lib/errors/notify";
 
 /**
  * This project's choice for the closing rule (src/lib/workflow/closing-rule.ts):
@@ -35,11 +36,11 @@ export function ProjectClosingRule({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ settings: { closingRule: next === "org" ? null : next === "on" } }),
       });
-      if (!res.ok) throw new Error("Failed");
+      if (!res.ok) throw await fetchErrorOf(res);
       router.refresh();
-    } catch {
+    } catch (err) {
       setCurrent(prev);
-      toast.error("Couldn't change the closing rule");
+      notifyError(err, "Couldn't change the closing rule");
     } finally {
       setSaving(false);
     }
