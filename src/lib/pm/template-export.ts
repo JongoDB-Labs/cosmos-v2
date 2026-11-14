@@ -88,6 +88,9 @@ interface RegisterSpec {
 /** What a money cell says to a reader who may not see money. */
 const RESTRICTED = "Restricted";
 
+/** Why the vendor tracker is refused: its rows are contracts, CRM data. */
+export const VENDORS_NEED_CRM = "The vendor register needs CRM access";
+
 // ── data loading (mirrors export.ts buildProjectWorkbook) ────────────────────
 
 
@@ -880,13 +883,18 @@ export async function buildPopulatedTemplate(
   projectId: string,
   projectKey: string,
   // Required, like buildProjectWorkbook's includeCost: a default is how the
-  // permissive branch comes back. Decide it with `moneyGate` / `canSeeProjectMoney`.
-  opts: { includeMoney: boolean },
+  // permissive branch comes back. Decide `includeMoney` with `moneyGate` /
+  // `canSeeProjectMoney`, and `includeContracts` with `mayReadContract`.
+  opts: { includeMoney: boolean; includeContracts: boolean },
 ): Promise<PopulateResult> {
   // The burn workbook is money from end to end; there is no version of it
   // without. Callers drop it from the selection -- this is the backstop.
   if (tracker === "burn" && !opts.includeMoney) {
     throw new ForbiddenError("CLIN burn needs Finance access");
+  }
+  // Every vendor row is a contract, which is CRM data. The same backstop.
+  if (tracker === "vendors" && !opts.includeContracts) {
+    throw new ForbiddenError(VENDORS_NEED_CRM);
   }
   const templateName = tracker === "burn" ? "burn.xlsx" : REGISTERS[tracker].template;
   const wb = await XlsxPopulate.fromFileAsync(path.join(TEMPLATE_DIR, templateName));

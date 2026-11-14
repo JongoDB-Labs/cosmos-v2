@@ -31,13 +31,20 @@ const num = (d: { toString(): string } | number | null | undefined): number | ""
  * follows FINANCE_READ or FINANCE_READ_PROJECT on this project -- see
  * src/lib/rbac/money-fields.ts. Without it those COLUMNS are left out, not
  * blanked: a blank cost impact reads as "none".
+ *
+ * `includeContracts` is the contracts', which are CRM data: CRM_READ on this
+ * project, as the contract list asks (`mayReadContract`). Without it there is
+ * no Vendors sheet and no Contract column on the deliverables, which may name
+ * an org-level contract the vendor register never lists. Required for the
+ * same reason as the other two.
  */
 export async function buildProjectWorkbook(
   orgId: string,
   projectId: string,
-  opts: { includeCost: boolean; includeMoney: boolean },
+  opts: { includeCost: boolean; includeMoney: boolean; includeContracts: boolean },
 ): Promise<Buffer> {
   const money = opts.includeMoney;
+  const contracts = opts.includeContracts;
   const where = { orgId, projectId };
   const [risks, changes, blockers, deliverables, milestones, vendors, staffing, clins] =
     await Promise.all([
@@ -50,24 +57,26 @@ export async function buildProjectWorkbook(
         where,
         orderBy: { code: "asc" },
         include: {
-          contract: { select: { title: true } },
+          contract: contracts ? { select: { title: true } } : false,
           interval: { select: { name: true, number: true } },
         },
       }),
       loadMilestonesWithDerived(orgId, projectId),
-      prisma.contract.findMany({
-        where,
-        include: {
-          partner: {
-            select: {
-              name: true, socioEconomic: true, cageCode: true, perfRating: true,
-              ndaOnFile: true, ndaExpiry: true, pocName: true, pocEmail: true,
+      contracts
+        ? prisma.contract.findMany({
+            where,
+            include: {
+              partner: {
+                select: {
+                  name: true, socioEconomic: true, cageCode: true, perfRating: true,
+                  ndaOnFile: true, ndaExpiry: true, pocName: true, pocEmail: true,
+                },
+              },
             },
-          },
-        },
-        // Largest-first is a statement about value; without money, title order.
-        orderBy: money ? { value: "desc" } : { title: "asc" },
-      }),
+            // Largest-first is a statement about value; without money, title order.
+            orderBy: money ? { value: "desc" } : { title: "asc" },
+          })
+        : Promise.resolve([]),
       loadStaffing(orgId, projectId, { includeCost: opts.includeCost }),
       money ? loadClinsWithBurn(orgId, projectId) : Promise.resolve([]),
     ]);
@@ -103,14 +112,16 @@ export async function buildProjectWorkbook(
     Escalate: m.scheduleEscalate ? "Yes" : "", Notes: m.notes ?? "",
   })));
   addSheet("Deliverables", deliverables.map((d) => ({
-    ID: d.code, Title: d.title, CLIN: d.clin ?? "", Contract: d.contract?.title ?? "",
+    ID: d.code, Title: d.title, CLIN: d.clin ?? "",
+    ...(contracts ? { Contract: d.contract?.title ?? "" } : {}),
     "PI Objective": d.piObjective ?? "",
     Sprint: d.interval ? d.interval.name.trim() || `#${d.interval.number}` : "",
     "Due Gate": d.dueGate ?? "", "Baseline Due": fmtDate(d.baselineDue),
     "Actual Submission": fmtDate(d.actualSubmission), Status: d.status, Owner: d.owner ?? "",
     "Work Item Ref": d.workItemRef ?? "", Notes: d.notes ?? "",
   })));
-  addSheet("Vendors", vendors.map((v) => {
+  // Every row is a contract, so without them there is no sheet.
+  if (contracts) addSheet("Vendors", vendors.map((v) => {
     const funded = num(v.fundedValue);
     const invoiced = num(v.invoicedValue);
     const pctBurned =

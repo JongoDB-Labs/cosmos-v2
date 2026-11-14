@@ -201,13 +201,14 @@ describe("audit-log PDF export", () => {
     }
   });
 
-  it("names only the people inside a project-scoped key's roster", async () => {
-    // `read` too: the roster is the people of the projects the key reads items
-    // in, and a key reads no project without its own item-read scope.
-    const k = await call(key(["read", "audit:read", "members:read"], [pId]));
-    expect(labels(k)[u.inP]).toBe("inP person");
-    // Outside the roster: no name at all, and the PDF falls back to the id.
-    expect(labels(k)[u.onlyQ]).toBeNull();
+  it("is refused to a project-scoped key, so it names nobody outside the key's roster", async () => {
+    // Audit rows cover the whole org, so a key limited to some projects can't
+    // export them at all (audit-logs/key-scope.db.test.ts covers every door).
+    h.ctx = key(["read", "audit:read", "members:read"], [pId]);
+    h.pdf = null;
+    const res = await auditExport(req(`/audit-logs/export?format=pdf&action=test.action`), { params: Promise.resolve({ orgId }) });
+    expect(res.status).toBe(403);
+    expect(h.pdf).toBeNull();
   });
 });
 

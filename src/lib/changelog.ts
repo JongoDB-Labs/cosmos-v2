@@ -88,6 +88,60 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.560.4",
+    date: "2026-11-14",
+    title: "Exports show only what you could read in the app",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The organization export (the JSON archive and each CSV) now asks for the same access as each list in the app. Without CRM access it leaves out CRM contacts, partners, products and contracts, including contracts not filed under a project. Without meeting access it leaves out meetings, and the same goes for projects, work items, sprints, notes and time entries. The archive leaves such a section out rather than listing it empty, and its CSV is refused, as revenues and expenses already were without Finance access.",
+      },
+      {
+        kind: "fix",
+        text: "Meetings, work items and sprints in the organization export follow the same rules as their lists, so a policy that hides them from you on a project hides them from your export too.",
+      },
+      {
+        kind: "fix",
+        text: "The organization archive no longer says whether each member has two-factor sign-in turned on. The app shows that to no one but the person themselves.",
+      },
+      {
+        kind: "fix",
+        text: "A project's Excel exports and its SharePoint copy leave out the vendor register, and the contract on each deliverable, unless you can read contracts on that project. The export dialog no longer offers the vendor register to someone without CRM access.",
+      },
+      {
+        kind: "fix",
+        text: "Linking a deliverable to a contract on another project, or to one you can't read, now says the contract was not found, the same as for one that doesn't exist.",
+      },
+      {
+        kind: "fix",
+        text: "Money columns in CSV exports are written as plain numbers again, not as quoted text.",
+      },
+    ],
+  },
+  {
+    version: "2.560.3",
+    date: "2026-11-14",
+    title: "Project-limited API keys see less, and lists name only what you can see",
+    highlights: [
+      {
+        kind: "fix",
+        text: "An API key limited to some projects can no longer read or export the audit log. The log covers the whole organization, so such a key is refused, as it already was for webhooks. Org-wide keys with audit access and signed-in admins read it as before.",
+      },
+      {
+        kind: "fix",
+        text: "An API key limited to some projects now sees time only for its owner and the people on those projects. Timesheets, week statuses, the person picker, team leave, leave balances and the list of your approvers all agree. Approvers outside those projects are not named. Signed-in people and org-wide keys see the same as before.",
+      },
+      {
+        kind: "fix",
+        text: "The organization activity feed no longer shows hours logged on a project you can't open, so it no longer shows that project's name. Hours on projects you can see, and on no project, still appear.",
+      },
+      {
+        kind: "fix",
+        text: "Asking the document library for organization files only now leaves out restricted files filed in a project, as it already did for the rest.",
+      },
+    ],
+  },
+  {
     version: "2.559.0",
     date: "2026-11-13",
     title: "Your own Outlook meetings on the Program Management calendar",

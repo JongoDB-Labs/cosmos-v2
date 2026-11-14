@@ -69,8 +69,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Client-supplied user id: check org membership or leak a foreign user.
     if (data.ownerUserId) await assertOrgMember(orgId, data.ownerUserId);
     // Same for the contract and the sprint: the FKs cannot express "in this
-    // org, for this project".
-    await assertDeliverableLinks(data, orgId, projectId);
+    // org, for this project". A contract id sent back as it already was is no
+    // new link, so it isn't asked again.
+    await assertDeliverableLinks(
+      ctx,
+      { ...data, ...(data.contractId === existing.contractId && { contractId: undefined }) },
+      projectId,
+    );
 
     // The closing rule: accepting needs a file or a reason, and an accepted
     // deliverable is read-only until it is moved back out of acceptance.

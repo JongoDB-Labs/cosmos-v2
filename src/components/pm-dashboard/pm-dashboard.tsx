@@ -315,6 +315,9 @@ export function PmDashboard({
                 open={exportOpen}
                 onOpenChange={setExportOpen}
                 moneyVisible={!moneyWithheld}
+                // The vendor register is contracts, which the export leaves
+                // out without CRM_READ (a policy on this project, too).
+                contractsVisible={can(Permission.CRM_READ)}
               />
             </>
           )}

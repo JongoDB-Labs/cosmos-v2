@@ -14,6 +14,9 @@ import { prisma } from "@/lib/db/client";
 import { Permission, RolePermissions, maskToDb } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 import type { AbacRule } from "@/lib/abac/engine";
+import { EXPORT_ENTITY_READ, type ExportEntity } from "@/lib/export/org-export-scope";
+import { createWorkItemRow } from "@/lib/work-items/write.server";
+import { seedBoardColumns } from "@/lib/workflow/provision.server";
 
 const h = vi.hoisted(() => ({ ctx: null as unknown }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext: async () => h.ctx, getCurrentUser: async () => null }));
@@ -38,7 +41,10 @@ const withFinance = () => as(exporter, NO_FINANCE | Permission.ORG_EXPORT | Perm
 
 beforeAll(async () => {
   owner = (await prisma.user.create({
-    data: { email: `owner-${stamp}@export.test`, displayName: "Owner", passwordHash: "hash-not-for-export", mfaSecret: "mfa-not-for-export" },
+    data: {
+      email: `owner-${stamp}@export.test`, displayName: "Owner",
+      passwordHash: "hash-not-for-export", mfaSecret: "mfa-not-for-export", mfaEnabled: true,
+    },
   })).id;
   exporter = (await prisma.user.create({ data: { email: `exporter-${stamp}@export.test`, displayName: "Exporter" } })).id;
   orgId = (await prisma.organization.create({
@@ -139,9 +145,18 @@ describe("what the JSON archive says about the org and its people", () => {
     // Spelled out, not read from the select: a column added there must fail here.
     for (const u of users) {
       expect(Object.keys(u).sort()).toEqual(
-        ["avatarUrl", "createdAt", "deactivatedAt", "displayName", "email", "id", "isBot", "lastActiveAt", "mfaEnabled"],
+        ["avatarUrl", "createdAt", "deactivatedAt", "displayName", "email", "id", "isBot", "lastActiveAt"],
       );
     }
+  });
+
+  it("says nothing about who has two-factor on, which no screen shows another person either", async () => {
+    // The fixture's owner HAS it on, so absence is the select, not a false default.
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: owner } })).mfaEnabled).toBe(true);
+    h.ctx = as(owner, RolePermissions.OWNER);
+    const users = rowsOf(await archive(), "members").map((m) => m.user as Record<string, unknown>);
+    expect(users.map((u) => u.id)).toContain(owner);
+    for (const u of users) expect(u).not.toHaveProperty("mfaEnabled");
   });
 
   it("a member's permissions are permission names, with no raw mask and no policy rules", async () => {
@@ -308,5 +323,164 @@ describe("contracts in either export follow the contract list's rule", () => {
     const text = await csvText();
     expect(text).toContain("Prime");
     expect(text).not.toContain(OPEN);
+  });
+});
+
+describe("each entity needs the bit its own list asks for", () => {
+  // Every bit an admin holds: only the one bit taken away can refuse.
+  const ALL = RolePermissions.ADMIN | Permission.ORG_EXPORT;
+  const without = (entity: ExportEntity) => as(exporter, ALL & ~Permission[EXPORT_ENTITY_READ[entity]]);
+
+  // JSON key, CSV slug, and a row of that entity the fixture made.
+  const ENTITIES: [ExportEntity, string, () => string][] = [
+    ["projects", "projects", () => ids.project],
+    ["workItems", "work-items", () => ids.workItem],
+    ["intervals", "intervals", () => ids.interval],
+    ["crmContacts", "crm-contacts", () => ids.crmContact],
+    ["partners", "partners", () => ids.partner],
+    ["products", "products", () => ids.product],
+    ["contracts", "contracts", () => ids.contract],
+    ["notes", "notes", () => ids.shared],
+    ["meetings", "meetings", () => ids.meeting],
+    ["timeEntries", "time-entries", () => ids.time],
+    ["revenues", "revenues", () => ids.revenue],
+    ["expenses", "expenses", () => ids.expense],
+  ];
+
+  beforeAll(async () => {
+    const key = stamp.slice(0, 3).toUpperCase();
+    ids.project = (await prisma.project.create({ data: { orgId, name: "Bits", key: `XB${key}` } })).id;
+    const board = await prisma.board.create({ data: { orgId, projectId: ids.project, name: "Board", type: "KANBAN" } });
+    await seedBoardColumns(prisma, board, [{ key: "todo", name: "To Do", category: "TODO" }]);
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
+    ids.workItem = (await createWorkItemRow(prisma, {
+      data: { orgId, projectId: ids.project, ticketNumber: 1, title: "item", columnKey: "todo", workItemTypeId: type.id, createdById: owner },
+    }, { actorId: null, source: "SYSTEM" })).id;
+    ids.interval = (await prisma.interval.create({
+      data: { orgId, projectId: ids.project, number: 1, name: "S1", startDate: new Date("2026-10-01"), endDate: new Date("2026-10-14") },
+    })).id;
+    ids.crmContact = (await prisma.crmContact.create({ data: { orgId, name: "A contact" } })).id;
+    ids.partner = (await prisma.partner.create({ data: { orgId, name: "A partner" } })).id;
+    ids.product = (await prisma.product.create({ data: { orgId, name: "A product" } })).id;
+    ids.meeting = (await prisma.syncMeeting.create({
+      data: { orgId, title: "Org meeting", meetingDate: new Date("2026-10-09T15:00:00Z"), createdById: owner },
+    })).id;
+  });
+
+  it("the table covers every entity the archive carries", async () => {
+    // Guards the list below: an entity added to the export but not to it would
+    // go untested, and one added to the table but not the export would never run.
+    expect(ENTITIES.map(([e]) => e).sort()).toEqual(Object.keys(EXPORT_ENTITY_READ).sort());
+    h.ctx = as(exporter, ALL);
+    const a = await archive();
+    for (const [entity] of ENTITIES) expect(a, entity).toHaveProperty(entity);
+  });
+
+  it.each(ENTITIES)("%s: left out of the archive and refused as a CSV without its bit", async (entity, slug, id) => {
+    h.ctx = without(entity);
+    expect(entity in (await archive())).toBe(false);
+    expect((await csv(slug)).status).toBe(403);
+
+    // Positive control, the same probes: with the bit the row is there.
+    h.ctx = as(exporter, ALL);
+    expect(rowsOf(await archive(), entity).map((r) => r.id)).toContain(id());
+    const { status, text } = await csv(slug);
+    expect(status).toBe(200);
+    expect(text).toContain(id());
+  });
+
+  it("an exporter without CRM_READ gets no org-level contract", async () => {
+    // A contract under no project passed the contract rule for anyone: that
+    // half of it assumes the route already asked for CRM_READ, and this route
+    // did not.
+    h.ctx = without("contracts");
+    expect(JSON.stringify(await archive())).not.toContain(ids.contract);
+  });
+});
+
+describe("rows follow the reader their own list uses", () => {
+  const ITEM_HIDDEN = `hidden-item-${stamp}`, ITEM_SHOWN = `shown-item-${stamp}`;
+  const SPRINT_HIDDEN = `hidden-sprint-${stamp}`, SPRINT_SHOWN = `shown-sprint-${stamp}`;
+  const MEETING_HIDDEN = `hidden-meeting-${stamp}`, MEETING_SHOWN = `shown-meeting-${stamp}`, MEETING_ORG = `org-meeting-${stamp}`;
+  let denied = "";
+
+  beforeAll(async () => {
+    const key = stamp.slice(0, 3).toUpperCase();
+    const type = await prisma.workItemType.findFirstOrThrow({ where: { orgId: null } });
+    const made: Record<string, string> = {};
+    for (const [name, k] of [["denied", `XD${key}`], ["allowed", `XA${key}`]] as const) {
+      const projectId = (await prisma.project.create({ data: { orgId, name, key: k } })).id;
+      made[name] = projectId;
+      const board = await prisma.board.create({ data: { orgId, projectId, name: "Board", type: "KANBAN" } });
+      await seedBoardColumns(prisma, board, [{ key: "todo", name: "To Do", category: "TODO" }]);
+      const shown = name === "allowed";
+      await createWorkItemRow(prisma, {
+        data: {
+          orgId, projectId, ticketNumber: 1, title: shown ? ITEM_SHOWN : ITEM_HIDDEN,
+          columnKey: "todo", workItemTypeId: type.id, createdById: owner,
+        },
+      }, { actorId: null, source: "SYSTEM" });
+      await prisma.interval.create({
+        data: {
+          orgId, projectId, number: 1, name: shown ? SPRINT_SHOWN : SPRINT_HIDDEN,
+          startDate: new Date("2026-10-01"), endDate: new Date("2026-10-14"),
+        },
+      });
+      await prisma.syncMeeting.create({
+        data: { orgId, projectId, title: shown ? MEETING_SHOWN : MEETING_HIDDEN, meetingDate: new Date("2026-10-09T15:00:00Z"), createdById: owner },
+      });
+    }
+    denied = made.denied;
+    await prisma.syncMeeting.create({
+      data: { orgId, title: MEETING_ORG, meetingDate: new Date("2026-10-09T16:00:00Z"), createdById: owner },
+    });
+  });
+
+  // A member who may export, with a policy denying one action on one project.
+  const denying = (action: string): AuthContext => {
+    const permissions = RolePermissions.MEMBER | Permission.ORG_EXPORT;
+    const abacRules = [{ effect: "deny", actions: [action], conditions: [{ attr: "projectId", op: "eq", value: denied }] }] as AbacRule[];
+    return { userId: exporter, orgId, orgRole: "MEMBER", abacRules, permissions, basePermissions: permissions };
+  };
+  const titles = (a: Record<string, unknown>, k: string) => rowsOf(a, k).map((r) => r.title ?? r.name);
+
+  it("a meeting the meeting list hides is in neither export; the rest are", async () => {
+    // The export asked only whether the project was visible, so a policy on
+    // MEETING_READ never reached it. The meeting list's reader does.
+    h.ctx = denying("MEETING_READ");
+    const json = titles(await archive(), "meetings");
+    expect(json).toEqual(expect.arrayContaining([MEETING_SHOWN, MEETING_ORG]));
+    expect(json).not.toContain(MEETING_HIDDEN);
+    const { status, text } = await csv("meetings");
+    expect(status).toBe(200);
+    expect(text).toContain(MEETING_SHOWN);
+    expect(text).not.toContain(MEETING_HIDDEN);
+  });
+
+  it("work items and sprints follow a policy on their own action, as their lists do", async () => {
+    h.ctx = denying("ITEM_READ");
+    const items = titles(await archive(), "workItems");
+    expect(items).toContain(ITEM_SHOWN);
+    expect(items).not.toContain(ITEM_HIDDEN);
+    const itemsCsv = (await csv("work-items")).text;
+    expect(itemsCsv).toContain(ITEM_SHOWN);
+    expect(itemsCsv).not.toContain(ITEM_HIDDEN);
+
+    h.ctx = denying("SPRINT_READ");
+    const sprints = titles(await archive(), "intervals");
+    expect(sprints).toContain(SPRINT_SHOWN);
+    expect(sprints).not.toContain(SPRINT_HIDDEN);
+    const sprintsCsv = (await csv("intervals")).text;
+    expect(sprintsCsv).toContain(SPRINT_SHOWN);
+    expect(sprintsCsv).not.toContain(SPRINT_HIDDEN);
+  });
+
+  it("control: without the policy, the hidden rows are there", async () => {
+    // So the absences above are the policy, not a fixture that never made them.
+    h.ctx = denying("NOTE_DELETE");
+    const a = await archive();
+    expect(titles(a, "meetings")).toContain(MEETING_HIDDEN);
+    expect(titles(a, "workItems")).toContain(ITEM_HIDDEN);
+    expect(titles(a, "intervals")).toContain(SPRINT_HIDDEN);
   });
 });

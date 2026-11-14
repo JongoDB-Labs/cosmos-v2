@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { canReadAllTime } from "./visibility";
+import { scopedRosterUserIds } from "@/lib/members/scoped-roster.server";
 
 /**
  * Which users' time entries may this actor read?
@@ -120,6 +121,47 @@ export function timeProjectCeiling(
   return ctx.projectScope ? { in: [...ctx.projectScope] } : undefined;
 }
 
+export interface KeyTimeRoster {
+  /** The readable set narrowed to the roster, or null for "everybody". */
+  allowed: string[] | null;
+  /** Whether this caller may be shown this person: a name, an approver's id. */
+  has(userId: string): boolean;
+}
+
+/**
+ * WHOSE time a key limited to some projects may see, on the routes that answer
+ * per PERSON rather than per entry: timesheets, week statuses, the person
+ * picker, leave and its balances, and who approves the key's minter.
+ *
+ * Those records carry no project, so they can't take `timeProjectCeiling`. They
+ * take the roster every route that lists people applies (`scopedRosterUserIds`:
+ * the people tied to the key's projects), plus ALWAYS the key's own minter. A
+ * key acts for its minter, and the entries list already gives it the minter's
+ * hours on its projects. Leaving the minter out made /timesheets refuse the
+ * minter's own week while /time-entries and /timesheets/periods answered.
+ *
+ * The roster needs the key to read work items (the `read` scope). A key without
+ * it reads no project's people, so its roster is empty and it sees its minter
+ * alone. That is deliberate: it fails closed.
+ *
+ * `readable` is `readableTimeUserIds(ctx)`, passed in rather than recomputed so
+ * the caller's own read of it stays the one the route uses. This only narrows
+ * it: a person must be readable AND inside. A browser session or an org-wide
+ * key gets `readable` back unchanged.
+ */
+export async function keyTimeRoster(
+  ctx: AuthContext,
+  readable: string[] | null,
+): Promise<KeyTimeRoster> {
+  const roster = await scopedRosterUserIds(ctx);
+  if (!roster) return { allowed: readable, has: () => true };
+  const inside = new Set([ctx.userId, ...roster]);
+  return {
+    allowed: (readable ?? [...inside]).filter((id) => inside.has(id)),
+    has: (id) => inside.has(id),
+  };
+}
+
 export type TimePerson = {
   userId: string;
   displayName: string | null;
@@ -140,12 +182,13 @@ export type TimePerson = {
  * it.
  *
  * The fix is to view ONE person at a time, so this answers "who may I pick".
- * A single-element result means there is no picker worth rendering.
+ * A single-element result means there is no picker worth rendering. A key
+ * limited to some projects picks only from `keyTimeRoster`.
  */
 export async function readableTimePeople(
   ctx: AuthContext,
 ): Promise<TimePerson[]> {
-  const allowed = await readableTimeUserIds(ctx);
+  const { allowed } = await keyTimeRoster(ctx, await readableTimeUserIds(ctx));
 
   // null (TIME_READ_ALL) → everyone in the org, which is the same set the
   // members page already lists.

@@ -5,11 +5,13 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { ForbiddenError } from "@/lib/rbac/check";
 import { canSeeProjectMoney } from "@/lib/rbac/money-fields";
+import { mayReadContract } from "@/lib/crm/contract-scope";
 import { handleApiError } from "@/lib/api-helpers";
 import { buildCombinedWorkbook } from "@/lib/pm/combined-export";
 import {
   buildPopulatedTemplate,
   TRACKERS,
+  VENDORS_NEED_CRM,
   type Tracker,
 } from "@/lib/pm/template-export";
 
@@ -34,6 +36,10 @@ type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
  * project the change and vendor registers carry "Restricted" where the money
  * was, and the burn workbook (all money) is left out. Asking for burn alone is
  * a 403 rather than an empty file.
+ *
+ * So do contracts: the vendor register is one row per contract, CRM data, so
+ * without CRM_READ on this project (the contract list's rule) it is left out
+ * the same way, and asking for it alone is a 403.
  */
 
 const XLSX_MIME =
@@ -60,14 +66,22 @@ async function resolveContext(orgId: string, projectId: string) {
     select: { key: true },
   });
   if (!project) return { error: new Response("Not found", { status: 404 }) } as const;
-  return { project, includeMoney: await canSeeProjectMoney(ctx, projectId) } as const;
+  return {
+    project,
+    opts: { includeMoney: await canSeeProjectMoney(ctx, projectId), includeContracts: await mayReadContract(ctx, projectId) },
+  } as const;
 }
 
-/** The selection this reader may have: burn only with money. */
-function allowedTrackers(trackers: Tracker[], includeMoney: boolean): Tracker[] {
-  if (includeMoney) return trackers;
-  const kept = trackers.filter((t) => t !== "burn");
-  if (kept.length === 0) throw new ForbiddenError("CLIN burn needs Finance access");
+type ReaderOpts = { includeMoney: boolean; includeContracts: boolean };
+
+/** The selection this reader may have: burn only with money, vendors only with CRM. */
+function allowedTrackers(trackers: Tracker[], opts: ReaderOpts): Tracker[] {
+  const kept = trackers.filter(
+    (t) => (t !== "burn" || opts.includeMoney) && (t !== "vendors" || opts.includeContracts),
+  );
+  if (kept.length === 0) {
+    throw new ForbiddenError(trackers.includes("burn") ? "CLIN burn needs Finance access" : VENDORS_NEED_CRM);
+  }
   return kept;
 }
 
@@ -77,10 +91,9 @@ async function buildResponse(
   projectKey: string,
   requested: Tracker[],
   mode: string,
-  includeMoney: boolean,
+  opts: ReaderOpts,
 ): Promise<Response> {
-  const trackers = allowedTrackers(requested, includeMoney);
-  const opts = { includeMoney };
+  const trackers = allowedTrackers(requested, opts);
   if (mode === "combined") {
     const buf = await buildCombinedWorkbook(orgId, projectId, projectKey, trackers, opts);
     return new Response(new Uint8Array(buf), {
@@ -129,7 +142,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const url = new URL(request.url);
     const trackers = parseTrackers(url.searchParams.get("trackers"));
     const mode = url.searchParams.get("mode") ?? "separate";
-    return await buildResponse(orgId, projectId, ctx.project.key, trackers, mode, ctx.includeMoney);
+    return await buildResponse(orgId, projectId, ctx.project.key, trackers, mode, ctx.opts);
   } catch (e) {
     return handleApiError(e);
   }
@@ -146,7 +159,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     };
     const trackers = parseTrackers(body.trackers);
     const mode = body.mode ?? "separate";
-    return await buildResponse(orgId, projectId, ctx.project.key, trackers, mode, ctx.includeMoney);
+    return await buildResponse(orgId, projectId, ctx.project.key, trackers, mode, ctx.opts);
   } catch (e) {
     return handleApiError(e);
   }

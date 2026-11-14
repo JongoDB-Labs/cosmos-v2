@@ -12,7 +12,10 @@
 // is what covers them. Dropping it would make this file fail and nothing else.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db/client";
+import { RolePermissions } from "@/lib/rbac/permissions";
+import type { AuthContext } from "@/lib/rbac/check";
 import { assertDeliverableLinks } from "./deliverable-scope";
 
 let orgId = "";
@@ -210,9 +213,17 @@ describe("deliverable links survive what they point at", () => {
 });
 
 describe("assertDeliverableLinks", () => {
+  // Someone who may read every contract: these cases are about which project a
+  // contract or sprint belongs to. Who may read one is contract-gate.db.test.ts.
+  const ctx = (): AuthContext => ({
+    userId: randomUUID(), orgId, orgRole: "OWNER", abacRules: [],
+    permissions: RolePermissions.OWNER, basePermissions: RolePermissions.OWNER,
+  });
+  const check = (links: Parameters<typeof assertDeliverableLinks>[1]) => assertDeliverableLinks(ctx(), links, projectId);
+
   it("accepts a contract and a sprint belonging to this project", async () => {
     await expect(
-      assertDeliverableLinks({ contractId: contractA, intervalId: sprintId }, orgId, projectId),
+      check({ contractId: contractA, intervalId: sprintId }),
     ).resolves.toBeUndefined();
   });
 
@@ -221,19 +232,19 @@ describe("assertDeliverableLinks", () => {
     // before it is tied to delivery, and refusing it would make the field
     // unusable for exactly the contracts a CDRL is being set up under.
     await expect(
-      assertDeliverableLinks({ contractId: unlinkedContract }, orgId, projectId),
+      check({ contractId: unlinkedContract }),
     ).resolves.toBeUndefined();
   });
 
-  it("refuses a contract belonging to a DIFFERENT project", async () => {
-    await expect(
-      assertDeliverableLinks({ contractId: otherProjectContract }, orgId, projectId),
-    ).rejects.toThrow(/different project/i);
+  it("refuses a contract belonging to a DIFFERENT project, as not found", async () => {
+    // Not "belongs to a different project": that confirmed the id was a real
+    // contract, on a project the caller may not even see.
+    await expect(check({ contractId: otherProjectContract })).rejects.toThrow(/^Contract not found$/);
   });
 
   it("refuses a sprint belonging to a DIFFERENT project", async () => {
     await expect(
-      assertDeliverableLinks({ intervalId: foreignSprintId }, orgId, projectId),
+      check({ intervalId: foreignSprintId }),
     ).rejects.toThrow(/different project/i);
   });
 
@@ -247,7 +258,7 @@ describe("assertDeliverableLinks", () => {
         data: { orgId: otherOrg.id, title: "Theirs" },
       });
       await expect(
-        assertDeliverableLinks({ contractId: theirContract.id }, orgId, projectId),
+        check({ contractId: theirContract.id }),
       ).rejects.toThrow(/not found/i);
     } finally {
       await prisma.organization.deleteMany({ where: { id: otherOrg.id } }).catch(() => undefined);
@@ -256,8 +267,8 @@ describe("assertDeliverableLinks", () => {
 
   it("allows clearing either link", async () => {
     await expect(
-      assertDeliverableLinks({ contractId: null, intervalId: null }, orgId, projectId),
+      check({ contractId: null, intervalId: null }),
     ).resolves.toBeUndefined();
-    await expect(assertDeliverableLinks({}, orgId, projectId)).resolves.toBeUndefined();
+    await expect(check({})).resolves.toBeUndefined();
   });
 });
