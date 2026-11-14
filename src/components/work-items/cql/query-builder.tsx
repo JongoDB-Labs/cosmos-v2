@@ -32,7 +32,7 @@
  * The mode is a view preference: `&mode=` when present, else what this viewer
  * last chose.
  */
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { CircleHelp, Filter, Play, Search, Sparkles, WandSparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -78,6 +78,33 @@ function rememberMode(m: QueryMode) {
 }
 
 const NARROW = "(max-width: 639px)";
+
+/** "Run as a query": a button in the row, or a suggestion under the box in a board's bar. */
+const RUN_AS_QUERY =
+  "rounded-md border border-[var(--primary)] px-2.5 py-1.5 text-xs text-[var(--primary)] hover:bg-[var(--primary)] hover:text-[var(--primary-foreground,white)]";
+
+/**
+ * Clear, as an icon inside the search or query box at its right edge, in a
+ * board's bar. It clears what the Clear button does: the whole query, search
+ * text and filters alike, hence its name.
+ */
+function InBoxClear({ onClear, className }: { onClear: () => void; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      aria-label="Clear search and filters"
+      title="Clear search and filters"
+      className={cn(
+        "absolute right-1 inline-flex size-6 items-center justify-center rounded-md text-[var(--text-muted)] outline-none hover:bg-muted hover:text-[var(--text)] focus-visible:ring-3 focus-visible:ring-ring/50",
+        className,
+      )}
+    >
+      <X className="h-3.5 w-3.5" aria-hidden />
+    </button>
+  );
+}
+
 function useNarrow(): boolean {
   return useSyncExternalStore(
     (cb) => {
@@ -140,6 +167,24 @@ export interface QueryBuilderProps {
    * variant; the same controls sit directly on the band.
    */
   variant?: "card" | "inline";
+  /**
+   * Controls that share the builder's last row instead of claiming a row of
+   * their own: a board's scope line, its swimlanes and its actions.
+   *
+   * In Filters mode that is the one row, after the chips. In CQL mode it is
+   * the "Add filter" row, which otherwise holds a single control across the
+   * full width; NOT the editor's row, which the editor and its four buttons
+   * already fill, so anything added there would come out of the editor.
+   *
+   * They are placed as items of that row, not as a box inside it, so they wrap
+   * one at a time when the row is full, and a right-aligned group among them
+   * (`BoardToolbarActions`, `ml-auto`) still ends the row.
+   *
+   * With it, Clear is an icon inside the search or query box, and "Run as a
+   * query" a suggestion hung from the bottom edge of the bar that renders the
+   * builder: that bar must be positioned (`relative`).
+   */
+  trailing?: ReactNode;
 }
 
 /** Enough of a saved filter to offer it and run it. */
@@ -159,6 +204,7 @@ export function QueryBuilder({
   savedFilters,
   onRunFilter,
   variant = "card",
+  trailing,
 }: QueryBuilderProps) {
   const parsed = useMemo(() => parseCql(cql), [cql]);
   const chips = useMemo(
@@ -188,6 +234,17 @@ export function QueryBuilder({
     onModeChange(m);
   };
 
+  // A board's bar (`trailing`) is one full row, so Clear can't take a place in
+  // it. Appearing on the first filter, it pushed the row's last control onto a
+  // line of its own (the board moved down 32px, sprint board at 1280); held in
+  // place while there was nothing to clear, it cost a line of its own at other
+  // widths (Kanban at 768-810px: 81 -> 113px). There it is an icon inside the
+  // search or query box instead (`InBoxClear`), and takes no room at all.
+  // Elsewhere (the Work Items page) it stays a button beside the mode.
+  const flat = trailing !== undefined;
+  const filtered = cql.trim() !== "";
+  const clearAll = () => onCqlChange("");
+
   return (
     <div
       className={
@@ -196,7 +253,17 @@ export function QueryBuilder({
           : "space-y-2"
       }
     >
-      <div className="flex flex-wrap items-start gap-2">
+      {/* With `trailing`, each mode lays its controls straight into this row
+          (`display: contents`), so a wrapped line starts at the band's left
+          edge. Inside the mode's own box, every wrapped line lost the column
+          under this toggle, and a board with a long toolbar (Timeline) took
+          more lines than it did on main (measured: 145 -> 171px at 1024). */}
+      <div
+        className={cn(
+          "flex flex-wrap gap-x-2",
+          !flat ? "items-start gap-y-2" : effective === "basic" && chips.ok ? "items-center gap-y-1" : "items-start gap-y-2",
+        )}
+      >
         <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-[var(--border)] text-xs" role="group" aria-label="How to filter">
           <button
             type="button"
@@ -238,12 +305,23 @@ export function QueryBuilder({
             }}
             savedFilters={savedFilters}
             onRunFilter={onRunFilter}
+            filtered={filtered}
+            onClear={flat ? clearAll : undefined}
+            trailing={trailing}
           />
         ) : (
-          <AdvancedMode orgId={orgId} schema={schema} cql={cql} onRun={onCqlChange} serverDiagnostics={serverDiagnostics} />
+          <AdvancedMode
+            orgId={orgId}
+            schema={schema}
+            cql={cql}
+            onRun={onCqlChange}
+            serverDiagnostics={serverDiagnostics}
+            onClear={flat ? clearAll : undefined}
+            trailing={trailing}
+          />
         )}
-        {cql.trim() !== "" && (
-          <Button variant="ghost" size="sm" onClick={() => onCqlChange("")} className="gap-1">
+        {!flat && filtered && (
+          <Button variant="ghost" size="sm" onClick={clearAll} className="gap-1">
             <X className="h-3.5 w-3.5" /> Clear
           </Button>
         )}
@@ -266,6 +344,9 @@ function BasicMode({
   onRunAsQuery,
   savedFilters,
   onRunFilter,
+  filtered,
+  onClear,
+  trailing,
 }: {
   orgId: string;
   schema: CqlClientSchema;
@@ -277,6 +358,11 @@ function BasicMode({
   onRunAsQuery: (text: string) => void;
   savedFilters?: SavedFilterOption[];
   onRunFilter?: (f: SavedFilterOption) => void;
+  /** The query has something in it to clear. */
+  filtered: boolean;
+  /** Clear, inside the search box; a board's bar only. */
+  onClear?: () => void;
+  trailing?: ReactNode;
 }) {
   // The free-text box IS the `text ~` chip, so it isn't shown twice.
   const textChip = chips.find(isTextBox);
@@ -304,21 +390,94 @@ function BasicMode({
   };
   const commitText = () => draft.trim() !== text && emit(rest, matchAny, draft);
 
+  const flat = trailing !== undefined;
+  const input = useRef<HTMLInputElement>(null);
+  const showClear = !!onClear && (filtered || draft !== "");
+  // In a board's bar "Run as a query" is a suggestion under the box, shown
+  // while the box has focus: as an item of the row, it took a line of its own
+  // as the phrase was typed, and the board jumped (Kanban at 1280: 49 -> 81px).
+  // Escape puts it away until the text changes.
+  const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const asQuery = looksLikeQuery(draft);
+  const suggest = asQuery && focused && dismissed !== draft;
+  const runAsQuery = () => onRunAsQuery(draft.trim());
+
   return (
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-      <div className="relative min-w-[200px] flex-1">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitText();
-          }}
-          onBlur={commitText}
-          placeholder="Search title, description or comments…"
-          className="pl-8"
-          aria-label="Search work items"
-        />
+    // With a board's controls in the row (`trailing`), a wrapped line sits 4px
+    // under the one above, the spacing the board's band used between the
+    // builder and the row these controls came from. 8px there made a board
+    // taller at 1024px than before they moved.
+    <div className={trailing !== undefined ? "contents" : "flex min-w-0 flex-1 flex-wrap items-center gap-2"}>
+      {/* As narrow as 200px, as on main. Wider (19rem, for the whole
+          placeholder) it took Add filter off the first line wherever the row is
+          480-530px, and a board with a full toolbar took a line more than main
+          (Kanban at 768: 81 -> 113px). Where it is narrow the placeholder ends
+          in an ellipsis, not cut through a letter. */}
+      <div
+        className="min-w-[200px] flex-1"
+        onFocus={() => setFocused(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
+        }}
+      >
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+          <Input
+            ref={input}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitText();
+              if (e.key === "Escape" && suggest) setDismissed(draft);
+            }}
+            onBlur={commitText}
+            placeholder="Search title, description or comments…"
+            // Room on the right for Clear, so typed text never runs under it.
+            className={cn("pl-8 text-ellipsis", showClear && "pr-8")}
+            aria-label="Search work items"
+          />
+          {showClear && (
+            <InBoxClear
+              onClear={() => {
+                setDraft("");
+                onClear!();
+                input.current?.focus();
+              }}
+              className="top-1/2 -translate-y-1/2"
+            />
+          )}
+        </div>
+        {flat && (
+          // Out of the row's flow, so it moves nothing; announced when it
+          // appears. It hangs from the BAR's bottom edge (the board's bar is
+          // `relative`; nothing between is positioned), at the box's left edge
+          // (no `left`: its static position). Hung from the box itself, it
+          // covered the controls on the row's next line at most widths
+          // (Swimlanes, Select, Group by, Timeline's lenses: measured).
+          // Above the board, a table's sticky header (z-10) and the bar's
+          // Filtering pill (z-20).
+          <div aria-live="polite" className="absolute top-full z-30 mt-1">
+            {suggest && (
+              <button
+                type="button"
+                // Keep the box's focus: in Safari a pressed button isn't
+                // focused, the box's blur would hide this before the click.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={runAsQuery}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setDismissed(draft);
+                    input.current?.focus();
+                  }
+                }}
+                className={cn(RUN_AS_QUERY, "whitespace-nowrap bg-[var(--surface)] shadow-md")}
+              >
+                Run as a query
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <QueryChips orgId={orgId} schema={schema} chips={rest} matchAny={matchAny} onChange={(c, any) => emit(c, any, text)} />
       {filterHits.map((f) => (
@@ -333,19 +492,17 @@ function BasicMode({
           <span className="max-w-[12rem] truncate">{f.name}</span>
         </button>
       ))}
-      {looksLikeQuery(draft) && (
-        // This box searches for what you type as a PHRASE. A query typed here
-        // matches nothing and says nothing about why, because nothing was
-        // parsed — which is exactly how "type == feature showed nothing"
-        // happened. Offer the other reading rather than silently finding none.
-        <button
-          type="button"
-          onClick={() => onRunAsQuery(draft.trim())}
-          className="shrink-0 rounded-md border border-[var(--primary)] px-2.5 py-1.5 text-xs text-[var(--primary)] hover:bg-[var(--primary)] hover:text-[var(--primary-foreground,white)]"
-        >
+      {/* This box searches for what you type as a PHRASE. A query typed here
+          matches nothing and says nothing about why, because nothing was
+          parsed — which is exactly how "type == feature showed nothing"
+          happened. Offer the other reading rather than silently finding none.
+          (In a board's bar, the suggestion under the box above.) */}
+      {!flat && asQuery && (
+        <button type="button" onClick={runAsQuery} className={cn(RUN_AS_QUERY, "shrink-0")}>
           Run as a query
         </button>
       )}
+      {trailing}
     </div>
   );
 }
@@ -356,12 +513,17 @@ function AdvancedMode({
   cql,
   onRun,
   serverDiagnostics,
+  onClear,
+  trailing,
 }: {
   orgId: string;
   schema: CqlClientSchema;
   cql: string;
   onRun: (cql: string) => void;
   serverDiagnostics: CqlDiagnostic[];
+  /** Clear, inside the query box; a board's bar only. */
+  onClear?: () => void;
+  trailing?: ReactNode;
 }) {
   const narrow = useNarrow();
   const [draft, setDraft] = useState(cql);
@@ -394,35 +556,63 @@ function AdvancedMode({
   // query chips then refuse ("has two conditions on one field").
   const addable = useMemo(() => fieldsIn(draft), [draft]);
 
+  const showClear = !!onClear && (cql.trim() !== "" || draft.trim() !== "");
+  const clearIn = showClear && (
+    <InBoxClear
+      onClear={() => {
+        setDraft("");
+        onClear!();
+      }}
+      className="top-1"
+    />
+  );
+
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <div className="flex min-w-0 flex-wrap items-start gap-2">
+    // With `trailing` this box dissolves into the builder's row: the editor's
+    // row grows beside the How-to-filter toggle, and the Add filter row and
+    // the panels below take whole lines, the band's full width.
+    <div className={trailing !== undefined ? "contents" : "flex min-w-0 flex-1 flex-col gap-2"}>
+      {/* Under 640px the buttons' line sits 4px under the box, not 8px: with
+          the box on a line of its own, 8px left this row 4px taller than main
+          at 624px (Timeline, Dashboard). */}
+      <div className={cn("flex min-w-0 flex-wrap items-start gap-x-2", narrow ? "gap-y-1" : "gap-y-2", trailing !== undefined && "flex-1")}>
         {narrow ? (
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                run();
-              }
-            }}
-            rows={2}
-            aria-label="Query"
-            placeholder="assignee = me AND priority IN (HIGH, CRITICAL)"
-            className="min-w-0 flex-1 font-mono text-sm"
-            spellCheck={false}
-          />
+          // A line of its own (`basis-full`), with Run query and the rest under
+          // it. At `flex-1` its basis was 0, so the buttons took the line first
+          // and a 390px phone was left a box about 45px wide, the placeholder
+          // wrapping a few letters per line.
+          <div className="relative min-w-0 grow basis-full">
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  run();
+                }
+              }}
+              rows={2}
+              aria-label="Query"
+              placeholder="assignee = me AND priority IN (HIGH, CRITICAL)"
+              className={cn("font-mono text-sm", showClear && "pr-8")}
+              spellCheck={false}
+            />
+            {clearIn}
+          </div>
         ) : (
-          <CqlEditor
-            orgId={orgId}
-            value={draft}
-            onChange={setDraft}
-            onRun={(t) => run(t)}
-            onHelp={() => setHelp((h) => !h)}
-            schema={schema}
-            serverDiagnostics={findings}
-          />
+          // Room on the right for Clear, so the query never runs under it.
+          <div className={cn("relative min-w-0 flex-1", showClear && "[&_.cm-content]:pr-8!")}>
+            <CqlEditor
+              orgId={orgId}
+              value={draft}
+              onChange={setDraft}
+              onRun={(t) => run(t)}
+              onHelp={() => setHelp((h) => !h)}
+              schema={schema}
+              serverDiagnostics={findings}
+            />
+            {clearIn}
+          </div>
         )}
         <Button size="sm" onClick={() => run()} className="gap-1.5">
           <Play className="h-3.5 w-3.5" aria-hidden /> Run query
@@ -448,27 +638,32 @@ function AdvancedMode({
           right" — here too, not only in chips. This appends `AND <clause>` to
           the text and runs it, so it works on the grouped and history queries
           that forced the bar into this editor in the first place. */}
-      <QueryChips
-        orgId={orgId}
-        schema={schema}
-        chips={[]}
-        matchAny={false}
-        hideMatch
-        excludeFields={addable}
-        onChange={(c) => {
-          const chip = c[c.length - 1];
-          if (!chip) return;
-          const r = appendChip(draft, chip);
-          if (r.ok) {
-            setDraft(r.cql);
-            onRun(r.cql);
-          } else toast.error(`Couldn't add that filter: ${r.reason}.`);
-        }}
-      />
+      <div className={trailing !== undefined ? "flex min-w-0 basis-full flex-wrap items-center gap-x-2 gap-y-1" : "contents"}>
+        <QueryChips
+          orgId={orgId}
+          schema={schema}
+          chips={[]}
+          matchAny={false}
+          hideMatch
+          excludeFields={addable}
+          onChange={(c) => {
+            const chip = c[c.length - 1];
+            if (!chip) return;
+            const r = appendChip(draft, chip);
+            if (r.ok) {
+              setDraft(r.cql);
+              onRun(r.cql);
+            } else toast.error(`Couldn't add that filter: ${r.reason}.`);
+          }}
+        />
+        {trailing}
+      </div>
       {/* The textarea has no inline lint, so its findings are listed. */}
-      {narrow && draft !== cql && <Diagnostics items={findings} text={draft} />}
-      {ask && <AskAi orgId={orgId} onQuery={setDraft} />}
-      {help && <SyntaxHelp onPick={(q) => setDraft(q)} />}
+      <div className={trailing !== undefined ? "basis-full space-y-2 empty:hidden" : "contents"}>
+        {narrow && draft !== cql && <Diagnostics items={findings} text={draft} />}
+        {ask && <AskAi orgId={orgId} onQuery={setDraft} />}
+        {help && <SyntaxHelp onPick={(q) => setDraft(q)} />}
+      </div>
     </div>
   );
 }
