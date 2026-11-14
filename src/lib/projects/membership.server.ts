@@ -149,8 +149,12 @@ export async function addTeamMember(
 
   // The invariant the FK enforces, checked here so it reads as a 400 rather
   // than surfacing a raw constraint violation as a 500: you cannot be on a
-  // project's team without being on the project.
-  const pm = await prisma.projectMember.findFirst({ where: { id: projectMemberId, projectId }, select: { id: true } });
+  // project's team without being on the project. Nor without being in the org:
+  // a removed person's project membership is retained, not current.
+  const pm = await prisma.projectMember.findFirst({
+    where: { id: projectMemberId, projectId, orgMember: { removedAt: null } },
+    select: { id: true },
+  });
   if (!pm) throw new ProblemError(400, "invalid_request", "That person is not a member of this project.");
 
   const existing = await prisma.teamMember.findFirst({ where: { teamId, projectMemberId }, select: { id: true } });

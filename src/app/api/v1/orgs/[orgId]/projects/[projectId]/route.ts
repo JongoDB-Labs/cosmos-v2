@@ -54,7 +54,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           orderBy: { sortOrder: "asc" },
         },
         intervals: { orderBy: { number: "desc" } },
+        // Current members only: a nested relation load does not pass through the
+        // removed-member extension in src/lib/db/client.ts, so the filter is
+        // written out here, and in the count below.
         members: {
+          where: { orgMember: { removedAt: null } },
           include: {
             orgMember: {
               select: {
@@ -67,7 +71,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             },
           },
         },
-        _count: { select: { boards: true, intervals: true, members: true } },
+        _count: { select: { boards: true, intervals: true, members: { where: { orgMember: { removedAt: null } } } } },
       },
     });
 
@@ -162,7 +166,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.number !== undefined && { number: data.number }),
       },
       include: {
-        _count: { select: { boards: true, intervals: true, members: true } },
+        _count: { select: { boards: true, intervals: true, members: { where: { orgMember: { removedAt: null } } } } },
       },
     });
 

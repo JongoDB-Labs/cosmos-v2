@@ -39,8 +39,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
+    // A current member's row only. A removed person's project membership is
+    // retained for their reinstatement; editing it here (a role, say) would hand
+    // them that on return, past the check the Members page makes on its target.
     const member = await prisma.projectMember.findFirst({
-      where: { id: memberId, projectId, project: { orgId } },
+      where: { id: memberId, projectId, project: { orgId }, orgMember: { removedAt: null } },
     });
     if (!member) return new Response("Not found", { status: 404 });
 

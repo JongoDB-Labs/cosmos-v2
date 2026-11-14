@@ -26,7 +26,8 @@ const OVER_CEILING = () =>
 async function load(orgId: string, roleId: string) {
   return prisma.workRole.findFirst({
     where: { id: roleId, orgId },
-    include: { _count: { select: { members: true } } },
+    // Current holders only; a relation count bypasses the removed-member extension.
+    include: { _count: { select: { members: { where: { orgMember: { removedAt: null } } } } } },
   });
 }
 

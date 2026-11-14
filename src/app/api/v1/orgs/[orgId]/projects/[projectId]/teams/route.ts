@@ -57,7 +57,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams): Promi
         id: true,
         name: true,
         key: true,
+        // Current members only. A removed person's team membership is retained for
+        // their reinstatement, and a nested relation load does not pass through the
+        // removed-member extension in src/lib/db/client.ts.
         members: {
+          where: { projectMember: { orgMember: { removedAt: null } } },
           select: {
             id: true,
             isLead: true,

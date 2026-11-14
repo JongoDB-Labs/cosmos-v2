@@ -40,8 +40,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     // Explicit select throughout — OrgMember.permissions is a permission mask
     // and must never ride out in a response payload.
+    // Current members only. A removed person's project membership is retained for
+    // their reinstatement, and this model does not pass through the removed-member
+    // extension in src/lib/db/client.ts, so the filter is written out here.
     const members = await prisma.projectMember.findMany({
-      where: { projectId },
+      where: { projectId, orgMember: { removedAt: null } },
       select: {
         id: true,
         orgMemberId: true,

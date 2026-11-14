@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.13",
+    date: "2026-11-14",
+    title: "People removed from an organization leave its lists",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Someone removed from your organization no longer appears in project member lists, team rosters or a work role\u2019s holders, and is no longer counted in the member counts on projects and work roles. Cosmo no longer lists them either.",
+      },
+      {
+        kind: "fix",
+        text: "Someone removed from your organization can no longer be added to a team, by you or by Cosmo, and their project role can no longer be changed from the staffing register.",
+      },
+      {
+        kind: "fix",
+        text: "Saving a work role\u2019s list of holders no longer takes the role away from people who were removed from the organization, so re-adding someone brings their work roles back as intended.",
+      },
+      {
+        kind: "improvement",
+        text: "Sprint planning, sprint reviews, the team filter and team swimlanes count only current members as a team\u2019s people. Work still assigned to someone who was removed, and that names no team, now shows under \u201cNo team\u201d until it is reassigned.",
+      },
+    ],
+  },
+  {
     version: "2.561.5",
     date: "2026-11-14",
     title: "Restrictions and removals apply consistently",

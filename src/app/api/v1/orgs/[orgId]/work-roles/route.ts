@@ -29,7 +29,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const roles = await prisma.workRole.findMany({
       where: { orgId },
       orderBy: { createdAt: "asc" },
-      include: { _count: { select: { members: true } } },
+      // Current holders only; a relation count bypasses the removed-member extension.
+      include: { _count: { select: { members: { where: { orgMember: { removedAt: null } } } } } },
     });
 
     return success(roles.map(toWorkRoleDto));
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           grants: maskToDb(mask),
           policies: (data.policies ?? []) as Prisma.InputJsonValue,
         },
-        include: { _count: { select: { members: true } } },
+        include: { _count: { select: { members: { where: { orgMember: { removedAt: null } } } } } },
       });
       await logAudit({
         orgId,
