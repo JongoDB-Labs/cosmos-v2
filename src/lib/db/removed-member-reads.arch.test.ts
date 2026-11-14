@@ -223,7 +223,21 @@ const ALLOWED: Record<string, { sites: number; reason: string }> = {
       "A team subscription's recipients. Each one is re-checked with " +
       "loadMemberAuthContext, which answers null for a removed member, and skipped.",
   },
-  "src/lib/rbac/project-access.ts": { sites: 3, reason: ACTOR },
+  "src/lib/rbac/foreign-refs.ts": {
+    sites: 1,
+    reason:
+      "The `memberOrFormer` rule: a count that checks a written id names someone the " +
+      "org has had as a member, removed or not, for a write that carries history " +
+      "forward (a merge keeps a removed member's assignment). It returns no rows and " +
+      "grants nothing; requests that name a person use the `member` rule.",
+  },
+  "src/lib/rbac/project-access.ts": {
+    sites: 4,
+    reason:
+      ACTOR +
+      " `projectReaders` reads other people's rows the same way: keyed by the ids a " +
+      "filtered `orgMember` read just found, so only current members are judged.",
+  },
   "src/lib/rbac/project-role.ts": { sites: 1, reason: ACTOR },
   "src/lib/rbac/scope.ts": { sites: 2, reason: ACTOR },
   "src/lib/rbac/team-membership.ts": { sites: 1, reason: ACTOR },
