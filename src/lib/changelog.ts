@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.19",
+    date: "2026-11-14",
+    title: "Cosmo is clearer about what it did",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Cosmo asks for your yes before a change, its chip now reads \u201cProposed\u201d instead of \u201cRan\u201d, because nothing has changed yet. A call that was refused reads \u201cNot done\u201d.",
+      },
+      {
+        kind: "fix",
+        text: "A preview of a single change, such as adding someone to a team, now counts the one thing it changes, not the project and team it names as well.",
+      },
+      {
+        kind: "fix",
+        text: "In a chat where results are withheld from Cosmo, it is now told when a tool refused, and why when the reason is safe to show, instead of being handed an empty result.",
+      },
+      {
+        kind: "fix",
+        text: "Asking Cosmo for the saved views of a project you can\u2019t see now gives an empty list, the same as the app, instead of saying the project doesn\u2019t exist.",
+      },
+      {
+        kind: "fix",
+        text: "The label on a deleted item\u2019s card in Cosmo\u2019s chat is easier to read.",
+      },
+    ],
+  },
+  {
     version: "2.561.15",
     date: "2026-11-14",
     title: "Errors say what went wrong",

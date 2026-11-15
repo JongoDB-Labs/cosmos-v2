@@ -17,6 +17,7 @@ import {
 } from "./executors/work-items";
 import { searchWorkItems, describeCql } from "./executors/cql";
 import { executePluginTool, pluginOwnerOf } from "./plugin-tools";
+import { badIdRefusal, internalFailureRefusal } from "./egress/refusal";
 import { listNotes, createNote, updateNote, shareNote, deleteNote } from "./executors/notes";
 import { addComment, listComments, deleteComment } from "./executors/comments";
 import { logTime, listTimeEntries } from "./executors/time";
@@ -290,9 +291,7 @@ function toolFailureResult(name: string, err: unknown): { error: string } {
   const code = (err as { code?: unknown } | null)?.code;
   console.error(`[executeTool] ${name} failed:`, (err as Error)?.message ?? err);
   if (typeof code === "string" && BAD_INPUT_PRISMA_CODES.has(code)) {
-    return {
-      error: `The ${name} tool was called with an id that isn't a valid record id. Look the record up by name first and retry with the id it returns.`,
-    };
+    return { error: badIdRefusal(name) };
   }
   // Say the cause is INTERNAL and forbid guessing one.
   //
@@ -305,14 +304,9 @@ function toolFailureResult(name: string, err: unknown): { error: string } {
   // trim their diagram and retry. Nothing was wrong with what they asked for.
   //
   // A tool that threw knows nothing about the request's merits, so the result
-  // must not leave room to speculate about them.
-  return {
-    error:
-      `The ${name} tool failed for an internal reason. This is NOT caused by anything ` +
-      `in the request, so do not guess at a cause and do not suggest the user change, ` +
-      `shorten or simplify what they asked for. Tell them it couldn't be completed and ` +
-      `that they can try again.`,
-  };
+  // must not leave room to speculate about them. The text lives in
+  // egress/refusal.ts so a withheld result can still hand it to the model.
+  return { error: internalFailureRefusal(name) };
 }
 
 export async function executeTool(

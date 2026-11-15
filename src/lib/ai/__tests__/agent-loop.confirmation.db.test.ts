@@ -418,6 +418,29 @@ describe("a change of access needs the user's yes", () => {
     }
   });
 
+  it("a preview counts the one thing the call acts on, not the project or team it names", async () => {
+    // The count used to take every *Id argument as a target, so adding one
+    // person to a team was previewed as "3 targets": the project, the team and
+    // the person. The tool's own declaration (confirmTargets) says which.
+    const p = await orgMember("counted");
+    const pm = await prisma.projectMember.create({ data: { projectId, orgMemberId: p.orgMemberId, role: "MEMBER" } });
+    const team = await prisma.team.create({ data: { orgId, projectId, name: `Counted ${stamp}` } });
+    const view = await prisma.savedView.create({ data: { orgId, ownerId, name: `Counted ${stamp}`, cqlText: "priority = HIGH" } });
+    const conv = await conversation();
+    const { results } = await run(conv, [[
+      { name: "add_team_member", input: { projectId, teamId: team.id, userId: p.userId } },
+      { name: "share_saved_view", input: { viewId: view.id, visibility: "TEAM", projectId, teamId: team.id } },
+    ]]);
+    expect(results.map((r) => r.status)).toEqual(["confirmation_required", "confirmation_required"]);
+    expect(results[0]).toMatchObject({ targetCount: 1, targetIds: [p.userId] });
+    expect(results[1]).toMatchObject({ targetCount: 1, targetIds: [view.id] });
+    // The preview still shows every argument, project and team included.
+    expect(results[0].change).toEqual({ projectId, teamId: team.id, userId: p.userId });
+    // Nothing was written.
+    expect(await prisma.teamMember.count({ where: { teamId: team.id, projectMemberId: pm.id } })).toBe(0);
+    expect((await prisma.savedView.findUniqueOrThrow({ where: { id: view.id } })).visibility).toBe("PRIVATE");
+  });
+
   it("is not offered where the user can't be asked", async () => {
     const { offered } = await run("00000000-0000-4000-8000-000000000000", [[]]);
     for (const n of ["add_project_member", "add_team_member", "share_saved_view"]) expect(offered).not.toContain(n);
