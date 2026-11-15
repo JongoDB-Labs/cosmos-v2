@@ -109,7 +109,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     // Answer with what a read now shows. The stored row's progress is a copy
     // nothing keeps current (lib/okr/rollup.server).
-    const updated = await liveObjective({ id: objectiveId });
+    const updated = await liveObjective({ id: objectiveId, orgId, projectId });
     if (!updated) return problem(404, "not_found", undefined, { request });
     return respond(updateObjective, 200, updated);
   } catch (e) {
