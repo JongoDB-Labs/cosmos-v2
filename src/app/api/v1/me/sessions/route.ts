@@ -17,8 +17,8 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    // `id` is a handle, not the session id: the session id is the sign-in
-    // cookie's value. DELETE /me/sessions/{id} takes the handle.
+    // `id` is a handle, not the session's row id (see sessionHandle). Both
+    // sides here are row ids. DELETE /me/sessions/{id} takes the handle.
     const payload = sessions.map((s) => ({
       id: sessionHandle(s.id),
       createdAt: s.createdAt,

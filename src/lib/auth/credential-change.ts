@@ -12,7 +12,9 @@ import { logAudit } from "@/lib/audit";
  *
  * Deleting the `Session` row is what ends a sign-in. The `SessionRecord`
  * mirrors that the org Sessions view lists are marked REVOKED to match,
- * best-effort, as `revokeOrgSessions` does.
+ * best-effort, as `revokeOrgSessions` does. `keepSessionId` is a row id
+ * (`SessionUser.sessionId`), which is also what a record's `sessionToken`
+ * holds, so the one value spares the session in both tables.
  */
 export async function endOtherSessions(userId: string, keepSessionId?: string | null): Promise<number> {
   const keep = keepSessionId ? { not: keepSessionId } : undefined;

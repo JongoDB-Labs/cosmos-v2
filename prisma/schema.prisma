@@ -487,6 +487,8 @@ model User {
 }
 
 model Session {
+  // sessionRowId(cookie token): a SHA-256 hex of the sign-in cookie, never the
+  // cookie itself (src/lib/auth/session-id.ts).
   id             String   @id
   userId         String   @map("user_id") @db.Uuid
   expiresAt      DateTime @map("expires_at")
@@ -3184,6 +3186,7 @@ model SessionRecord {
   id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId        String        @map("org_id") @db.Uuid
   userId       String        @map("user_id") @db.Uuid
+  // The Session's row id (sessionRowId of the cookie), not the cookie.
   sessionToken String        @unique @map("session_token")
   ipAddress    String?       @map("ip_address")
   userAgent    String?       @map("user_agent")

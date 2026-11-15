@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { SKIN_COOKIE } from "@/lib/theme/cookie";
+import { sessionRowId } from "@/lib/auth/session-id";
 
 const { prisma } = vi.hoisted(() => ({
   prisma: { session: { delete: vi.fn() } },
@@ -37,7 +38,8 @@ describe("logout — clears the skin cookie (device-level cache)", () => {
     expect(res.headers.get("location")).toContain("/login");
     expect(res.cookies.get(SESSION_COOKIE)?.value).toBe("");
     expect(res.cookies.get(SKIN_COOKIE)?.value).toBe("");
-    expect(prisma.session.delete).toHaveBeenCalledWith({ where: { id: "sess-123" } });
+    // The row is keyed by the hash of the cookie value, never the value itself.
+    expect(prisma.session.delete).toHaveBeenCalledWith({ where: { id: sessionRowId("sess-123") } });
   });
 
   it("still clears the skin cookie when there is no session cookie to begin with", async () => {

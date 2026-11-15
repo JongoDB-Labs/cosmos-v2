@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { endMemberCredentialsIn } from "@/lib/members/credentials.server";
 import { autoJoinGeneral } from "@/lib/chat/seed-general";
 import { SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
+import { sessionRowId } from "@/lib/auth/session-id";
 import { openSecret } from "@/lib/crypto/vault";
 import { fetchPublicUrl } from "@/lib/security/outbound-post.server";
 import { escapeLike } from "@/lib/query/like";
@@ -84,7 +85,7 @@ export interface SsoRequestContext {
 }
 
 export type SsoLoginResult =
-  | { ok: true; sessionId: string; userId: string; mfaSatisfied: boolean }
+  | { ok: true; /** The session cookie's value; the row is stored under its hash. */ token: string; userId: string; mfaSatisfied: boolean }
   | {
       ok: false;
       reason:
@@ -614,8 +615,10 @@ export async function completeSsoLogin(
   });
 
   // 6. Mint the session — byte-identical tail to google/callback, PLUS the
-  //    assurance columns (authMethod / idpConnId / amr / mfaSatisfied).
-  const sessionId = crypto.randomBytes(32).toString("hex");
+  //    assurance columns (authMethod / idpConnId / amr / mfaSatisfied). The
+  //    cookie gets the token; both rows keep only its hash (`sessionRowId`).
+  const token = crypto.randomBytes(32).toString("hex");
+  const sessionId = sessionRowId(token);
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000);
   await prisma.session.create({
     data: {
@@ -644,5 +647,5 @@ export async function completeSsoLogin(
     })
     .catch(() => undefined);
 
-  return { ok: true, sessionId, userId, mfaSatisfied: floorSatisfied };
+  return { ok: true, token, userId, mfaSatisfied: floorSatisfied };
 }

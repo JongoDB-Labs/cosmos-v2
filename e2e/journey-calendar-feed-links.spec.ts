@@ -3,6 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { createHash, randomBytes } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import { blocking, runAxe } from "./fixtures/axe";
+import { sessionRowId } from "../src/lib/auth/session-id";
 
 /**
  * E2E journey: a calendar link that single sign-on has stopped says so.
@@ -44,9 +45,10 @@ test.beforeAll(async () => {
   userId = (await prisma.user.create({ data: { email: `cfl-e2e-${stamp}@feeds.test`, displayName: `Feed person ${stamp}` } })).id;
   // ADMIN: they turn the org's calendar switch on themselves, as an admin does.
   await prisma.orgMember.create({ data: { orgId, userId, role: "ADMIN" } });
+  // The cookie carries the token; the row is keyed by its hash, as a real sign-in stores it.
   session = randomBytes(32).toString("hex");
   await prisma.session.create({
-    data: { id: session, userId, expiresAt: new Date(Date.now() + 86_400_000), authMethod: "oidc", idpConnId: conn.id },
+    data: { id: sessionRowId(session), userId, expiresAt: new Date(Date.now() + 86_400_000), authMethod: "oidc", idpConnId: conn.id },
   });
   // Made before single sign-on was required: no IdP behind it.
   await prisma.calendarFeed.create({

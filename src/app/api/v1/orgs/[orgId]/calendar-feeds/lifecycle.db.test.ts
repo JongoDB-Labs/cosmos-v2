@@ -13,6 +13,7 @@ import { describe, it, expect, vi, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 import { newFeedToken } from "@/lib/calendar/feed-token";
 import { renderFeed } from "@/lib/calendar/feed.server";
@@ -70,8 +71,7 @@ async function person(orgId: string, role: "ADMIN" | "MEMBER") {
   const userId = (await prisma.user.create({ data: { email: `cfl-${k}-${stamp}@feeds.test`, displayName: `Feed person ${k} ${stamp}` } })).id;
   userIds.push(userId);
   const memberId = (await prisma.orgMember.create({ data: { orgId, userId, role } })).id;
-  const session = randomBytes(24).toString("hex");
-  await prisma.session.create({ data: { id: session, userId, expiresAt: new Date(Date.now() + DAY) } });
+  const session = await createTestSession({ userId, expiresAt: new Date(Date.now() + DAY) });
   return { userId, memberId, session } satisfies Person;
 }
 async function link(orgId: string, p: Person, extra: { revokedAt?: Date } = {}) {

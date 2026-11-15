@@ -10,13 +10,17 @@
  */
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
 
 const DEV_EMAIL = "dev-playwright@cosmos.local";
+
+// The row is stored under a hash of the cookie's value, as the app stores it:
+// a copy of src/lib/auth/session-id.ts, which a plain node script can't import.
+const sessionRowId = (token) => createHash("sha256").update(token, "utf8").digest("hex");
 
 async function main() {
   // Pick the first org. We need *some* org to slot the user into; we don't
@@ -55,11 +59,11 @@ async function main() {
     create: { orgId: org.id, userId: user.id, role: "OWNER" },
   });
 
-  // Mint a session
+  // Mint a session: the cookie gets `sessionId`, the row its hash.
   const sessionId = randomUUID();
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   await prisma.session.create({
-    data: { id: sessionId, userId: user.id, expiresAt },
+    data: { id: sessionRowId(sessionId), userId: user.id, expiresAt },
   });
 
   console.log(JSON.stringify({
