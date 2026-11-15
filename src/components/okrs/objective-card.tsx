@@ -26,6 +26,7 @@ export const HEALTH_VARIANT: Record<ObjectiveHealth, BadgeVariant> = {
   at_risk: "review",
   behind: "critical",
   no_date: "neutral",
+  cancelled: "neutral",
 };
 import type { Objective } from "@/types/models";
 
@@ -212,11 +213,12 @@ export function ObjectiveCard({
           <div className="flex items-center gap-2">
             <h3 className="font-medium text-sm truncate">{objective.title}</h3>
             <Badge variant="neutral">{statusLabels[objective.status]}</Badge>
-            {/* Past its due day says so outright; otherwise the pacing stoplight. */}
+            {/* Past its due day says so outright; otherwise the pacing stoplight.
+                A cancelled one has no pace, and its status badge already says so. */}
             {objective.overdue ? (
               <Badge variant="critical" className="shrink-0">Overdue</Badge>
             ) : (
-              objective.health && objective.health !== "no_date" && (
+              objective.health && objective.health !== "no_date" && objective.health !== "cancelled" && (
                 <Badge variant={HEALTH_VARIANT[objective.health]} className="shrink-0">
                   {HEALTH_LABEL[objective.health]}
                 </Badge>
@@ -231,7 +233,9 @@ export function ObjectiveCard({
             )}
           </div>
           <div className="flex items-center gap-3 mt-1.5">
-            <div className="flex-1 max-w-xs h-1.5 bg-muted rounded-full overflow-hidden">
+            {/* The track is --border, as pm-dashboard's BurnBar. It was muted,
+                which is the same --surface as the card, so 0% drew nothing. */}
+            <div className="flex-1 max-w-xs h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
               <div
                 className={cn(
                   "h-full rounded-full transition-all",

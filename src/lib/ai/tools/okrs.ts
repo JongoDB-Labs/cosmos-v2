@@ -11,7 +11,7 @@ export const okrTools: ToolDefinition[] = [
   {
     name: "list_objectives",
     description:
-      "List objectives with their key results, rolled-up progress (0-100), health (on-track / at-risk / behind), whether each is overdue (its target day has passed and it isn't completed or cancelled), and what each depends on. A key result with linked work items counts the done ones as its current value and all of them as its target, unless a target was set. Optionally scope to one project.",
+      "List objectives with their key results, rolled-up progress (0-100), health (on-track / at-risk / behind, or cancelled), whether each is overdue (its target day has passed and it isn't completed or cancelled), and what each depends on. A key result with linked work items counts the done ones as its current value and all of them as its target, unless a target was set, and its status is DONE once that reaches 100%. Optionally scope to one project.",
     input_schema: {
       type: "object",
       properties: {
@@ -82,7 +82,7 @@ export const okrTools: ToolDefinition[] = [
   {
     name: "update_key_result",
     description:
-      "Update a key result's title, values, or status. The parent objective's progress is recomputed.",
+      "Update a key result's title, values, or status. The parent objective's progress is recomputed. A key result with linked work items is measured by them: its current value is the count done, and it shows DONE exactly when that reaches its target, whatever status is set.",
     input_schema: {
       type: "object",
       properties: {

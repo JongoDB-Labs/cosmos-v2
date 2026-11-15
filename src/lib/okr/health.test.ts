@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isOverdue, objectiveHealth } from "./health";
+import { HEALTH_LABEL, isOverdue, objectiveHealth } from "./health";
 
 const DAY = 86400_000;
 const now = 1_000_000_000_000; // fixed "now"
@@ -39,6 +39,17 @@ describe("objectiveHealth", () => {
 
   it("stays on_track when there's no usable start window", () => {
     expect(objectiveHealth(5, target, "ACTIVE", null, now)).toBe("on_track");
+  });
+
+  it("is cancelled, not behind, for a cancelled objective past its due day", () => {
+    // Control: the same objective still active is behind.
+    expect(objectiveHealth(10, now - DAY, "ACTIVE", start, now)).toBe("behind");
+    expect(objectiveHealth(10, now - DAY, "CANCELLED", start, now)).toBe("cancelled");
+    // Nor does pace, a missing date or full progress give it a stoplight.
+    expect(objectiveHealth(10, target, "CANCELLED", start, now)).toBe("cancelled");
+    expect(objectiveHealth(10, null, "CANCELLED", start, now)).toBe("cancelled");
+    expect(objectiveHealth(100, target, "CANCELLED", start, now)).toBe("cancelled");
+    expect(HEALTH_LABEL.cancelled).toBe("Cancelled");
   });
 });
 

@@ -12,7 +12,8 @@ export const KeyResult = z.object({
   targetValue: z.number(),
   unit: z.string(),
   lowerIsBetter: z.boolean(),
-  status: z.enum(E.KeyResultStatus),
+  status: z.enum(E.KeyResultStatus)
+    .describe("With linked work items it follows them: `DONE` exactly when they bring it to its target, and not `NOT_STARTED` once it has moved. A check-in's `ON_TRACK` or `AT_RISK` stands until then. Without links, the status as set."),
   ownerId: NullableUuid,
   sortOrder: z.number().int(),
   confidence: z.number().int().nullable().describe("0–100, from the latest check-in."),
@@ -55,7 +56,12 @@ const Tracking = {
   linkedDone: z.number().int(),
 };
 
-const ObjectiveHealth = z.enum(["done", "on_track", "at_risk", "behind", "no_date"]);
+// Extensible, as Problem.code is: a closed enum makes every new state a
+// breaking change, and "cancelled" was one (a cancelled objective read
+// "behind"). A client treats a value it doesn't know as no stoplight.
+const ObjectiveHealth = z.string().meta({
+  "x-extensible-enum": ["done", "on_track", "at_risk", "behind", "no_date", "cancelled"],
+});
 const Overdue = z.boolean().describe("Past the end of its target day, and neither completed nor cancelled.");
 
 /** "This objective needs that one first." May cross projects, never orgs. */
