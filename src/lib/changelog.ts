@@ -49,6 +49,53 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.562.6",
+    date: "2026-11-16",
+    title: "Clearer for screen readers and easier to read",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Screen readers now say what a board card\u2019s number and picture mean: \u201c5 points\u201d and \u201cassigned to\u201d the person\u2019s name.",
+      },
+      {
+        kind: "fix",
+        text: "When a board card has more than one assignee, screen readers now say \u201c1 more assignee\u201d and the other person\u2019s name, instead of \u201cplus 1\u201d.",
+      },
+      {
+        kind: "fix",
+        text: "In the Work Items list, a status, priority or assignee cell is read as one phrase, such as \u201cTo Do, change status\u201d, without a stray pause in the middle.",
+      },
+      {
+        kind: "fix",
+        text: "The edit and delete buttons in the reports list now say which report they act on.",
+      },
+      {
+        kind: "fix",
+        text: "Buttons whose spoken name left out the words they show now include them, so people who control the app by voice can say what they see. This covers the role chips on the Team page, the Program Increment buttons on the sprint board, a workflow move\u2019s Rules button, the chat channel header, the payroll supervisors button and the options in searchable pickers.",
+      },
+      {
+        kind: "fix",
+        text: "Form error messages and the Blocked badge in the light theme use a darker colour, so they are easier to read.",
+      },
+      {
+        kind: "fix",
+        text: "Small grey text in the default theme is easier to read: a little darker in light mode and a little lighter in dark mode. This includes the item counts on calendar days, the tags on RAID cards, the selected file in the files list and the scopes in the Create API key dialog.",
+      },
+      {
+        kind: "fix",
+        text: "In Payroll, a person\u2019s Supervisor button no longer says \u201c\u2014 none \u2014\u201d before their supervisors have loaded. It says \u201cEdit\u201d until you open it, then who supervises them.",
+      },
+      {
+        kind: "fix",
+        text: "A click made just after moving to another page now works. Before, the page change ignored clicks for about a quarter of a second.",
+      },
+      {
+        kind: "fix",
+        text: "On the Security settings page, the Active Sessions heading now sits at the right level, so screen reader users can move through the page by heading.",
+      },
+    ],
+  },
+  {
     version: "2.562.5",
     date: "2026-11-16",
     title: "Program calendar events on the right day",

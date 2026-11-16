@@ -753,15 +753,15 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
             projectStatuses.find((s) => s.key === row.original.columnKey) ??
             facets?.statuses.find((s) => s.key === row.original.columnKey);
           const variant = status ? STATUS_VARIANT[status.category] ?? "neutral" : "neutral";
-          const display = (
-            <Badge variant={variant}>{status?.name ?? row.original.columnKey}</Badge>
-          );
+          const statusName = status?.name ?? row.original.columnKey;
+          const display = <Badge variant={variant}>{statusName}</Badge>;
           return (
             <InlineEditCell
               editable={canUpdateItem && projectStatuses.length > 0}
               label="status"
               value={row.original.columnKey}
               display={display}
+              text={statusName}
               options={projectStatuses.map((s) => ({ value: s.key, label: s.name }))}
               onSelect={(v) =>
                 void quickUpdate(
@@ -787,6 +787,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
                 {row.original.priority}
               </Badge>
             }
+            text={row.original.priority}
             options={(["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((p) => ({
               value: p,
               label: p.charAt(0) + p.slice(1).toLowerCase(),
@@ -834,6 +835,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
               label="assignee"
               value={a?.id ?? ""}
               display={display}
+              text={a ? `${a.displayName}${extras.length > 0 ? ` +${extras.length}` : ""}` : "Unassigned"}
               options={[
                 { value: "", label: "Unassigned" },
                 ...(facets?.members ?? []).map((m) => ({
@@ -1784,6 +1786,7 @@ function TableSkeleton() {
 function InlineEditCell({
   value,
   display,
+  text,
   options,
   onSelect,
   editable,
@@ -1791,6 +1794,8 @@ function InlineEditCell({
 }: {
   value: string;
   display: React.ReactNode;
+  /** What `display` shows, as words: the start of the trigger's name. */
+  text: string;
   options: { value: string; label: React.ReactNode }[];
   onSelect: (v: string) => void;
   editable: boolean;
@@ -1805,13 +1810,20 @@ function InlineEditCell({
           // over a "To Do" badge), which fails WCAG 2.5.3 Label in Name, and a
           // screen reader never heard the current value. The name is the value
           // the cell shows, then the action, e.g. "To Do, change status".
+          //
+          // ONE text run, with the display hidden from the name. Built from the
+          // display plus a ", change status" span, the name read "To Do ,
+          // change status": a name computed from content puts a space around
+          // every child that isn't inline, and both the badge (inline-flex) and
+          // the sr-only span (absolutely positioned) aren't. The assignee
+          // display also put its avatar initial in front of the name.
           <button
             type="button"
             onClick={(e) => e.stopPropagation()}
             className="-mx-1 rounded px-1 py-0.5 text-left transition-colors hover:bg-[var(--primary-tint)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {display}
-            <span className="sr-only">, change {label}</span>
+            <span aria-hidden="true">{display}</span>
+            <span className="sr-only">{`${text}, change ${label}`}</span>
           </button>
         }
       />
