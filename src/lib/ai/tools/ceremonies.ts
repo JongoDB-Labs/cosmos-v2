@@ -54,6 +54,7 @@ export const ceremonyTools: ToolDefinition[] = [
   {
     name: "close_ceremony",
     confirm: true,
+    confirmTargets: ["ceremonyId"],
     description:
       "Close a running ceremony, recording that it was held. Facilitators only, as for open_ceremony.",
     input_schema: {
@@ -101,6 +102,7 @@ export const ceremonyTools: ToolDefinition[] = [
   {
     name: "delete_ceremony_note",
     confirm: true,
+    confirmTargets: ["noteId"],
     description: "Delete a note. Only its author or a facilitator may.",
     input_schema: {
       type: "object",
@@ -149,6 +151,7 @@ export const ceremonyTools: ToolDefinition[] = [
   {
     name: "delete_ceremony_action",
     confirm: true,
+    confirmTargets: ["actionId"],
     description:
       "Delete an action item. A work item already promoted from it is kept.",
     input_schema: {

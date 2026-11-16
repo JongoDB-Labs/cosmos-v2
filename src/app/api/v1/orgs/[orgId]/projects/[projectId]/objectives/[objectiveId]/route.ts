@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireAccess } from "@/lib/abac/require-access";
 import { handleApiError } from "@/lib/api-helpers";
-import { measureKeyResult, rollUpObjective } from "@/lib/okr/progress";
+import { liveObjective } from "@/lib/okr/rollup.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -25,40 +25,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { params: { orgId, projectId, objectiveId } } = await parseRequest(getObjective, request, params);
     await requireProjectRead(ctx, projectId, "OKR_READ");
 
-    const objective = await prisma.objective.findFirst({
-      where: { id: objectiveId, orgId, projectId },
-      include: {
-        keyResults: {
-          orderBy: { sortOrder: "asc" },
-          include: { links: { select: { workItem: { select: { completedAt: true } } } } },
-        },
-        links: { select: { workItem: { select: { completedAt: true } } } },
-      },
-    });
-    if (!objective) return problem(404, "not_found", undefined, { request });
-
     // The same numbers the objectives list shows (lib/okr/progress), not the
     // stored copies: a key result counting linked work items reads its
-    // current value and target from them, and progress is computed live.
-    const measured = objective.keyResults.map((kr) => ({
-      kr,
-      m: measureKeyResult(kr, kr.links.map((l) => l.workItem)),
-    }));
-    const { progress } = rollUpObjective(
-      measured.map(({ m }) => m),
-      objective.links.map((l) => l.workItem),
-    );
-    return respond(getObjective, 200, {
-      ...objective,
-      links: undefined,
-      progress,
-      keyResults: measured.map(({ kr, m }) => ({
-        ...kr,
-        links: undefined,
-        currentValue: m.currentValue,
-        targetValue: m.targetValue,
-      })),
-    });
+    // current value, target and status from them, and progress is computed live.
+    const objective = await liveObjective({ id: objectiveId, orgId, projectId });
+    if (!objective) return problem(404, "not_found", undefined, { request });
+    return respond(getObjective, 200, objective);
   } catch (e) {
     return handleApiError(e, request);
   }
@@ -119,7 +91,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const updated = await prisma.objective.update({
+    await prisma.objective.update({
       where: { id: objectiveId },
       data: {
         ...(data.title !== undefined && { title: data.title }),
@@ -133,9 +105,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         ...(data.intervalId !== undefined && { intervalId: data.intervalId }),
         ...(data.committed !== undefined && { committed: data.committed }),
       },
-      include: { keyResults: { orderBy: { sortOrder: "asc" } } },
     });
 
+    // Answer with what a read now shows. The stored row's progress is a copy
+    // nothing keeps current (lib/okr/rollup.server).
+    const updated = await liveObjective({ id: objectiveId, orgId, projectId });
+    if (!updated) return problem(404, "not_found", undefined, { request });
     return respond(updateObjective, 200, updated);
   } catch (e) {
     return handleApiError(e, request);

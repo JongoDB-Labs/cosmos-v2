@@ -12,8 +12,8 @@ import { assertPermission, assertProjectRead, loadAuthContext, serviceRefusal, t
  * with the caller's AuthContext: who may see a filter, edit it, share it (ORG
  * needs FILTER_SHARE_ORG) or delete it is decided there, once, for both doors.
  * What these add is the agent's own contract: a pre-parse permission check, a
- * named project checked for access before anything else reads it, and the
- * service's refusals turned into `{ error }` in the API's own words.
+ * project named for sharing checked for access before anything else reads it,
+ * and the service's refusals turned into `{ error }` in the API's own words.
  */
 
 function invalid(error: z.ZodError): { error: string } {
@@ -76,16 +76,16 @@ export async function listSavedViews(input: Record<string, unknown>, ctx: ToolCo
   const parsed = listSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error);
   const { projectId } = parsed.data;
-  if (projectId) {
-    const outOfScope = await assertProjectRead(ctx, projectId, "ITEM_READ");
-    if (outOfScope) return outOfScope;
-  }
   const auth = await loadAuthContext(ctx);
   if (!auth) return { error: "Insufficient permissions" };
   const org = await orgOf(ctx);
   if (!org) return { error: "Organization not found" };
 
   try {
+    // No project gate of the tool's own: the service lists nothing for a
+    // project the caller can't read, the same as for one that doesn't exist,
+    // and that is what GET /saved-views?projectId= answers. Refusing here
+    // instead made Cosmo say "Project not found" where the API says "none".
     const views = await service.listSavedViews(auth, org, { projectId });
     return { count: views.length, views: views.map((v) => viewForModel(v, org.slug)) };
   } catch (e) {

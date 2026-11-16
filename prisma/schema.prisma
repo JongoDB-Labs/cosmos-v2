@@ -3786,7 +3786,10 @@ model Objective {
   ownerId     String?         @map("owner_id") @db.Uuid
   period      String?
   status      ObjectiveStatus @default(ACTIVE)
-  progress    Int             @default(0) // 0-100, derived from key results
+  // 0-100. A stored copy that goes stale (a linked ticket finishing never
+  // writes it), so the app never reads it: progress is computed live, by
+  // lib/okr/rollup.server.
+  progress    Int             @default(0)
   // Target/end date used for health (on-track / at-risk / behind = progress vs
   // time elapsed toward this date). Null = no dated health signal.
   targetDate  DateTime?       @map("target_date")

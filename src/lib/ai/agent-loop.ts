@@ -171,7 +171,12 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
   const offeredTools = channel
     ? tenantTools.map((t) => (isConfirmClass(t) ? withConfirmationArg(t) : t))
     : tenantTools.filter((t) => !isConfirmClass(t));
-  const confirmClass: ReadonlySet<string> = new Set(offeredTools.filter(isConfirmClass).map((t) => t.name));
+  // Each confirm-class tool, with the arguments it declares as its targets (what
+  // the preview counts; see `confirmTargets` on ToolDefinition).
+  const confirmTargets: ReadonlyMap<string, readonly string[] | undefined> = new Map(
+    offeredTools.filter(isConfirmClass).map((t) => [t.name, t.confirmTargets]),
+  );
+  const confirmClass: ReadonlySet<string> = new Set(confirmTargets.keys());
   const tools = toModelTools(offeredTools);
   // What the model was offered: the only names this run will execute.
   const offered: ReadonlySet<string> = new Set(offeredTools.map((t) => t.name));
@@ -410,6 +415,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
         const gate = await confirmationGate({
           channel, orgId: opts.orgId, userId: opts.userId, toolName: u.name, args: u.input, execInput,
           ctx: { orgId: opts.orgId, userId: opts.userId, auth: scopedAuth },
+          targets: confirmTargets.get(u.name),
         });
         if (gate.kind === "notice") {
           // Written by the confirmation step from the model's own arguments, ids and
@@ -495,7 +501,7 @@ export async function runAgentLoop(opts: RunAgentLoopOptions): Promise<AgentLoop
       // itself default-deny (unknown entity / non-entity ⇒ full withhold).
       let modelView = projected.decision.exposed
         ? projected.modelValue                                        // exposed: full value
-        : projectResult(output, entityTypeForTool(u.name));           // withheld: structural-only view
+        : projectResult(output, entityTypeForTool(u.name), u.name);   // withheld: structural-only view (a refusal keeps its server-written text)
       // ── MINT handles on WITHHOLD (augment the structural view) ──
       // Only on the withheld path (exposed already gives the model the value, so
       // there is nothing to reference). For each HANDLEABLE_FIELDS CUI string field

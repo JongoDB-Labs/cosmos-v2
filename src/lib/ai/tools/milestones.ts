@@ -55,6 +55,7 @@ export const milestoneTools: ToolDefinition[] = [
   {
     name: "delete_milestone",
     confirm: true,
+    confirmTargets: ["milestoneId"],
     description: "Delete a milestone.",
     input_schema: {
       type: "object",

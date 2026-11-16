@@ -15,7 +15,8 @@ import { useBrand } from "@/components/providers/brand-provider";
 import { detectMentionQuery, insertMentionToken } from "@/lib/mentions/input";
 import { useDrawers } from "@/components/drawers/drawer-provider";
 import type { ResolvedEntity } from "@/lib/mentions/refs";
-import { isToolCallRunning, finalizeToolCalls } from "@/lib/assistant/tool-status";
+import { finalizeToolCalls } from "@/lib/assistant/tool-status";
+import { ToolCallChip, labelForTool } from "./tool-call-chip";
 import {
   artifactsFromToolCalls,
   type ChatArtifact,
@@ -42,7 +43,6 @@ import {
   Mic,
   X,
   Loader2,
-  Wrench,
   Settings,
   ExternalLink,
   ArrowUpRight,
@@ -129,75 +129,6 @@ const TEXT_ATTACHMENT_EXTS = [
   ".html", ".js", ".ts", ".py", ".sh", ".sql", ".log",
 ];
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // 5 MB total
-
-// Friendly badges for known tools; falls back to `Running ${name}` for
-// anything not listed. Keep verbs in the present-progressive — these labels
-// surface while the tool is still executing.
-const TOOL_LABELS: Record<string, string> = {
-  create_project: "Creating project",
-  update_project: "Updating project",
-  delete_project: "Deleting project",
-  list_projects: "Listing projects",
-  get_project: "Loading project",
-  create_work_item: "Creating work item",
-  update_work_item: "Updating work item",
-  delete_work_item: "Deleting work item",
-  list_work_items: "Listing work items",
-  create_okr: "Creating OKR",
-  update_okr: "Updating OKR",
-  list_okrs: "Listing OKRs",
-  send_email: "Sending email",
-  search_emails: "Searching emails",
-  list_emails: "Listing emails",
-  create_calendar_event: "Creating calendar event",
-  list_calendar_events: "Listing calendar events",
-  search_files: "Searching files",
-  read_file: "Reading file",
-  write_file: "Writing file",
-};
-
-function labelForTool(name: string | undefined): string {
-  if (!name) return "Running tool";
-  return TOOL_LABELS[name] ?? `Running ${name}`;
-}
-
-/**
- * Convert a present-progressive tool label ("Creating project") to its
- * past-tense form ("Created project") for the post-execution badge.
- * Falls back to `Ran ${name}` when we don't have a canonical mapping —
- * the naive `-ing` → `-ed` substitution produces garbage like "Runned".
- */
-function pastTenseLabel(name: string | undefined): string {
-  if (!name) return "Ran tool";
-  const known = TOOL_LABELS[name];
-  if (!known) return `Ran ${name}`;
-  // Curated past-tense mappings keyed by the canonical present label.
-  // Anything not listed falls through to a regex substitution that handles
-  // the common "Verbing" → "Verbed" / "Verb-y" → "Verbed" cases.
-  const map: Record<string, string> = {
-    "Creating project": "Created project",
-    "Updating project": "Updated project",
-    "Deleting project": "Deleted project",
-    "Listing projects": "Listed projects",
-    "Loading project": "Loaded project",
-    "Creating work item": "Created work item",
-    "Updating work item": "Updated work item",
-    "Deleting work item": "Deleted work item",
-    "Listing work items": "Listed work items",
-    "Creating OKR": "Created OKR",
-    "Updating OKR": "Updated OKR",
-    "Listing OKRs": "Listed OKRs",
-    "Sending email": "Sent email",
-    "Searching emails": "Searched emails",
-    "Listing emails": "Listed emails",
-    "Creating calendar event": "Created calendar event",
-    "Listing calendar events": "Listed calendar events",
-    "Searching files": "Searched files",
-    "Reading file": "Read file",
-    "Writing file": "Wrote file",
-  };
-  return map[known] ?? known;
-}
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -1522,31 +1453,9 @@ function MessageBubble({
       <div className="rounded-xl bg-muted px-4 py-2.5 max-w-[80%] min-w-0">
         {toolCalls.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1.5">
-            {toolCalls.map((tc) => {
-              // A chip spins ONLY while explicitly running; a finished or
-              // status-less (persisted / `done`-event) call renders as complete.
-              const running = isToolCallRunning(tc);
-              return (
-                <span
-                  key={tc.id}
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px]",
-                    running
-                      ? "border-primary/30 bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground",
-                  )}
-                >
-                  {running ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <Wrench className="size-3" />
-                  )}
-                  {running
-                    ? `${labelForTool(tc.name)}…`
-                    : pastTenseLabel(tc.name)}
-                </span>
-              );
-            })}
+            {toolCalls.map((tc) => (
+              <ToolCallChip key={tc.id} tc={tc} />
+            ))}
           </div>
         )}
         {artifacts.length > 0 && (
@@ -1621,9 +1530,11 @@ function ArtifactCard({ artifact }: { artifact: ChatArtifact }) {
     "group inline-flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5 no-underline";
 
   if (!artifact.url) {
-    // Deleted, or an entity with no linkable page → non-interactive card.
+    // Deleted, or an entity with no linkable page → non-interactive card. It
+    // differs from a link by having no arrow and no hover, NOT by fading: an
+    // opacity over the 10px muted label took it to 3.25:1, under AA's 4.5:1.
     return (
-      <div className={cn(cls, "opacity-80")} data-testid="artifact-card">
+      <div className={cls} data-testid="artifact-card">
         {inner}
       </div>
     );
