@@ -15,11 +15,11 @@
 // Real database, real completeSsoLogin, real getAuthContext and a real route.
 // The only stand-ins are the request cookie and header stores.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import crypto from "node:crypto";
 import { NextRequest } from "next/server";
 import type { IdpConnection } from "@prisma/client";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { hashPassword } from "@/lib/auth/password";
 
 const h = vi.hoisted(() => ({ sessionId: null as string | null }));
@@ -72,9 +72,7 @@ const claims = (issuer: string, subject: string, email: string): SsoClaims =>
   ({ subject, email, emailVerified: true, groups: [], acr: null, amr: [], issuer }) as SsoClaims;
 
 async function session(userId: string, extra: Record<string, unknown> = {}) {
-  const id = crypto.randomBytes(16).toString("hex");
-  await prisma.session.create({ data: { id, userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra } });
-  return id;
+  return createTestSession({ userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra });
 }
 
 /** getAuthContext as the holder of `sessionId` sees `org`. */
@@ -151,12 +149,12 @@ describe("an SSO session opens only its own organization", () => {
     expect(again.ok).toBe(true);
     if (!again.ok) return;
 
-    expect((await as(again.sessionId, orgA))?.userId).toBe(uid);
-    expect(await as(again.sessionId, orgB)).toBeNull();
-    expect(await refusal(again.sessionId, orgB)).toBe("sso_other_org");
+    expect((await as(again.token, orgA))?.userId).toBe(uid);
+    expect(await as(again.token, orgB)).toBeNull();
+    expect(await refusal(again.token, orgB)).toBe("sso_other_org");
     // The org API route refuses too, and serves the IdP's own org.
-    expect(await orgRoute(again.sessionId, orgB)).toBe(401);
-    expect(await orgRoute(again.sessionId, orgA)).toBe(200);
+    expect(await orgRoute(again.token, orgB)).toBe(401);
+    expect(await orgRoute(again.token, orgA)).toBe(200);
 
     // Positive control: the same account's Google session opens B as ADMIN.
     const google = await session(uid, { authMethod: "google" });
@@ -187,8 +185,8 @@ describe("single sign-on links the people its org expects, and enforcement is pe
     expect(sso.ok && sso.userId).toBe(uid);
     if (!sso.ok) return;
     expect(await prisma.invitation.count({ where: { orgId: orgG.id, email } })).toBe(0);
-    expect((await as(sso.sessionId, orgG))?.userId).toBe(uid);
-    expect(await as(sso.sessionId, orgB)).toBeNull();
+    expect((await as(sso.token, orgG))?.userId).toBe(uid);
+    expect(await as(sso.token, orgB)).toBeNull();
 
     // Google still signs the person in: org B opens, the SSO-only org does not.
     const google = await session(uid, { authMethod: "google" });
@@ -204,7 +202,7 @@ describe("single sign-on links the people its org expects, and enforcement is pe
     const sso = await completeSsoLogin(orgG.slug, connG, claims(ISS_G, `s-noorg-${stamp}`, email), {});
     expect(sso.ok && sso.userId).toBe(uid);
     if (!sso.ok) return;
-    expect((await as(sso.sessionId, orgG))?.userId).toBe(uid);
+    expect((await as(sso.token, orgG))?.userId).toBe(uid);
   });
 
   it("a member of both the SSO-only org and another org links on its first SSO sign-in", async () => {
@@ -215,8 +213,8 @@ describe("single sign-on links the people its org expects, and enforcement is pe
     const sso = await completeSsoLogin(orgG.slug, connG, claims(ISS_G, `s-both-${stamp}`, email), {});
     expect(sso.ok && sso.userId).toBe(uid);
     if (!sso.ok) return;
-    expect((await as(sso.sessionId, orgG))?.userId).toBe(uid);
-    expect(await as(sso.sessionId, orgB)).toBeNull();
+    expect((await as(sso.token, orgG))?.userId).toBe(uid);
+    expect(await as(sso.token, orgB)).toBeNull();
   });
 
   it("an email-and-password invitee signs in with the password, then single sign-on links the same account", async () => {
@@ -316,8 +314,8 @@ describe("the org's floors and a long-lived stream follow the same session rules
     const sso = await completeSsoLogin(orgA.slug, connA, claims(ISS_A, `s-stream-${stamp}`, email), {});
     expect(sso.ok).toBe(true);
     if (!sso.ok) return;
-    expect(await sessionStillValid(sso.sessionId, orgA.id, null)).toBe(true);
-    expect(await sessionStillValid(sso.sessionId, orgB.id, null)).toBe(false);
+    expect(await sessionStillValid(sso.token, orgA.id, null)).toBe(true);
+    expect(await sessionStillValid(sso.token, orgB.id, null)).toBe(false);
     // And an org that requires SSO ends a stream from any other kind of session.
     await member(orgG.id, uid);
     const pw = await session(uid, { authMethod: "password" });

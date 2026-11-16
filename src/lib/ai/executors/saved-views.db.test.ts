@@ -6,7 +6,19 @@
 //   bob    MEMBER, member of P1, on team "Platform" (P1)
 //   ghost  MEMBER, member of P2 only, on P2's secret team
 //   admin  ADMIN, made here
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { NextRequest } from "next/server";
+import type { AuthContext } from "@/lib/rbac/check";
+
+// The REST route reads its caller from the session; these tests hand it the
+// same AuthContext the tools get, to compare the two doors.
+const session = vi.hoisted(() => ({ ctx: null as AuthContext | null }));
+vi.mock("@/lib/auth/session", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getAuthContext: async () => session.ctx,
+}));
+
 import { prisma } from "@/lib/db/client";
 import { withCqlEnabled } from "@/lib/query/flag";
 import { memberToolCtx, stubToolCtx } from "@/lib/testing/tool-auth";
@@ -14,6 +26,7 @@ import { seedWorld, type World } from "@/lib/query/__tests__/cql-fixture";
 import type { ToolContext } from "./_ctx";
 import { createSavedView, deleteSavedView, listSavedViews, shareSavedView, updateSavedView } from "./saved-views";
 import { savedViewTools } from "../tools/saved-views";
+import { GET as listSavedViewsRoute } from "@/app/api/v1/orgs/[orgId]/saved-views/route";
 
 type View = { id: string; name: string; visibility: string; projectId: string | null; teamId: string | null; ownerId: string; mine: boolean; url: string };
 type Listed = { count: number; views: View[] };
@@ -162,14 +175,45 @@ describe("saved-view tools (e2e DB)", () => {
     const seen = await ids(actor);
     expect(seen).not.toContain(onP2.id);
     expect(seen).not.toContain(onTeam.id);
-    // Naming the project doesn't get round it, for a list or a write.
-    expect(await listSavedViews({ projectId: w.P2.id }, actor)).toEqual({ error: "Project not found" });
+    // Naming the project doesn't get round it, for a list or a write. The list
+    // answers as the REST route does: nothing, the same as for a project with
+    // no filters or one that doesn't exist (see the test below).
+    expect(await listSavedViews({ projectId: w.P2.id }, actor)).toEqual({ count: 0, views: [] });
     const intoP2 = await make(actor, { name: "into P2", cql: "priority = HIGH" });
     expect(await shareSavedView({ viewId: intoP2.id, visibility: "PROJECT", projectId: w.P2.id }, actor)).toEqual({ error: "Project not found" });
     expect(await shareSavedView({ viewId: onP2.id, visibility: "PRIVATE" }, actor)).toEqual({ error: "Not found" });
     expect(await row(intoP2.id)).toMatchObject({ visibility: "PRIVATE", projectId: null });
     // ...while the project filter it can read narrows as asked.
     expect(await ids(actor, { projectId: w.P1.id })).toContain(onP1.id);
+  });
+
+  it("naming a project the caller can't read answers what the REST route answers", async () => {
+    // GET /saved-views?projectId= lists nothing for a project the caller can't
+    // read, exactly as for one that doesn't exist, so it confirms neither.
+    // Cosmo used to answer "Project not found" there instead.
+    const onP2 = await make(ghost, { name: "ghost P2 parity", cql: "priority = HIGH", visibility: "PROJECT", projectId: w.P2.id });
+    const onP1 = await make(bob, { name: "bob P1 parity", cql: "priority = HIGH", visibility: "PROJECT", projectId: w.P1.id });
+    // Positive control: P2 does have a filter shared with it, which its own
+    // members see, so an empty answer below is the gate and not an empty project.
+    expect(await ids(ghost, { projectId: w.P2.id })).toContain(onP2.id);
+
+    const rest = async (ctx: ToolContext, projectId: string) => {
+      session.ctx = ctx.auth;
+      const res = await listSavedViewsRoute(
+        new NextRequest(`http://localhost/api/v1/orgs/${w.orgA}/saved-views?projectId=${projectId}`),
+        { params: Promise.resolve({ orgId: w.orgA }) },
+      );
+      session.ctx = null;
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { id: string }[]).map((v) => v.id);
+    };
+    for (const projectId of [w.P2.id, randomUUID()]) {
+      expect(await rest(actor, projectId)).toEqual([]);
+      expect(await listSavedViews({ projectId }, actor)).toEqual({ count: 0, views: [] });
+    }
+    // And where the caller can read the project, both doors list the same filters.
+    expect(await ids(actor, { projectId: w.P1.id })).toEqual(await rest(actor, w.P1.id));
+    expect(await rest(actor, w.P1.id)).toContain(onP1.id);
   });
 
   it("an API key's project scope narrows what the tools see", async () => {
@@ -179,7 +223,7 @@ describe("saved-view tools (e2e DB)", () => {
     expect(await ids(actor)).toContain(onP1.id);
 
     expect(await ids(scoped)).not.toContain(onP1.id);
-    expect(await listSavedViews({ projectId: w.P1.id }, scoped)).toEqual({ error: "Project not found" });
+    expect(await listSavedViews({ projectId: w.P1.id }, scoped)).toEqual({ count: 0, views: [] });
     const intoP1 = await make(actor, { name: "scoped into P1", cql: "priority = HIGH" });
     expect(await shareSavedView({ viewId: intoP1.id, visibility: "PROJECT", projectId: w.P1.id }, scoped)).toEqual({ error: "Project not found" });
     expect(await row(intoP1.id)).toMatchObject({ visibility: "PRIVATE", projectId: null });

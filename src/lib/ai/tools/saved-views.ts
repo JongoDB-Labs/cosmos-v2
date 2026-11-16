@@ -57,6 +57,7 @@ export const savedViewTools: ToolDefinition[] = [
   {
     name: "share_saved_view",
     confirm: true,
+    confirmTargets: ["viewId"],
     description:
       "Change who sees a saved filter: PRIVATE (only its owner and co-editors), TEAM (needs teamId), PROJECT (needs projectId) or ORG (everyone; needs the Share filters with the org permission). " +
       "Only the filter's owner or an administrator can. Confirm with the user first.",
@@ -74,6 +75,7 @@ export const savedViewTools: ToolDefinition[] = [
   {
     name: "delete_saved_view",
     confirm: true,
+    confirmTargets: ["viewId"],
     description: "Delete a saved filter. Only its owner or an administrator can.",
     input_schema: {
       type: "object",

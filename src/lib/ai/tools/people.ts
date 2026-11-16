@@ -34,6 +34,7 @@ export const peopleTools: ToolDefinition[] = [
   {
     name: "add_project_member",
     confirm: true,
+    confirmTargets: ["userId"],
     description:
       "Add a person to a project, or change their role on it. Only an org admin or the project's manager may. Default role MEMBER. On a project limited to its team, this gives them access to it. Confirm with the user first.",
     input_schema: {
@@ -49,6 +50,7 @@ export const peopleTools: ToolDefinition[] = [
   {
     name: "remove_project_member",
     confirm: true,
+    confirmTargets: ["userId"],
     description:
       "Remove a person from a project (and so from its teams). Only an org admin or the project's manager may. Confirm with the user first.",
     input_schema: {
@@ -60,6 +62,7 @@ export const peopleTools: ToolDefinition[] = [
   {
     name: "add_team_member",
     confirm: true,
+    confirmTargets: ["userId"],
     description:
       "Put a project member on one of the project's teams (list_teams gives team ids). They must be on the project first. Only an org admin or the project's manager may. Confirm with the user first.",
     input_schema: {
@@ -76,6 +79,7 @@ export const peopleTools: ToolDefinition[] = [
   {
     name: "remove_team_member",
     confirm: true,
+    confirmTargets: ["userId"],
     description: "Take a person off a project's team. They stay on the project. Only an org admin or the project's manager may.",
     input_schema: {
       type: "object",

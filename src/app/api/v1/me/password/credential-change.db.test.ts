@@ -13,6 +13,8 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { sessionRowId } from "@/lib/auth/session-id";
+import { createTestSession } from "@/lib/testing/sessions";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { generateRecoveryCodes, hashRecoveryCode } from "@/lib/auth/totp";
 
@@ -58,18 +60,16 @@ async function userWithTwoSessions(
   const current = `cc-${tag}-current-${stamp}`;
   const other = `cc-${tag}-other-${stamp}`;
   const expiresAt = new Date(Date.now() + DAY);
-  await prisma.session.create({
-    data: { id: current, userId: u.id, expiresAt, createdAt: new Date(Date.now() - currentAgeMs), authMethod },
-  });
-  await prisma.session.create({ data: { id: other, userId: u.id, expiresAt } });
-  // The org's Sessions view had recorded the other one.
-  await prisma.sessionRecord.create({ data: { orgId, userId: u.id, sessionToken: other, expiresAt } });
+  await createTestSession({ token: current, userId: u.id, expiresAt, createdAt: new Date(Date.now() - currentAgeMs), authMethod });
+  await createTestSession({ token: other, userId: u.id, expiresAt });
+  // The org's Sessions view had recorded the other one (by its row id).
+  await prisma.sessionRecord.create({ data: { orgId, userId: u.id, sessionToken: sessionRowId(other), expiresAt } });
   h.userId = u.id;
   h.sessionId = current;
   return { id: u.id, current, other };
 }
 
-const alive = async (id: string) => (await prisma.session.findUnique({ where: { id } })) !== null;
+const alive = async (token: string) => (await prisma.session.findUnique({ where: { id: sessionRowId(token) } })) !== null;
 const auditRows = (userId: string, action: string) =>
   prisma.auditLog.count({ where: { orgId, userId, action } });
 
@@ -78,7 +78,7 @@ beforeAll(async () => {
   // Someone else's session, which no change here may touch.
   bystanderId = (await prisma.user.create({ data: { email: `cc-by-${stamp}@example.com`, displayName: "By" } })).id;
   users.push(bystanderId);
-  await prisma.session.create({ data: { id: `cc-by-${stamp}`, userId: bystanderId, expiresAt: new Date(Date.now() + DAY) } });
+  await createTestSession({ token: `cc-by-${stamp}`, userId: bystanderId, expiresAt: new Date(Date.now() + DAY) });
 });
 
 afterAll(async () => {
@@ -98,7 +98,7 @@ describe("changing your password", () => {
     expect(await alive(u.current)).toBe(true);
     expect(await alive(u.other)).toBe(false);
     expect(await alive(`cc-by-${stamp}`)).toBe(true);
-    const rec = await prisma.sessionRecord.findUniqueOrThrow({ where: { sessionToken: u.other } });
+    const rec = await prisma.sessionRecord.findUniqueOrThrow({ where: { sessionToken: sessionRowId(u.other) } });
     expect(rec.status).toBe("REVOKED");
     expect(await auditRows(u.id, "auth.password.changed")).toBe(1);
   });
@@ -138,7 +138,7 @@ describe("setting a first password on a Google or SSO account", () => {
 describe("turning off MFA", () => {
   it("ends your other sessions, keeps this one, and is audited", async () => {
     const [code] = generateRecoveryCodes(1);
-    const u = await userWithTwoSessions("mfa", {
+    const u = await userWithTwoSessions("factor-off", {
       passwordHash: hashPassword(OLD),
       mfaEnabled: true,
       mfaRecoveryCodes: [hashRecoveryCode(code)],
@@ -154,7 +154,7 @@ describe("turning off MFA", () => {
 
   it("positive control: a wrong code leaves MFA on and ends nothing", async () => {
     const [code] = generateRecoveryCodes(1);
-    const u = await userWithTwoSessions("mfa-wrong", {
+    const u = await userWithTwoSessions("factor-wrong", {
       mfaEnabled: true,
       mfaRecoveryCodes: [hashRecoveryCode(code)],
     });

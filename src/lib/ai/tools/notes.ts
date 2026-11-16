@@ -49,6 +49,7 @@ export const noteTools: ToolDefinition[] = [
   {
     name: "share_note",
     confirm: true,
+    confirmTargets: ["noteId"],
     description:
       "Change who sees a note: PRIVATE (only its author), PROJECT or ORG (shared). Only its author can. Confirm with the user first.",
     input_schema: {
@@ -63,6 +64,7 @@ export const noteTools: ToolDefinition[] = [
   {
     name: "delete_note",
     confirm: true,
+    confirmTargets: ["noteId"],
     description: "Delete a note. Only the author or org admin/owner may delete.",
     input_schema: {
       type: "object",

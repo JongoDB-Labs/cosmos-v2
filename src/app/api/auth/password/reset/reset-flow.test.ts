@@ -27,6 +27,7 @@ vi.mock("@/lib/integrations/invitation-email", () => ({
 }));
 
 import { prisma } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { createPasswordResetToken, parsePasswordResetToken } from "@/lib/auth/password-reset";
 import { POST as requestReset } from "./request/route";
@@ -111,9 +112,9 @@ describe("self-service password reset", () => {
     const user = await prisma.user.findFirstOrThrow({ where: { email: E_PW } });
     const sso = await prisma.user.findFirstOrThrow({ where: { email: E_SSO } });
     const expiresAt = new Date(Date.now() + 86_400_000);
-    await prisma.session.create({ data: { id: `zz-reset-a-${user.id}`, userId: user.id, expiresAt } });
-    await prisma.session.create({ data: { id: `zz-reset-b-${user.id}`, userId: user.id, expiresAt } });
-    await prisma.session.create({ data: { id: `zz-reset-c-${sso.id}`, userId: sso.id, expiresAt } });
+    await createTestSession({ userId: user.id, expiresAt });
+    await createTestSession({ userId: user.id, expiresAt });
+    await createTestSession({ userId: sso.id, expiresAt });
 
     sentEmails.length = 0;
     await requestReset(req({ email: E_PW }));

@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
 import { sessionStillValid } from "@/lib/auth/session";
+import { sessionRowId } from "@/lib/auth/session-id";
+import { createTestSession } from "@/lib/testing/sessions";
 import { AUDIENCE_TTL_MS, openStreamGate } from "./stream-gate.server";
 import { topics } from "./topics";
 
@@ -230,29 +232,29 @@ describe("the stream gate ends with the session it opened with", () => {
   const ok = () => onOrg("settings.updated", { orgId, section: "org" });
   const MIN = 60_000;
 
-  /** A session row for the member, and a gate that re-checks it on every recompute. */
+  /**
+   * A session row for the member, and a gate that re-checks it on every
+   * recompute. `token` is the cookie value the stream holds; the row is keyed
+   * by sessionRowId(token).
+   */
   async function sessionGate(
     t: { now: number },
     row: { expiresAt?: Date; lastActivityAt?: Date; authMethod?: string; mfaSatisfied?: boolean; createdAt?: Date } = {},
     clientIp: string | null = "203.0.113.7",
   ) {
-    const id = `gate-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
-    await prisma.session.create({
-      data: {
-        id,
-        userId,
-        expiresAt: row.expiresAt ?? new Date(Date.now() + 60 * MIN),
-        lastActivityAt: row.lastActivityAt,
-        authMethod: row.authMethod,
-        mfaSatisfied: row.mfaSatisfied ?? false,
-        createdAt: row.createdAt,
-      },
+    const token = await createTestSession({
+      userId,
+      expiresAt: row.expiresAt ?? new Date(Date.now() + 60 * MIN),
+      lastActivityAt: row.lastActivityAt,
+      authMethod: row.authMethod,
+      mfaSatisfied: row.mfaSatisfied ?? false,
+      createdAt: row.createdAt,
     });
     const gate = await openStreamGate((await loadMemberAuthContext(orgId, userId))!, {
       now: () => t.now,
-      stillValid: () => sessionStillValid(id, orgId, clientIp),
+      stillValid: () => sessionStillValid(token, orgId, clientIp),
     });
-    return { id, gate };
+    return { token, gate };
   }
 
   it("stays open while the session lives (positive control)", async () => {
@@ -265,10 +267,10 @@ describe("the stream gate ends with the session it opened with", () => {
 
   it("closes at the next refresh once the session is signed out or revoked", async () => {
     const t = { now: 6_000_000 };
-    const { id, gate } = await sessionGate(t);
+    const { token, gate } = await sessionGate(t);
     expect(await gate.admit(ok())).toBe(true);
 
-    await prisma.session.delete({ where: { id } });
+    await prisma.session.delete({ where: { id: sessionRowId(token) } });
     // Not before the refresh: the check runs with the recompute, not per event.
     t.now += AUDIENCE_TTL_MS - 1;
     expect(await gate.admit(ok())).toBe(true);
@@ -280,8 +282,8 @@ describe("the stream gate ends with the session it opened with", () => {
 
   it("closes once the session has expired", async () => {
     const t = { now: 7_000_000 };
-    const { id, gate } = await sessionGate(t);
-    await prisma.session.update({ where: { id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    const { token, gate } = await sessionGate(t);
+    await prisma.session.update({ where: { id: sessionRowId(token) }, data: { expiresAt: new Date(Date.now() - 1000) } });
     t.now += AUDIENCE_TTL_MS;
     await gate.refreshIfStale();
     expect(gate.closed).toBe(true);
@@ -291,12 +293,12 @@ describe("the stream gate ends with the session it opened with", () => {
     await prisma.orgSecuritySettings.upsert({ where: { orgId }, create: { orgId, sessionTimeoutMins: 30 }, update: { sessionTimeoutMins: 30 } });
     try {
       const t = { now: 8_000_000 };
-      const { id, gate } = await sessionGate(t, { lastActivityAt: new Date(Date.now() - 20 * MIN) });
+      const { token, gate } = await sessionGate(t, { lastActivityAt: new Date(Date.now() - 20 * MIN) });
       t.now += AUDIENCE_TTL_MS;
       await gate.refreshIfStale();
       expect(gate.closed).toBe(false);
 
-      await prisma.session.update({ where: { id }, data: { lastActivityAt: new Date(Date.now() - 31 * MIN) } });
+      await prisma.session.update({ where: { id: sessionRowId(token) }, data: { lastActivityAt: new Date(Date.now() - 31 * MIN) } });
       t.now += AUDIENCE_TTL_MS;
       await gate.refreshIfStale();
       expect(gate.closed).toBe(true);
@@ -310,10 +312,10 @@ describe("the stream gate ends with the session it opened with", () => {
     try {
       const t = { now: 9_000_000 };
       const before = new Date(Date.now() - 20 * MIN);
-      const { id, gate } = await sessionGate(t, { lastActivityAt: before });
+      const { token, gate } = await sessionGate(t, { lastActivityAt: before });
       t.now += AUDIENCE_TTL_MS;
       await gate.refreshIfStale();
-      expect((await prisma.session.findUniqueOrThrow({ where: { id } })).lastActivityAt.getTime()).toBe(before.getTime());
+      expect((await prisma.session.findUniqueOrThrow({ where: { id: sessionRowId(token) } })).lastActivityAt.getTime()).toBe(before.getTime());
     } finally {
       await prisma.orgSecuritySettings.deleteMany({ where: { orgId } });
     }
@@ -375,12 +377,12 @@ describe("the stream gate ends with the session it opened with", () => {
     await prisma.orgSecuritySettings.upsert({ where: { orgId }, create: { orgId, maxSessionAgeMins: 60 }, update: { maxSessionAgeMins: 60 } });
     try {
       const t = { now: 16_000_000 };
-      const { id, gate } = await sessionGate(t, { createdAt: new Date(Date.now() - 50 * MIN) });
+      const { token, gate } = await sessionGate(t, { createdAt: new Date(Date.now() - 50 * MIN) });
       t.now += AUDIENCE_TTL_MS;
       await gate.refreshIfStale();
       expect(gate.closed).toBe(false);
 
-      await prisma.session.update({ where: { id }, data: { createdAt: new Date(Date.now() - 61 * MIN) } });
+      await prisma.session.update({ where: { id: sessionRowId(token) }, data: { createdAt: new Date(Date.now() - 61 * MIN) } });
       t.now += AUDIENCE_TTL_MS;
       await gate.refreshIfStale();
       expect(gate.closed).toBe(true);
@@ -393,12 +395,12 @@ describe("the stream gate ends with the session it opened with", () => {
     await prisma.orgSecuritySettings.upsert({ where: { orgId }, create: { orgId, sessionTimeoutMins: 0, idleTimeoutMins: 15 }, update: { sessionTimeoutMins: 0, idleTimeoutMins: 15 } });
     try {
       const t = { now: 17_000_000 };
-      const { id, gate } = await sessionGate(t, { lastActivityAt: new Date(Date.now() - 10 * MIN) });
+      const { token, gate } = await sessionGate(t, { lastActivityAt: new Date(Date.now() - 10 * MIN) });
       t.now += AUDIENCE_TTL_MS;
       await gate.refreshIfStale();
       expect(gate.closed).toBe(false);
 
-      await prisma.session.update({ where: { id }, data: { lastActivityAt: new Date(Date.now() - 16 * MIN) } });
+      await prisma.session.update({ where: { id: sessionRowId(token) }, data: { lastActivityAt: new Date(Date.now() - 16 * MIN) } });
       t.now += AUDIENCE_TTL_MS;
       await gate.refreshIfStale();
       expect(gate.closed).toBe(true);
@@ -417,9 +419,7 @@ describe("the stream gate ends with the session it opened with", () => {
       await gate.refreshIfStale();
       expect(gate.closed).toBe(false);
 
-      await prisma.session.create({
-        data: { id: `gate-${stamp}-newer`, userId, expiresAt: new Date(Date.now() + 60 * MIN), mfaSatisfied: false },
-      });
+      await createTestSession({ userId, expiresAt: new Date(Date.now() + 60 * MIN), mfaSatisfied: false });
       t.now += AUDIENCE_TTL_MS;
       await gate.refreshIfStale();
       expect(gate.closed).toBe(true);

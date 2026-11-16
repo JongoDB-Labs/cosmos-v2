@@ -7,8 +7,8 @@
 // stood in for. Own users and orgs throughout (the seeded users are shared).
 import { describe, it, expect, vi, afterAll, afterEach } from "vitest";
 import { NextRequest } from "next/server";
-import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 import { renderFeed } from "@/lib/calendar/feed.server";
 import { hashFeedToken, parseFeedSegment } from "@/lib/calendar/feed-token";
@@ -68,17 +68,15 @@ async function signIn(orgId: string, session: { authMethod: string; idpConnId?: 
   const user = await prisma.user.create({ data: { email, displayName: `Feed person ${n}` } });
   userIds.push(user.id);
   await prisma.orgMember.create({ data: { orgId, userId: user.id, role: "MEMBER" } });
-  const id = randomBytes(24).toString("hex");
-  await prisma.session.create({ data: { id, userId: user.id, expiresAt: new Date(Date.now() + DAY), ...session } });
-  h.headers = new Headers({ cookie: `session=${id}` });
+  const token = await createTestSession({ userId: user.id, expiresAt: new Date(Date.now() + DAY), ...session });
+  h.headers = new Headers({ cookie: `session=${token}` });
   return { userId: user.id, email };
 }
 
 /** Another session for someone already signed in, which the next request uses. */
 async function signInAgain(userId: string, session: { authMethod: string; idpConnId?: string }) {
-  const id = randomBytes(24).toString("hex");
-  await prisma.session.create({ data: { id, userId, expiresAt: new Date(Date.now() + DAY), ...session } });
-  h.headers = new Headers({ cookie: `session=${id}` });
+  const token = await createTestSession({ userId, expiresAt: new Date(Date.now() + DAY), ...session });
+  h.headers = new Headers({ cookie: `session=${token}` });
 }
 
 const list = (orgId: string) =>

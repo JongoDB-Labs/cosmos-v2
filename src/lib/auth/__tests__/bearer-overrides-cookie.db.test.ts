@@ -42,6 +42,7 @@ vi.mock("next/headers", () => {
 import { randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { getCurrentUser } from "@/lib/auth/session";
 import { POST as createOrg } from "@/app/api/v1/orgs/route";
 
@@ -54,8 +55,7 @@ beforeAll(async () => {
   // Only an existing member may create an org, so the user belongs to one.
   const home = await prisma.organization.create({ data: { name: "Home", slug: `bearer-${stamp}-home` } });
   await prisma.orgMember.create({ data: { orgId: home.id, userId, role: "OWNER" } });
-  sessionId = randomBytes(32).toString("hex");
-  await prisma.session.create({ data: { id: sessionId, userId, expiresAt: new Date(Date.now() + 3_600_000) } });
+  sessionId = await createTestSession({ userId, expiresAt: new Date(Date.now() + 3_600_000) });
 });
 
 afterAll(async () => {

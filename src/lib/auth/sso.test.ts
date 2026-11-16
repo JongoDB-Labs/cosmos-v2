@@ -10,6 +10,7 @@
 // identity-match / role-cap / AAL-floor decision logic runs unmocked.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { OrgRole } from "@prisma/client";
+import { sessionRowId } from "./session-id";
 import type { IdpConnection } from "@prisma/client";
 
 const { prisma, logAudit, autoJoinGeneral } = vi.hoisted(() => ({
@@ -381,8 +382,12 @@ describe("completeSsoLogin", () => {
     expect(sessionArg.authMethod).toBe("oidc");
     expect(sessionArg.idpConnId).toBe(CONN_ID);
     expect(sessionArg.amr).toEqual(["pwd", "otp"]);
-    expect(typeof sessionArg.id).toBe("string");
-    expect(sessionArg.id.length).toBeGreaterThanOrEqual(32);
+    // The caller gets the token for the cookie; the rows store only its hash.
+    if (!res.ok) return;
+    expect(res.token.length).toBeGreaterThanOrEqual(32);
+    expect(sessionArg.id).toBe(sessionRowId(res.token));
+    expect(sessionArg.id).not.toBe(res.token);
+    expect(prisma.sessionRecord.create.mock.calls[0][0].data.sessionToken).toBe(sessionArg.id);
 
     expect(logAudit).toHaveBeenCalledWith(
       expect.objectContaining({

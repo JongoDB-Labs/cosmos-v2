@@ -6,14 +6,15 @@ import {
   SESSION_MAX_AGE_SECONDS,
 } from "@/lib/auth/client";
 import { readJsonBody } from "@/lib/api-helpers";
+import { sessionRowId } from "@/lib/auth/session-id";
 
 /**
  * Test-only sign-in. Disabled unless E2E_TEST_AUTH === "1" in the runtime env.
  *
  * Body: { email: string }
  * Side effect: looks up the user by email and creates a fresh Session row,
- * setting the session cookie on the response. Returns the session id in the
- * body for debugging.
+ * setting the session cookie on the response. Returns the cookie's value in
+ * the body as `sessionId`, for debugging; the row is stored under its hash.
  *
  * Do NOT use in production. Do NOT ship without the env-gate.
  */
@@ -44,25 +45,25 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Match the session ID format used by the real OAuth callback: 32 random
-  // bytes encoded as a 64-char hex string (not a UUID).
-  const sessionId = crypto.randomBytes(32).toString("hex");
+  // Match the token format used by the real OAuth callback: 32 random bytes
+  // encoded as a 64-char hex string (not a UUID), stored under its hash.
+  const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000);
 
   await prisma.session.create({
     data: {
-      id: sessionId,
+      id: sessionRowId(token),
       userId: user.id,
       expiresAt,
     },
   });
 
-  const res = new Response(JSON.stringify({ sessionId, userId: user.id }), {
+  const res = new Response(JSON.stringify({ sessionId: token, userId: user.id }), {
     headers: { "content-type": "application/json" },
   });
   res.headers.set(
     "Set-Cookie",
-    `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Lax`,
+    `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax`,
   );
   return res;
 }

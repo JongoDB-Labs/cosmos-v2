@@ -2,9 +2,10 @@ import { prisma } from "@/lib/db/client";
 import { ObjectiveStatus, KeyResultStatus, RagStatus } from "@prisma/client";
 import { z } from "zod";
 import { Permission } from "@/lib/rbac/permissions";
-import { measureKeyResult, rollUpObjective } from "@/lib/okr/progress";
-// Persists an objective's progress by the same rule the routes and the board use.
-import { recomputeObjectiveProgress } from "@/lib/okr/rollup.server";
+import { measureKeyResult, rollUpObjective, shownKeyResult } from "@/lib/okr/progress";
+// Live progress by the same rule the routes and the board use; the stored copy
+// is still written, never read back.
+import { liveObjectiveProgress, recomputeObjectiveProgress } from "@/lib/okr/rollup.server";
 import { isOverdue, objectiveHealth } from "@/lib/okr/health";
 import {
   createObjectiveDependency,
@@ -95,7 +96,8 @@ export async function listObjectives(input: Record<string, unknown>, ctx: ToolCo
 
   // The same rule the objectives GET route and the OKR board use
   // (lib/okr/progress): a KR with linked tickets auto-tracks (current value =
-  // # of linked items done, target = # linked unless one was set); objective
+  // # of linked items done, target = # linked unless one was set, status Done
+  // once they all are); objective
   // progress rolls up from the KRs, or from its own links when it has none;
   // health is progress vs. time toward the target date.
   // What each objective needs first, as on the board: only those the actor can read.
@@ -108,7 +110,7 @@ export async function listObjectives(input: Record<string, unknown>, ctx: ToolCo
         id: kr.id,
         objectiveId: kr.objectiveId,
         ownerId: kr.ownerId,
-        status: kr.status,
+        status: m.status,
         rag: kr.rag,
         confidence: kr.confidence,
         lowerIsBetter: kr.lowerIsBetter,
@@ -233,10 +235,12 @@ export async function updateObjective(input: Record<string, unknown>, ctx: ToolC
     },
     select: {
       id: true, projectId: true, ownerId: true, parentId: true, status: true,
-      title: true, targetDate: true, progress: true, sortOrder: true, createdAt: true, updatedAt: true,
+      title: true, targetDate: true, sortOrder: true, createdAt: true, updatedAt: true,
     },
   });
-  return { updated: true, id: updated.id, objective: updated };
+  // Live, as list_objectives reports it: the stored copy goes stale.
+  const progress = (await liveObjectiveProgress({ id: updated.id })).get(updated.id) ?? 0;
+  return { updated: true, id: updated.id, objective: { ...updated, progress } };
 }
 
 // ── delete_objective ─────────────────────────────────────────────────────────
@@ -418,10 +422,13 @@ export async function updateKeyResult(input: Record<string, unknown>, ctx: ToolC
       id: true, objectiveId: true, ownerId: true, status: true, rag: true, confidence: true,
       lowerIsBetter: true, sortOrder: true, title: true, startValue: true, currentValue: true,
       targetValue: true, unit: true, createdAt: true, updatedAt: true,
+      links: { select: { workItem: { select: { completedAt: true } } } },
     },
   });
   await recomputeObjectiveProgress(existing.objectiveId);
-  return { updated: true, id: updated.id, keyResult: updated };
+  // What list_objectives and the board show: linked work items measure it.
+  const { links, ...row } = updated;
+  return { updated: true, id: updated.id, keyResult: shownKeyResult(row, measureKeyResult(row, links.map((l) => l.workItem))) };
 }
 
 // ── add_kr_checkin ─────────────────────────────────────────────────────────

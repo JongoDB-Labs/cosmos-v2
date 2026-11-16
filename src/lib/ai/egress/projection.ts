@@ -1,6 +1,7 @@
 // src/lib/ai/egress/projection.ts
 import type { ClassificationLevel } from "@prisma/client";
 import { mintHandle } from "./handles";
+import { refusalForModel } from "./refusal";
 import { connectorEgressMaps } from "../connectors";
 
 // EXTERNAL connectors (github, …) contribute their egress mapping declaratively via
@@ -467,8 +468,15 @@ export function projectStructural(value: unknown, entityType: string | undefined
  *   and FINALLY the whole object is run through `projectOne` as well, which
  *   is what makes a SINGLE-entity return work at all — see the note there.
  * - non-object/array (bare string/number) ⇒ FULL withhold.
+ *
+ * A REFUSAL (`{ error }`) is read first, mapped tool or not: the rules above
+ * would drop its text and hand the model `{}`, which reads as "nothing there".
+ * Only server-written text reaches the model; see refusal.ts. `toolName` is the
+ * call's own, so this tool's internal-failure answer can be recognised.
  */
-export function projectResult(value: unknown, entityType: string | undefined): unknown {
+export function projectResult(value: unknown, entityType: string | undefined, toolName?: string): unknown {
+  const refusal = refusalForModel(value, toolName);
+  if (refusal) return refusal;
   if (!entityType) return WITHHELD;
   const fields = EXPOSABLE_FIELDS[entityType];
   if (!fields) return WITHHELD;

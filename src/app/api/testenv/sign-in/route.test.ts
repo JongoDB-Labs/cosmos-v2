@@ -26,6 +26,7 @@ vi.mock("@/lib/auth/client", () => ({
 }));
 
 import { POST } from "./route";
+import { sessionRowId } from "@/lib/auth/session-id";
 
 function postRequest(body: unknown = { email: "alice@example.com" }): NextRequest {
   return new NextRequest("http://localhost/api/testenv/sign-in", {
@@ -79,5 +80,11 @@ describe("POST /api/testenv/sign-in — production guard", () => {
     expect(res.status).toBe(200);
     expect(prisma.session.create).toHaveBeenCalledOnce();
     expect(res.headers.get("set-cookie")).toContain("session=");
+    // The cookie carries the token; the row stores only its hash.
+    const token = /session=([^;]+)/.exec(res.headers.get("set-cookie") ?? "")?.[1] ?? "";
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    const rowId = prisma.session.create.mock.calls[0][0].data.id;
+    expect(rowId).toBe(sessionRowId(token));
+    expect(rowId).not.toBe(token);
   });
 });

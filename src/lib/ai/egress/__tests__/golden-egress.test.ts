@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { stubAuth } from "@/lib/testing/tool-auth";
+import { REASON_WITHHELD_REFUSAL, internalFailureRefusal } from "../refusal";
 
 // ---------------------------------------------------------------------------
 // Hoisted spies — must be created before any vi.mock() factory executes.
@@ -326,10 +327,47 @@ describe("golden-egress: MAC ceiling + structural projection end-to-end via runA
 
     const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
 
-    // ceiling = CUI (≥ FOUO) → withheld; projectResult drops the free-text `error`
-    // string (no allowlisted scalar / array survives) so the token never reaches
-    // the model.
+    // ceiling = CUI (≥ FOUO) → withheld; the refusal's text is not a constant of
+    // egress/refusal.ts, so the model is told it was refused with the reason
+    // withheld, and the token never reaches it.
     expect(content).not.toContain("CUI//token-XYZ");
+    // POSITIVE CONTROL: the model was told about a refusal, not handed `{}`.
+    expect(JSON.parse(content)).toEqual({ error: REASON_WITHHELD_REFUSAL });
+  });
+
+  // -------------------------------------------------------------------------
+  // Case 7b: a server-written refusal on a withheld result reaches the model
+  // -------------------------------------------------------------------------
+  it("case 7b — gov + a constant refusal: the model reads the refusal, not {}", async () => {
+    // Every gov result is withheld. The projection used to drop the refusal's
+    // only field, so "Project not found" arrived as `{}` and the model made up
+    // why the call had come back empty.
+    const { toolUse, end } = turns("list_saved_views");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    setCeiling("UNCLASSIFIED");
+    executeTool.mockResolvedValue({ error: "Insufficient permissions" });
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+    expect(JSON.parse(content)).toEqual({ error: "Insufficient permissions" });
+    // The gate really did withhold this result: the refusal came through the
+    // withheld branch, not the exposed one.
+    expect(logEgressDecision).toHaveBeenCalledWith(expect.objectContaining({ valueKind: "tool_result", toolName: "list_saved_views", exposed: false }));
+  });
+
+  it("case 7c — gov + a tool that threw: the model is told the cause is internal", async () => {
+    const { toolUse, end } = turns("get_finance_summary");
+    callModel.mockResolvedValueOnce(toolUse).mockResolvedValueOnce(end);
+    setCeiling("UNCLASSIFIED");
+    executeTool.mockResolvedValue({ error: internalFailureRefusal("get_finance_summary") });
+
+    const { runAgentLoop } = await import("@/lib/ai/agent-loop");
+    await runAgentLoop(loopOpts("gov"));
+
+    const content = extractToolResultContent(callModel.mock.calls[1][0].messages as unknown[]);
+    expect(JSON.parse(content)).toEqual({ error: internalFailureRefusal("get_finance_summary") });
   });
 
   // -------------------------------------------------------------------------

@@ -3,9 +3,12 @@ import {
   KR_DEFAULT_TARGET,
   krFraction,
   krProgressPercent,
+  keyResultStatus,
   measureKeyResult,
   objectiveProgressPercent,
   rollUpObjective,
+  shownKeyResult,
+  type KeyResultStatus,
 } from "./progress";
 
 describe("krFraction — higher-is-better (default)", () => {
@@ -120,7 +123,10 @@ describe("measureKeyResult — a key result counting linked work items", () => {
   const done = { completedAt: "2026-11-01T00:00:00Z" };
   const open = { completedAt: null };
   // What the OKR board's quick-add creates: a title, and the column defaults.
-  const boardMade = { startValue: 0, currentValue: 0, targetValue: KR_DEFAULT_TARGET, lowerIsBetter: false };
+  const boardMade = {
+    startValue: 0, currentValue: 0, targetValue: KR_DEFAULT_TARGET, lowerIsBetter: false,
+    status: "IN_PROGRESS" as KeyResultStatus,
+  };
 
   it("reads 3 / 3 and 100% when all three linked tickets are done (it read 3 / 100)", () => {
     const m = measureKeyResult(boardMade, [done, done, done]);
@@ -150,12 +156,56 @@ describe("measureKeyResult — a key result counting linked work items", () => {
     const m = measureKeyResult({ ...boardMade, currentValue: 99 }, [open, open]);
     expect([m.currentValue, m.targetValue, m.progress]).toEqual([0, 2, 0]);
   });
+
+  it("shows Done once all its linked tickets are done (it showed the stored In Progress)", () => {
+    // Control: part-way, the stored status stands.
+    expect(measureKeyResult(boardMade, [done, open, open]).status).toBe("IN_PROGRESS");
+    expect(measureKeyResult(boardMade, [done, done, done]).status).toBe("DONE");
+  });
+});
+
+describe("keyResultStatus — the status a key result shows", () => {
+  const STATUSES: KeyResultStatus[] = ["NOT_STARTED", "IN_PROGRESS", "AT_RISK", "ON_TRACK", "DONE"];
+  const linked = (progress: number) => ({ autoTracked: true, progress });
+  const manual = (progress: number) => ({ autoTracked: false, progress });
+
+  it("keeps whatever someone set on a key result without links, at any progress", () => {
+    for (const s of STATUSES) {
+      for (const p of [0, 40, 100]) expect(keyResultStatus(s, manual(p))).toBe(s);
+    }
+  });
+
+  it("is Done at 100% whatever was stored, once linked work items measure it", () => {
+    for (const s of STATUSES) expect(keyResultStatus(s, linked(100))).toBe("DONE");
+  });
+
+  it("is never Done below 100% when linked work items measure it", () => {
+    expect(keyResultStatus("DONE", linked(60))).toBe("IN_PROGRESS");
+    expect(keyResultStatus("DONE", linked(0))).toBe("NOT_STARTED");
+  });
+
+  it("is not Not Started once a linked work item is done", () => {
+    expect(keyResultStatus("NOT_STARTED", linked(33))).toBe("IN_PROGRESS");
+    expect(keyResultStatus("NOT_STARTED", linked(0))).toBe("NOT_STARTED");
+  });
+
+  it("keeps a check-in's On Track or At Risk below 100%", () => {
+    expect(keyResultStatus("ON_TRACK", linked(33))).toBe("ON_TRACK");
+    expect(keyResultStatus("AT_RISK", linked(0))).toBe("AT_RISK");
+    expect(keyResultStatus("IN_PROGRESS", linked(0))).toBe("IN_PROGRESS");
+  });
+
+  it("puts the measured numbers and status on the row, and leaves the rest", () => {
+    const row = { id: "kr", title: "Ship", currentValue: 0, targetValue: KR_DEFAULT_TARGET, status: "IN_PROGRESS" as KeyResultStatus };
+    const m = measureKeyResult({ ...row, startValue: 0, lowerIsBetter: false }, [{ completedAt: new Date() }]);
+    expect(shownKeyResult(row, m)).toEqual({ id: "kr", title: "Ship", currentValue: 1, targetValue: 1, status: "DONE" });
+  });
 });
 
 describe("rollUpObjective", () => {
   it("averages measured key results, so a done linked KR rolls up as 100", () => {
     const kr = measureKeyResult(
-      { startValue: 0, currentValue: 0, targetValue: KR_DEFAULT_TARGET, lowerIsBetter: false },
+      { startValue: 0, currentValue: 0, targetValue: KR_DEFAULT_TARGET, lowerIsBetter: false, status: "IN_PROGRESS" },
       [{ completedAt: new Date() }],
     );
     expect(rollUpObjective([kr, { progress: 50 }], []).progress).toBe(75);

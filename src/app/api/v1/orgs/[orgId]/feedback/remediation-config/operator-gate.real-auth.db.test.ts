@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 
 const h = vi.hoisted(() => ({ auth: null as string | null, cookie: null as string | null }));
 vi.mock("next/headers", () => ({
@@ -73,11 +74,11 @@ beforeAll(async () => {
   }
   projectA = (await prisma.project.create({ data: { orgId, name: "Alpha", key: `RA${stamp.slice(0, 3).toUpperCase()}` } })).id;
   const expiresAt = new Date(Date.now() + 3_600_000);
-  await prisma.session.create({ data: { id: operatorSession, userId: operatorId, expiresAt, authMethod: "google" } });
-  await prisma.session.create({ data: { id: ownerSession, userId: ownerId, expiresAt } });
-  await prisma.session.create({ data: { id: ssoMadeSession, userId: ssoMadeId, expiresAt, authMethod: "google" } });
-  await prisma.session.create({ data: { id: untrustedSession, userId: untrustedId, expiresAt, authMethod: "password" } });
-  await prisma.session.create({ data: { id: legacyOperatorSession, userId: operatorId, expiresAt } });
+  await createTestSession({ token: operatorSession, userId: operatorId, expiresAt, authMethod: "google" });
+  await createTestSession({ token: ownerSession, userId: ownerId, expiresAt });
+  await createTestSession({ token: ssoMadeSession, userId: ssoMadeId, expiresAt, authMethod: "google" });
+  await createTestSession({ token: untrustedSession, userId: untrustedId, expiresAt, authMethod: "password" });
+  await createTestSession({ token: legacyOperatorSession, userId: operatorId, expiresAt });
   // Every scope there is, minted by the operator.
   operatorKey = (
     await mintApiKey({
@@ -91,9 +92,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.unstubAllEnvs();
-  await prisma.session.deleteMany({
-    where: { id: { in: [operatorSession, ownerSession, ssoMadeSession, untrustedSession, legacyOperatorSession] } },
-  });
+  await prisma.session.deleteMany({ where: { userId: { in: [operatorId, ownerId, ssoMadeId, untrustedId] } } });
   await prisma.apiKey.deleteMany({ where: { orgId } });
   await prisma.project.deleteMany({ where: { orgId } });
   await prismaUnfiltered.orgMember.deleteMany({ where: { orgId } });
