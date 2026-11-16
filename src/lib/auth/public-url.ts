@@ -40,8 +40,11 @@ export function publicOriginFromHeaders(headers: Pick<Headers, "get">): string |
   return new URL(`${proto}://${host}`).origin;
 }
 
-/** A host name or IPv4 address, or a bracketed IPv6 address, with an optional port: nothing else. */
-const BARE_HOST = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)*|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i;
+/**
+ * A host name or IPv4 address (with at most one trailing dot, kept as given),
+ * or a bracketed IPv6 address, with an optional port: nothing else.
+ */
+const BARE_HOST = /^(?:[a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.?|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i;
 
 /** A header's right-most value, if it is a bare host that a URL can hold (a port over 65535 can't be); else null. */
 function bareHost(value: string | null): string | null {

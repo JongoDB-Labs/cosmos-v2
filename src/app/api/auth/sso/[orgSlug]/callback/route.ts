@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import * as oidc from "openid-client";
 import { prisma } from "@/lib/db/client";
 import { getPublicOrigin } from "@/lib/auth/public-url";
+import { unexpectedErrorKind } from "@/lib/auth/unexpected-error";
 import { getIpAddress } from "@/lib/api-helpers";
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
@@ -161,7 +162,20 @@ async function signInWithSso(request: NextRequest, { params }: RouteParams): Pro
   return response;
 }
 
-/** Whatever the outcome, the address kept for this sign-in is spent: clear it (forgetReturnTo). */
+/**
+ * Whatever the outcome, the address kept for this sign-in is spent: clear it
+ * (forgetReturnTo). A failure the handler didn't catch goes to the sign-in page
+ * as auth_failed, like the failures it does catch, rather than a bare 500 that
+ * would leave the cookie behind.
+ */
 export async function GET(request: NextRequest, ctx: RouteParams) {
-  return forgetReturnTo(await signInWithSso(request, ctx));
+  let response: NextResponse;
+  try {
+    response = await signInWithSso(request, ctx);
+  } catch (err) {
+    console.error("[sso] sign-in failed", unexpectedErrorKind(err));
+    // Clears the SSO transaction cookie too, as every refusal here does.
+    response = redirectToLogin(getPublicOrigin(request), "auth_failed", rememberedReturnTo(request));
+  }
+  return forgetReturnTo(response);
 }

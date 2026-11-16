@@ -148,6 +148,22 @@ describe("SSO callback: where a sign-in lands", () => {
     expect(landed(await callback())).toBe("/acme");
   });
 
+  it("sends a failure it didn't expect to the sign-in page, clears the cookie, and logs no address", async () => {
+    completeSsoLogin.mockRejectedValueOnce(
+      Object.assign(new Error("account write failed for person@sso.test"), { code: "P1001" }),
+    );
+    const { res, lines, text } = await loggedBy(() => callback(kept("/acme/issues")));
+    expect(completeSsoLogin).toHaveBeenCalledTimes(1);
+    const url = new URL(res.headers.get("location")!);
+    expect(url.pathname).toBe("/login");
+    expect(url.searchParams.get("error")).toBe("auth_failed");
+    expect(url.searchParams.get("next")).toBe("/acme/issues");
+    expect(res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+    expect(res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
+    expect(lines).toContain(format("[sso] sign-in failed", { name: "Error", code: "P1001" }));
+    expect(text).not.toContain("person@sso.test");
+  });
+
   it("keeps the page on the sign-in page when the sign-in is refused, and clears the cookie", async () => {
     completeSsoLogin.mockResolvedValue({ ok: false, reason: "jit_disabled" });
     const res = await callback(kept("/acme/issues"));

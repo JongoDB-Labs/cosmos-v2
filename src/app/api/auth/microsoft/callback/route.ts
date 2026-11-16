@@ -20,6 +20,7 @@ import {
 import { resolveFirstPartyUser } from "@/lib/auth/first-party-identity";
 import { getProviderConfig } from "@/lib/auth/provider-config";
 import { getPublicOrigin } from "@/lib/auth/public-url";
+import { unexpectedErrorKind } from "@/lib/auth/unexpected-error";
 import { connectIntent, finishConnect } from "@/lib/auth/connect-flow";
 import { connectOutcomeUrl, CONNECT_COOKIE } from "@/lib/auth/connect-sign-in";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
@@ -167,7 +168,20 @@ async function signInWithMicrosoft(request: NextRequest): Promise<NextResponse> 
   return response;
 }
 
-/** Whatever the outcome, the address kept for this sign-in is spent: clear it (forgetReturnTo). */
+/**
+ * Whatever the outcome, the address kept for this sign-in is spent: clear it
+ * (forgetReturnTo). A failure the handler didn't catch goes to the sign-in page
+ * as auth_failed, like the failures it does catch, rather than a bare 500 that
+ * would leave the cookie behind.
+ */
 export async function GET(request: NextRequest) {
-  return forgetReturnTo(await signInWithMicrosoft(request));
+  let response: NextResponse;
+  try {
+    response = await signInWithMicrosoft(request);
+  } catch (err) {
+    console.error("[auth:microsoft] sign-in failed", unexpectedErrorKind(err));
+    response = redirectToLogin(getPublicOrigin(request), "auth_failed", rememberedReturnTo(request));
+    response.cookies.delete(MS_STATE_COOKIE);
+  }
+  return forgetReturnTo(response);
 }

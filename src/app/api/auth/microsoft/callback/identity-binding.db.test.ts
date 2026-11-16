@@ -517,6 +517,30 @@ describe("Microsoft sign-in lands on the page the sign-in started from", () => {
     await prisma.microsoftIdentity.create({ data: { userId: returnId, tenantId: T_HOME, objectId: oid(18) } });
   });
 
+  it("sends a failure it didn't expect to the sign-in page, clears the cookie, and logs no address", async () => {
+    h.tenant = T_HOME;
+    const write = vi
+      .spyOn(prisma.session, "create")
+      .mockRejectedValueOnce(Object.assign(new Error(`session write failed for ${returnEmail}`), { code: "P1001" }));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await signIn(bound(), kept("/acme/issues"));
+      // Positive control: the sign-in reached the session write, past every refusal.
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(r.userId).toBeNull();
+      expect(r.location.pathname).toBe("/login");
+      expect(r.error).toBe("auth_failed");
+      expect(r.location.searchParams.get("next")).toBe("/acme/issues");
+      expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+      expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
+      expect(logged).toHaveBeenCalledWith("[auth:microsoft] sign-in failed", { name: "Error", code: "P1001" });
+      expect(JSON.stringify(logged.mock.calls)).not.toContain(returnEmail);
+    } finally {
+      write.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
   it("lands on the page kept at the start, and clears it", async () => {
     h.tenant = T_HOME;
     const r = await signIn(bound(), kept("/acme/issues?view=list"));

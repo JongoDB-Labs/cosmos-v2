@@ -328,6 +328,29 @@ describe("Google sign-in lands on the page the sign-in started from", () => {
     expect(r.location.href).toBe("http://localhost/");
   });
 
+  it("sends a failure it didn't expect to the sign-in page, clears the cookie, and logs no address", async () => {
+    const write = vi
+      .spyOn(prisma.session, "create")
+      .mockRejectedValueOnce(Object.assign(new Error(`session write failed for ${preboundEmail}`), { code: "P1001" }));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await signIn(prebound(), kept("/acme/issues"));
+      // Positive control: the sign-in reached the session write, past every refusal.
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(r.userId).toBeNull();
+      expect(r.location.pathname).toBe("/login");
+      expect(r.error).toBe("auth_failed");
+      expect(r.location.searchParams.get("next")).toBe("/acme/issues");
+      expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+      expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
+      expect(logged).toHaveBeenCalledWith("[auth:google] sign-in failed", { name: "Error", code: "P1001" });
+      expect(JSON.stringify(logged.mock.calls)).not.toContain(preboundEmail);
+    } finally {
+      write.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
   it("keeps the page on the sign-in page when the sign-in is refused, and clears the cookie", async () => {
     // A second Google account for an address already bound to another is refused.
     const r = await signIn({ sub: `sub-refused-${stamp}`, email: preboundEmail, email_verified: true }, kept("/acme/issues"));

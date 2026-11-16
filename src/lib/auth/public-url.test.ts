@@ -47,6 +47,19 @@ describe("getPublicOrigin", () => {
     );
   });
 
+  it("keeps a host written with its trailing dot, as given", () => {
+    expect(getPublicOrigin(at({ "x-forwarded-host": "cosmos.example.dev.", "x-forwarded-proto": "https" }))).toBe(
+      "https://cosmos.example.dev.",
+    );
+    expect(getPublicOrigin(at({ "x-forwarded-host": "cosmos.example.dev.:8443", "x-forwarded-proto": "https" }))).toBe(
+      "https://cosmos.example.dev.:8443",
+    );
+    // One dot, not two.
+    expect(getPublicOrigin(at({ "x-forwarded-host": "cosmos.example.dev..", "x-forwarded-proto": "https" }))).toBe(
+      "http://localhost:3000",
+    );
+  });
+
   it("uses the Host header when nothing is forwarded, and infers the scheme", () => {
     expect(getPublicOrigin(at({ host: "cosmos.example" }))).toBe("https://cosmos.example");
     expect(getPublicOrigin(at({ host: "localhost:3000" }))).toBe("http://localhost:3000");

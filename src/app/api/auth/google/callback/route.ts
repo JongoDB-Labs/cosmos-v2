@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth/client";
 import { getGoogleLoginClient, googleRedirectUri, resolveGoogleLoginCreds } from "@/lib/auth/google-oauth";
 import { getPublicOrigin } from "@/lib/auth/public-url";
+import { unexpectedErrorKind } from "@/lib/auth/unexpected-error";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
 import { resolveFirstPartyUser } from "@/lib/auth/first-party-identity";
@@ -177,7 +178,20 @@ async function signInWithGoogle(request: NextRequest): Promise<NextResponse> {
   return response;
 }
 
-/** Whatever the outcome, the address kept for this sign-in is spent: clear it (forgetReturnTo). */
+/**
+ * Whatever the outcome, the address kept for this sign-in is spent: clear it
+ * (forgetReturnTo). A failure the handler didn't catch goes to the sign-in page
+ * as auth_failed, like the failures it does catch, rather than a bare 500 that
+ * would leave the cookie behind.
+ */
 export async function GET(request: NextRequest) {
-  return forgetReturnTo(await signInWithGoogle(request));
+  let response: NextResponse;
+  try {
+    response = await signInWithGoogle(request);
+  } catch (err) {
+    console.error("[auth:google] sign-in failed", unexpectedErrorKind(err));
+    response = redirectToLogin(getPublicOrigin(request), "auth_failed", rememberedReturnTo(request));
+    response.cookies.delete(OAUTH_STATE_COOKIE);
+  }
+  return forgetReturnTo(response);
 }
