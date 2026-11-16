@@ -36,7 +36,7 @@ import {
 } from "./ast";
 import { fieldDef, type SystemFieldId } from "./fields";
 import { lookupFunction } from "./functions";
-import { COMMENT_TEXT_FIELDS, HISTORY_BY_FIELD, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
+import { COMMENT_TEXT_FIELDS, HISTORY_BY_FIELD, MEMBER_JOIN_FIELDS, fnKey, varKey, type CompileEnv, type StatusCategory } from "./env";
 import { ID_SET_MAX, diag, tooBroad, type CqlDiagnostic, type Span } from "./errors";
 import { withStatementTimeout } from "./timeout.server";
 import type { CustomFieldType, SchemaCustomField } from "./typecheck";
@@ -61,6 +61,12 @@ export interface ResolveArgs {
   sinceLastStandup?: Date;
   /** "warn": unknown values are warnings and match nothing; "strict": errors. */
   mode?: "strict" | "warn";
+  /**
+   * The where goes to the browser (`predicateCql`): `membersOf()`'s people
+   * are not loaded, and the clauses that would need them are left to the
+   * server (CompileEnv.forBrowser).
+   */
+  forBrowser?: boolean;
 }
 
 export interface ResolveResult {
@@ -515,6 +521,24 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   if (where) walk(where, (l) => leafValues(l).forEach(gatherFns));
   for (const list of vars.values()) list?.forEach(gatherFns);
 
+  // The `membersOf()` calls a use can't join to (anything outside an IN / =
+  // on MEMBER_JOIN_FIELDS: `reporter`, `mentions`, a person custom field,
+  // history's values and BY). Only these load the team's people.
+  const peopleFns = new Set<string>();
+  const teamMemberIds = new Map<string, string[]>();
+  if (where) {
+    walk(where, (l) => {
+      const joins = (l.op === "in" || l.op === "cmp") && l.field.kind === "sys" && MEMBER_JOIN_FIELDS.has(l.field.id);
+      if (joins) return;
+      const visit = (v: CqlValue) => {
+        if (v.t !== "fn") return;
+        if (v.name === "membersOf") peopleFns.add(fnKey(v));
+        v.args.forEach(visit);
+      };
+      leafValues(l).forEach(visit);
+    });
+  }
+
   const sprintIds = (status?: "ACTIVE" | "COMPLETED" | "PLANNED", projectId?: string) =>
     intervals.filter((i) => (!status || i.status === status) && (!projectId || i.projectId === projectId)).map((i) => i.id);
   const contextProject = a.contextProjectId && readable.has(a.contextProjectId) ? a.contextProjectId : undefined;
@@ -547,16 +571,28 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
         break;
       }
       case "membersOf": {
-        const teamIds = fn.args.filter((x): x is Ref => x.t === "ref" && x.entity === "team").map((x) => x.id);
-        const rows = teamIds.length
-          ? await prisma.teamMember.findMany({
-              where: { teamId: { in: teamIds }, team: { orgId, projectId: { in: readableIds } } },
-              select: { projectMember: { select: { orgMember: { select: { userId: true, removedAt: true } } } } },
-            })
+        // The readable teams it names. The person fields with a relation join
+        // to them (MEMBER_JOIN_FIELDS), so no one's id enters the where; only
+        // the uses that can't join load the people, and never for the browser.
+        const named = fn.args.filter((x): x is Ref => x.t === "ref" && x.entity === "team").map((x) => x.id);
+        const teamIds = named.length
+          ? (
+              await prisma.team.findMany({
+                where: { id: { in: named }, orgId, projectId: { in: readableIds } },
+                select: { id: true },
+              })
+            ).map((t) => t.id)
           : [];
-        fnIds.set(key, [
-          ...new Set(rows.filter((r) => !r.projectMember.orgMember.removedAt).map((r) => r.projectMember.orgMember.userId)),
-        ]);
+        fnIds.set(key, teamIds);
+        if (peopleFns.has(key) && !a.forBrowser) {
+          const rows = teamIds.length
+            ? await prisma.teamMember.findMany({
+                where: { teamId: { in: teamIds }, projectMember: { orgMember: { orgId, removedAt: null } } },
+                select: { projectMember: { select: { orgMember: { select: { userId: true } } } } },
+              })
+            : [];
+          teamMemberIds.set(key, [...new Set(rows.map((r) => r.projectMember.orgMember.userId))]);
+        }
         break;
       }
       case "currentProject":
@@ -735,6 +771,9 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     milestoneItems,
     milestoneLinked,
     history: new Map(),
+    teamOrgId: orgId,
+    ...(teamMemberIds.size ? { teamMemberIds } : {}),
+    ...(a.forBrowser ? { forBrowser: true } : {}),
     ...(documentVisibility ? { documentVisibility } : {}),
     ...(readableProjectIds ? { readableProjectIds } : {}),
     ...(teamProjects ? { teamProjects } : {}),

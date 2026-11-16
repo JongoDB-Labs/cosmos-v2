@@ -14,13 +14,17 @@
 //    included, received the user id of everyone on every readable team.
 //
 // The item now reaches its assignee's teams through a relation, so the where
-// names teams and projects, never people.
+// names teams and projects, never people. `membersOf(X)` had the same two
+// problems and takes the same join wherever the field has a relation to the
+// person; the uses that don't (reporter, mentions, history) keep the people on
+// the server and leave the clause to the server's ids in a browser predicate.
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { OrgRole } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
 import { withCqlEnabled } from "../flag";
-import { executeCql, MAX_LIST_VALUES } from "../execute.server";
+import { executeCql, predicateCql, MAX_LIST_VALUES } from "../execute.server";
+import { UNDECIDED, matches } from "../evaluate";
 import { seedWorld, type World } from "./cql-fixture";
 
 const { getAuthContext } = vi.hoisted(() => ({ getAuthContext: vi.fn() }));
@@ -28,6 +32,38 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 import { POST as predicateRoute } from "@/app/api/v1/orgs/[orgId]/cql/predicate/route";
 
 const TEAM_QUERIES = ["team = Platform", "team != Platform", "team IS EMPTY"] as const;
+/** `membersOf()` where the field reaches the person through a relation: a join to the team. */
+const JOINED_MEMBERS_QUERIES = [
+  "assignee IN membersOf(Platform)",
+  "assignee NOT IN membersOf(Platform)",
+  "primaryAssignee IN membersOf(Platform)",
+  "watcher IN membersOf(Platform)",
+] as const;
+/** `membersOf()` where the field stores bare ids: the people, on the server only. */
+const PEOPLE_MEMBERS_QUERIES = [
+  "reporter IN membersOf(Platform)",
+  "mentions IN membersOf(Platform)",
+  "priority CHANGED BY membersOf(Platform)",
+  "assignee WAS IN membersOf(Platform)",
+] as const;
+
+/** An untagged P1 item, made directly (no history row). */
+async function mkP1Item(w: World, ticketNumber: number, title: string, data: Record<string, unknown> = {}) {
+  return prisma.workItem.create({
+    data: {
+      orgId: w.orgA, projectId: w.P1.id, ticketNumber, title, description: "", columnKey: "todo",
+      workItemTypeId: w.typeTask, createdById: w.actor.id, ...data,
+    },
+  });
+}
+
+/** Puts a fixture user on Platform (P1's team), through a P1 project membership. */
+async function joinPlatform(w: World, userId: string) {
+  const om = await prisma.orgMember.findFirstOrThrow({ where: { orgId: w.orgA, userId } });
+  const pm = await prisma.projectMember.create({ data: { projectId: w.P1.id, orgMemberId: om.id } });
+  await prisma.teamMember.create({ data: { teamId: w.teamP1, projectMemberId: pm.id } });
+  return om.id;
+}
 
 describe("a team larger than the list-value cap (e2e DB)", () => {
   /** One more member than a query may carry as list values. */
@@ -125,7 +161,7 @@ describe("a guest's compiled team filter (e2e DB)", () => {
     expect(text).toContain(w.bob.id);
   });
 
-  for (const cql of TEAM_QUERIES) {
+  for (const cql of [...TEAM_QUERIES, ...JOINED_MEMBERS_QUERIES]) {
     it(`\`${cql}\` names the team and none of the people on it`, async () => {
       const { status, text } = await predicateAsGuest(cql);
       expect(status).toBe(200);
@@ -137,4 +173,126 @@ describe("a guest's compiled team filter (e2e DB)", () => {
       expect(text).not.toContain(w.teamP2);
     });
   }
+
+  for (const cql of PEOPLE_MEMBERS_QUERIES) {
+    it(`\`${cql}\` leaves the clause to the server rather than send the people`, async () => {
+      const { status, text } = await predicateAsGuest(cql);
+      expect(status).toBe(200);
+      for (const user of [w.bob.id, w.alex1.id, w.alex2.id]) expect(text).not.toContain(user);
+      // The clause is there, as the server's: not passing on an empty answer.
+      expect(text).toContain("$serverOnly");
+    });
+  }
+
+});
+
+describe("membersOf() means the team's current members (e2e DB)", () => {
+  let w: World;
+  /** Items a current member (Bob) is on, one per field; and the same for someone who left. */
+  const bobs: Record<string, string> = {};
+  const leavers: Record<string, string> = {};
+
+  beforeAll(async () => {
+    w = await seedWorld();
+    // Bob is on Platform. alex2 was on it too, and has left the org: the
+    // membership rows stay (a soft delete), and none of it is the team's any more.
+    const leftId = await joinPlatform(w, w.alex2.id);
+    await prisma.orgMember.update({ where: { id: leftId }, data: { removedAt: new Date("2026-10-01T00:00:00Z") } });
+
+    let n = 900;
+    for (const [who, user, out] of [["bob", w.bob.id, bobs], ["leaver", w.alex2.id, leavers]] as const) {
+      out.primary = (await mkP1Item(w, n++, `${who}: primary assignee`, { assigneeId: user })).id;
+      const co = await mkP1Item(w, n++, `${who}: co-assignee`);
+      await prisma.workItemAssignee.create({ data: { workItemId: co.id, userId: user, sortOrder: 0 } });
+      out.co = co.id;
+      const watched = await mkP1Item(w, n++, `${who}: watcher`);
+      await prisma.workItemWatcher.create({ data: { orgId: w.orgA, workItemId: watched.id, userId: user } });
+      out.watched = watched.id;
+      out.reported = (await mkP1Item(w, n++, `${who}: reporter`, { createdById: user })).id;
+      out.mentioned = (await mkP1Item(w, n++, `${who}: mentioned`, { description: `ask <@${user}>` })).id;
+      const changed = await mkP1Item(w, n++, `${who}: changed priority`);
+      await prisma.activity.create({
+        data: { orgId: w.orgA, workItemId: changed.id, userId: user, action: "updated", field: "priority", oldValue: "LOW", newValue: "HIGH" },
+      });
+      out.changed = changed.id;
+      const was = await mkP1Item(w, n++, `${who}: was assigned`);
+      await prisma.activity.create({
+        data: { orgId: w.orgA, workItemId: was.id, userId: w.actor.id, action: "updated", field: "assigneeId", oldValue: user, newValue: null },
+      });
+      out.was = was.id;
+    }
+  }, 60_000);
+  afterAll(async () => {
+    await w?.cleanup();
+  });
+
+  const idsOf = async (cql: string) =>
+    new Set((await executeCql(w.ctx(), { cql: `(${cql}) AND project = ${w.P1.key}` }, { pageSize: 100 })).data.map((r) => r.id));
+
+  // Each `membersOf(Platform)` query against the same query naming Platform's
+  // one current member: what `membersOf()` meant when it listed the people.
+  const PAIRS: [string, string, keyof typeof bobs | null][] = [
+    ["assignee IN membersOf(Platform)", 'assignee IN ("Bob Builder")', "primary"],
+    ["assignee NOT IN membersOf(Platform)", 'assignee NOT IN ("Bob Builder")', null],
+    ["primaryAssignee IN membersOf(Platform)", 'primaryAssignee IN ("Bob Builder")', "primary"],
+    ["watcher IN membersOf(Platform)", 'watcher IN ("Bob Builder")', "watched"],
+    ["reporter IN membersOf(Platform)", 'reporter IN ("Bob Builder")', "reported"],
+    ["mentions IN membersOf(Platform)", 'mentions IN ("Bob Builder")', "mentioned"],
+    ["priority CHANGED BY membersOf(Platform)", 'priority CHANGED BY "Bob Builder"', "changed"],
+    ["assignee WAS IN membersOf(Platform)", 'assignee WAS IN ("Bob Builder")', "was"],
+  ];
+  for (const [members, named, field] of PAIRS) {
+    it(`\`${members}\` matches what naming the current members matches`, async () => {
+      const [got, want] = await Promise.all([idsOf(members), idsOf(named)]);
+      expect([...got].sort()).toEqual([...want].sort());
+      expect(want.size).toBeGreaterThan(0);
+      if (field) {
+        // Bob's item is in; the item of the one who left is not.
+        expect(got).toContain(bobs[field]);
+        expect(got).not.toContain(leavers[field]);
+      }
+    });
+  }
+
+  it("the co-assignee counts for `assignee`, not for `primaryAssignee`", async () => {
+    expect(await idsOf("assignee IN membersOf(Platform)")).toContain(bobs.co);
+    expect(await idsOf("assignee IN membersOf(Platform)")).not.toContain(leavers.co);
+    expect(await idsOf("primaryAssignee IN membersOf(Platform)")).not.toContain(bobs.co);
+  });
+
+  it("a board can't decide the people-bearing clauses itself, so it asks the server", async () => {
+    for (const cql of PEOPLE_MEMBERS_QUERIES) {
+      const { where } = await predicateCql(w.ctx(), { cql }, {});
+      const row = await prisma.workItem.findUniqueOrThrow({ where: { id: bobs.reported } });
+      expect(matches(where, JSON.parse(JSON.stringify(row))), cql).toBe(UNDECIDED);
+    }
+  });
+});
+
+describe("someone who leaves the org takes their untagged work off the team (e2e DB)", () => {
+  let w: World;
+  beforeAll(async () => {
+    w = await seedWorld();
+  }, 60_000);
+  afterAll(async () => {
+    await w?.cleanup();
+  });
+
+  it("is the team's while they are a member, and no longer once they have left", async () => {
+    const memberId = await joinPlatform(w, w.alex1.id);
+    const item = await mkP1Item(w, 950, "untagged, assigned to someone who will leave", { assigneeId: w.alex1.id });
+    const run = async (cql: string) =>
+      (await executeCql(w.ctx(), { cql: `(${cql}) AND project = ${w.P1.key}` }, { pageSize: 100 })).data.map((r) => r.id);
+
+    // Positive control: a member's untagged work is the team's.
+    expect(await run("team = Platform")).toContain(item.id);
+    expect(await run("assignee IN membersOf(Platform)")).toContain(item.id);
+    expect(await run("team IS EMPTY")).not.toContain(item.id);
+
+    // They leave: the membership rows stay (a soft delete) and no longer count.
+    await prisma.orgMember.update({ where: { id: memberId }, data: { removedAt: new Date() } });
+    expect(await run("team = Platform")).not.toContain(item.id);
+    expect(await run("assignee IN membersOf(Platform)")).not.toContain(item.id);
+    expect(await run("team IS EMPTY")).toContain(item.id);
+  });
 });

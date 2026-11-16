@@ -53,6 +53,8 @@ export interface CqlRunOptions {
   sequential?: boolean;
   /** Validation strictness for unknown values (validate route only). */
   mode?: "strict" | "warn" | "none";
+  /** The where goes to the browser (predicateCql sets it; see CompileEnv.forBrowser). */
+  forBrowser?: boolean;
 }
 
 export interface PreparedCql {
@@ -124,6 +126,7 @@ export async function prepareCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
     contextProjectId: opts.contextProjectId ?? raw.context?.projectId,
     sinceLastStandup: opts.sinceLastStandup,
     mode: opts.mode === "warn" ? "warn" : "strict",
+    forBrowser: opts.forBrowser,
   });
   const diagnostics = [...checked.diagnostics, ...resolved.diagnostics];
   if (hasErrors(diagnostics)) throw new CqlError(diagnostics);
@@ -302,7 +305,9 @@ const HYDRATE_CHUNK = 5_000;
  * strings; Prisma's JSON-null sentinels become `{ $null: … }` markers.
  */
 export async function predicateCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}) {
-  const prepared = await prepareCql(ctx, input, opts);
+  // forBrowser: no one's id goes in it (`membersOf()` joins to its teams, and
+  // a clause that would need the people is left to the server's ids).
+  const prepared = await prepareCql(ctx, input, { ...opts, forBrowser: true });
   const where = buildScopedWhere({
     orgId: prepared.orgId,
     allowedProjectIds: prepared.readable,

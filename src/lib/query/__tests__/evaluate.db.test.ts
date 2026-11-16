@@ -46,20 +46,22 @@ describe("evaluate.ts ≡ the database (e2e DB)", () => {
       },
     });
     // Every org-A row with the relations the compiler can mention, round-tripped
-    // through JSON as a board's fetch would deliver it.
+    // through JSON as a board's fetch would deliver it. `team` and
+    // `membersOf()` join a person to their teams, so each person carries their
+    // memberships, removed ones and other orgs' too (the predicate itself says
+    // which count).
+    const memberships = {
+      select: { orgId: true, removedAt: true, projectMembers: { select: { teamMembers: { select: { teamId: true } } } } },
+    } as const;
     rows = JSON.parse(
       JSON.stringify(
         await prisma.workItem.findMany({
           where: { orgId: w.orgA },
           include: {
-            assignees: { select: { userId: true } },
-            // `team`: the primary assignee's team memberships, removed ones too
-            // (the predicate itself says `removedAt: null`).
-            assignee: {
-              select: { memberships: { select: { removedAt: true, projectMembers: { select: { teamMembers: { select: { teamId: true } } } } } } },
-            },
+            assignees: { select: { userId: true, user: { select: { memberships } } } },
+            assignee: { select: { memberships } },
             labels: { select: { labelId: true } },
-            watchers: { select: { userId: true } },
+            watchers: { select: { userId: true, user: { select: { memberships } } } },
             comments: { select: { content: true } },
             incomingLinks: { select: { type: true, sourceItemId: true } },
             outgoingLinks: { select: { type: true, targetItemId: true } },
@@ -79,7 +81,15 @@ describe("evaluate.ts ≡ the database (e2e DB)", () => {
     return fc.oneof(
       fc.constantFrom("assignee = me", 'assignee = "Bob Builder"', "assignee IS EMPTY", "assignee != me", "primaryAssignee = me", "reporter = me"),
       fc.constantFrom('sprint = "Sprint 1"', "sprint IN openSprints()", "sprint IS EMPTY", "sprint IN closedSprints()"),
-      fc.constantFrom("team = Platform", "team != Platform", "team IS EMPTY", "assignee IN membersOf(Platform)"),
+      fc.constantFrom(
+        "team = Platform",
+        "team != Platform",
+        "team IS EMPTY",
+        "assignee IN membersOf(Platform)",
+        "assignee NOT IN membersOf(Platform)",
+        "primaryAssignee IN membersOf(Platform)",
+        "watcher IN membersOf(Platform)",
+      ),
       fc.constantFrom("label = auth", "labels IN ALL (auth, urgent)", "label IS EMPTY", "label != urgent"),
       fc.constantFrom(`project = ${w.P1.key}`, `project = ${w.P3.key}`, `project != ${w.P1.key}`),
       fc.constantFrom('status = "In Progress"', "status IN (Review, Done)", "statusCategory = done", "statusCategory != todo", "statusCategory = cancelled"),
@@ -121,10 +131,16 @@ describe("evaluate.ts ≡ the database (e2e DB)", () => {
   }, 300_000);
 
   it("on board-shaped rows it is undecided rather than wrong, and decides the card fields", async () => {
-    // What a board row carries: the card's own columns and its assignee set,
-    // but not the primary assignee's team memberships.
+    // What a board row carries: the card's own columns and its assignee set
+    // (ids only), but no one's team memberships.
     const RELATIONS = ["assignee", "labels", "watchers", "comments", "incomingLinks", "outgoingLinks", "activities"];
-    const board = rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !RELATIONS.includes(k))) as typeof r);
+    const board = rows.map(
+      (r) =>
+        ({
+          ...Object.fromEntries(Object.entries(r).filter(([k]) => !RELATIONS.includes(k))),
+          assignees: (r.assignees as { userId: string }[]).map(({ userId }) => ({ userId })),
+        }) as typeof r,
+    );
     let decided = 0;
     let total = 0;
     await fc.assert(

@@ -27,7 +27,7 @@ export interface CompileEnv {
   actorUserId: string;
   now: Date;
   tz: string;
-  /** Set-valued functions expanded to ids, keyed by `fnKey(fn)`. */
+  /** Set-valued functions expanded to ids, keyed by `fnKey(fn)`: sprints, teams (`myTeams()`, and `membersOf()`'s teams, not its people). */
   fnIds: Map<string, string[]>;
   /** Variable values, already resolved for the field they are used with; null = unset (inert). */
   vars: Map<string, CqlValue[] | null>;
@@ -90,6 +90,32 @@ export interface CompileEnv {
    */
   teamProjects?: ReadonlyMap<string, string>;
   /**
+   * The org the teams belong to: the join from a person to their teams
+   * (`team`, `membersOf()`) goes through their membership of THIS org, so a
+   * membership elsewhere never counts and the hop uses org_members' (org_id,
+   * user_id) index. Not a scope: buildScopedWhere still decides which items.
+   * The resolver always sets it; absent, the compiler refuses the join.
+   */
+  teamOrgId?: string;
+  /**
+   * `membersOf(team)`'s people (current members' user ids), by `fnKey`, for
+   * the uses that can't join to a person: `reporter` (a bare column),
+   * `mentions` (tokens in text), a person custom field (JSON) and history
+   * (Activity rows). `fnIds` holds the readable TEAMS for the same key, which
+   * is all the joined fields (MEMBER_JOIN_FIELDS) need.
+   *
+   * Server only: never set for a browser predicate (`forBrowser`), where
+   * those clauses are left to the server rather than carry the people.
+   */
+  teamMemberIds?: ReadonlyMap<string, string[]>;
+  /**
+   * Compiling the predicate a board evaluates in the browser
+   * (`predicateCql`). A clause that would carry `membersOf()`'s people as ids
+   * compiles to SERVER_ONLY instead, which the browser can't decide, so the
+   * board asks the server for those rows. Never set where the where runs.
+   */
+  forBrowser?: boolean;
+  /**
    * The comments this actor may read, for every field that reads comment text
    * (`mentions`, `comment`, `text`; see COMMENT_TEXT_FIELDS): the readable
    * projects whose comments pass the comment thread's own gate (COMMENT_READ),
@@ -114,6 +140,15 @@ export interface CompileEnv {
  * of them without it.
  */
 export const COMMENT_TEXT_FIELDS = ["mentions", "comment", "text"] as const;
+
+/**
+ * The person fields that reach a person through a relation, so `IN
+ * membersOf(team)` compiles to a join to the team (compile.ts, `onTeams`)
+ * and carries no one's id. Every other use of `membersOf()` needs the
+ * people's ids (`teamMemberIds`). The resolver and the compiler both read
+ * this, so they agree on which is which.
+ */
+export const MEMBER_JOIN_FIELDS: ReadonlySet<string> = new Set(["assignee", "primaryAssignee", "watcher"]);
 
 export function fnKey(v: Extract<CqlValue, { t: "fn" }>): string {
   return stableStringify({ name: v.name, args: v.args });
