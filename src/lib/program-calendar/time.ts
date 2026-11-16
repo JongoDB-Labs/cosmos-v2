@@ -66,32 +66,66 @@ export function normalizeRange(input: {
 
 // ── A timed event's own clock ────────────────────────────────────────────────
 
-/** One formatter per zone: building an `Intl.DateTimeFormat` is the slow part,
- *  and the grid reads every event once per week it might fall in. `null` marks
- *  a zone `Intl` does not know. */
-const zoneFormatters = new Map<string, Intl.DateTimeFormat | null>();
+/** Formatters by a zone's canonical name: building an `Intl.DateTimeFormat` is
+ *  the slow part, and the grid reads every event once per week it might fall
+ *  in. Only zones that resolve are kept, so the map is bounded by the zones
+ *  `Intl` knows, however many strings that are not zones it is asked about. */
+const zoneFormatters = new Map<string, Intl.DateTimeFormat>();
+/** Each spelling seen ("america/chicago", "US/Central") to its canonical name.
+ *  Again only ones that resolve; capped, because spellings are not bounded. */
+const zoneSpellings = new Map<string, string>();
+const MAX_SPELLINGS = 512;
 
-function zoneFormatter(timeZone: string): Intl.DateTimeFormat | null {
-  let f = zoneFormatters.get(timeZone);
-  if (f === undefined) {
-    try {
-      f = new Intl.DateTimeFormat("en-US", {
-        timeZone,
-        hourCycle: "h23",
-        year: "numeric", month: "2-digit", day: "2-digit",
-        hour: "2-digit", minute: "2-digit", second: "2-digit",
-      });
-    } catch {
-      f = null;
-    }
-    zoneFormatters.set(timeZone, f);
+function buildFormatter(timeZone: string): Intl.DateTimeFormat | null {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+  } catch {
+    return null;
   }
-  return f;
 }
 
-/** Is this a zone `Intl` will actually accept? */
+function resolveZone(value: string): { name: string; formatter: Intl.DateTimeFormat } | null {
+  if (!value) return null;
+  const seen = zoneSpellings.get(value);
+  if (seen !== undefined) return { name: seen, formatter: zoneFormatters.get(seen)! };
+  const built = buildFormatter(value);
+  if (!built) return null;
+  const name = built.resolvedOptions().timeZone;
+  // A bare UTC offset ("+05:30") builds in Node but resolves to itself, not to
+  // a named zone, and not every browser takes one: a stored offset could take
+  // the chip down in the reader's browser. Named zones start with a letter.
+  if (!/^[A-Za-z]/.test(name)) return null;
+  if (!zoneFormatters.has(name)) zoneFormatters.set(name, built);
+  if (zoneSpellings.size >= MAX_SPELLINGS) zoneSpellings.clear();
+  zoneSpellings.set(value, name);
+  zoneSpellings.set(name, name);
+  return { name, formatter: zoneFormatters.get(name)! };
+}
+
+/**
+ * The name `Intl` resolves a zone to ("america/chicago" and "US/Central" are
+ * both America/Chicago), or null for a value that is not a named zone. This is
+ * what the service stores. Which name a renamed zone resolves to depends on
+ * the runtime's ICU data: Node 22 gives Asia/Calcutta for Asia/Kolkata. Both
+ * are names every browser takes.
+ */
+export function canonicalZone(value: string): string | null {
+  return resolveZone(value)?.name ?? null;
+}
+
+/** Is this a named zone `Intl` will accept? */
 export function isIanaZone(value: string): boolean {
-  return value !== "" && zoneFormatter(value) !== null;
+  return canonicalZone(value) !== null;
+}
+
+/** The cache sizes, for the tests that hold them bounded. */
+export function zoneCacheSizes(): { formatters: number; spellings: number } {
+  return { formatters: zoneFormatters.size, spellings: zoneSpellings.size };
 }
 
 /**
@@ -101,9 +135,9 @@ export function isIanaZone(value: string): boolean {
  * fall back to: one stored typo must not take down every calendar it is on.
  */
 export function zoneOffsetMs(at: Date, timeZone: string): number {
-  const f = timeZone ? zoneFormatter(timeZone) : null;
-  if (!f) return 0;
-  const parts = f.formatToParts(at);
+  const zone = timeZone ? resolveZone(timeZone) : null;
+  if (!zone) return 0;
+  const parts = zone.formatter.formatToParts(at);
   const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? "0");
   const asUtc = Date.UTC(
     part("year"), part("month") - 1, part("day"),

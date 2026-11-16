@@ -55,7 +55,8 @@ describe("the hour grid puts a timed event on the day it is held", () => {
   // that leaned on the machine's clock would pass there by accident.
   const original = process.env.TZ;
   afterEach(() => {
-    process.env.TZ = original;
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
   });
 
   // Sunday 8 to Saturday 14 Nov 2026, as the Week view passes them.
@@ -125,7 +126,8 @@ describe("today is the reader's date, not UTC's", () => {
   // the reader's 16th, not on UTC's 17th. CI runs in UTC, so the zone is forced.
   const original = process.env.TZ;
   afterEach(() => {
-    process.env.TZ = original;
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
     vi.useRealTimers();
   });
   const DAYS = Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(2026, 10, 15 + i)));
@@ -154,5 +156,45 @@ describe("today is the reader's date, not UTC's", () => {
     vi.setSystemTime(LA_EVENING);
     render(<TimeGrid days={DAYS} events={[]} />);
     expect(todayMark()).toMatch(/17$/);
+  });
+});
+
+describe("the hour grid opens at the first event on its own clock", () => {
+  const DAYS = Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(2026, 10, 8 + i)));
+  const at = (id: string, startIso: string, endIso: string, timeZone: string): CalendarEvent => ({
+    id, title: id, startsAt: new Date(startIso), endsAt: new Date(endIso), allDay: false, timeZone, category: CATEGORY,
+  });
+
+  it("06:00 in Los Angeles opens the grid at 05:00, not at 13:00 (its UTC hour, less one)", () => {
+    // Tuesday 10 Nov, 06:00-07:00 PST is 14:00-15:00 UTC.
+    render(<TimeGrid days={DAYS} events={[at("Early call", "2026-11-10T14:00:00Z", "2026-11-10T15:00:00Z", "America/Los_Angeles")]} />);
+    expect(screen.getByRole("group", { name: "Hours" }).scrollTop).toBe(5 * 48);
+  });
+
+  it("control: with nothing timed, it opens at 07:00 for an 08:00 start", () => {
+    render(<TimeGrid days={DAYS} events={[]} />);
+    expect(screen.getByRole("group", { name: "Hours" }).scrollTop).toBe(7 * 48);
+  });
+});
+
+describe("a stored zone Intl does not know is drawn as UTC, not thrown on", () => {
+  // The service now refuses such a zone, but rows stored before it can carry
+  // one. The grid reads it as UTC, as the chip and the server do.
+  const DAYS = Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(2026, 10, 8 + i)));
+  const bad: CalendarEvent = {
+    id: "bad", title: "Bad zone review", startsAt: new Date("2026-11-11T03:00:00Z"), endsAt: new Date("2026-11-11T04:00:00Z"),
+    allDay: false, timeZone: "Mars/Olympus_Mons", category: CATEGORY,
+  };
+
+  it("in the week: Wednesday's column, at 03:00", () => {
+    render(<TimeGrid days={DAYS} events={[bad]} />);
+    const hours = screen.getByRole("group", { name: "Hours" });
+    const chip = within(hours).getByText("Bad zone review").closest("[style*='top']") as HTMLElement;
+    expect({ column: (chip.parentElement as HTMLElement).style.gridColumn, top: chip.style.top }).toEqual({ column: "5", top: `${3 * 48}px` });
+  });
+
+  it("in the month: on the 11th", () => {
+    render(<MonthGrid from={new Date(Date.UTC(2026, 10, 1))} to={new Date(Date.UTC(2026, 11, 6))} month={10} events={[bad]} />);
+    expect(screen.getByText("Bad zone review")).toBeTruthy();
   });
 });

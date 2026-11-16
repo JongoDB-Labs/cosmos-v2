@@ -7,7 +7,7 @@ import { canManageProject } from "@/lib/rbac/scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { ProblemError } from "@/lib/openapi/problem";
 import { DEFAULT_CATEGORIES } from "./categories";
-import { DRAWN_PAD_MS, drawnRange, isIanaZone, normalizeRange, overlaps } from "./time";
+import { DRAWN_PAD_MS, canonicalZone, drawnRange, normalizeRange, overlaps } from "./time";
 
 /**
  * Reading and writing the program calendar.
@@ -250,6 +250,21 @@ function oneOwner(input: EventInput): { ownerTeamId: string | null; ownerMemberI
   return { ownerTeamId: null, ownerMemberId: input.ownerMemberId ?? null };
 }
 
+/** The owner on an update. Naming a team or a person is a new choice, and
+ *  clears the other side. `null` clears only its own side: clearing the person
+ *  on a team-owned event used to clear the team too. Left out, a side stays. */
+function ownerChange(input: EventUpdate): { ownerTeamId?: string | null; ownerMemberId?: string | null } {
+  if (input.ownerTeamId) return { ownerTeamId: input.ownerTeamId, ownerMemberId: null };
+  if (input.ownerMemberId) return { ownerTeamId: null, ownerMemberId: input.ownerMemberId };
+  return { ownerTeamId: input.ownerTeamId, ownerMemberId: input.ownerMemberId };
+}
+
+/** The zone as stored: the name `Intl` resolves it to, so "EST" or
+ *  "america/chicago" is kept as a name every browser takes.
+ *  `assertReferencesInOrg` has already refused a value with none. */
+const storedZone = (value: string | undefined) =>
+  value === undefined ? undefined : (canonicalZone(value) ?? value);
+
 
 /**
  * Every id an event REFERENCES must belong to this org, and to a project this
@@ -272,8 +287,10 @@ async function assertReferencesInOrg(ctx: AuthContext, input: EventInput): Promi
 
   // A zone `Intl` cannot build is not a time zone. Stored, it reads as UTC on
   // the grid and the chip, so the event would show at the wrong hour for
-  // everyone; refused here, the caller is told which value it sent.
-  if (input.timeZone !== undefined && !isIanaZone(input.timeZone)) {
+  // everyone; refused here, the caller is told which value it sent. A bare
+  // offset ("+05:30") builds in Node but is not a named zone, and not every
+  // browser takes one, so it is refused the same way.
+  if (input.timeZone !== undefined && canonicalZone(input.timeZone) === null) {
     throw bad(`time zone ${JSON.stringify(input.timeZone)}`);
   }
 
@@ -347,7 +364,7 @@ export async function createProgramEvent(ctx: AuthContext, createdById: string, 
       categoryId: input.categoryId,
       ...range,
       allDay: input.allDay,
-      timeZone: input.timeZone ?? "America/New_York",
+      timeZone: storedZone(input.timeZone) ?? "America/New_York",
       location: input.location ?? null,
       ...oneOwner(input),
       attendees: input.attendees ?? "",
@@ -416,11 +433,9 @@ export async function updateProgramEvent(ctx: AuthContext, eventId: string, upda
       allDay: input.allDay,
       // A field left out is `undefined`, which Prisma leaves as stored; `null`
       // still clears a nullable one. No defaults here: those are create's.
-      timeZone: input.timeZone,
+      timeZone: storedZone(input.timeZone),
       location: input.location,
-      // The owner is one choice across two columns: sending either side is a
-      // new choice, sending neither keeps the one stored.
-      ...(input.ownerTeamId === undefined && input.ownerMemberId === undefined ? {} : oneOwner(input)),
+      ...ownerChange(update),
       attendees: input.attendees,
       recurrence: input.recurrence,
       deliverableId: input.deliverableId,

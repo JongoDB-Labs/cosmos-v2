@@ -415,7 +415,8 @@ describe("a timed event opens and saves on its own clock", () => {
   // unchanged must not move it. CI runs in UTC, so the zone is forced here.
   const original = process.env.TZ;
   afterEach(() => {
-    process.env.TZ = original;
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
   });
   const LA_EVENING = {
     ...EVENT, id: "la", title: "West coast review", allDay: false, timeZone: "America/Los_Angeles",
@@ -574,7 +575,8 @@ describe("the calendar opens on the reader's today", () => {
   // the calendar showed December, and "Today" went back to December.
   const original = process.env.TZ;
   afterEach(() => {
-    process.env.TZ = original;
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
   });
   const windowFrom = () => {
     const url = vi.mocked(jsonFetch).mock.calls.map(([u]) => String(u)).filter((u) => u.includes("/program-events?")).at(-1)!;
@@ -618,6 +620,13 @@ describe("the calendar opens on the reader's today", () => {
     try {
       await waitFor(() => expect(host.textContent).toContain("November 2026"));
       expect(mismatch).not.toHaveBeenCalled();
+      // The UTC month is drawn for a moment, but only the reader's is fetched.
+      await waitFor(() => expect(calls("/program-events?")).toBeGreaterThan(0));
+      const froms = vi.mocked(jsonFetch).mock.calls
+        .map(([u]) => String(u))
+        .filter((u) => u.includes("/program-events?") || u.includes("/event-categories?"))
+        .map((u) => new URL(u, "http://x").searchParams.get("from"));
+      expect(new Set(froms)).toEqual(new Set(["2026-11-01T00:00:00.000Z"]));
     } finally {
       // Testing Library's cleanup does not know this root; left behind, its
       // text would answer the next test's queries.
@@ -631,5 +640,36 @@ describe("the calendar opens on the reader's today", () => {
     vi.setSystemTime(new Date("2026-12-01T04:00:00.000Z"));
     mount(overlays());
     expect(await screen.findByText("December 2026")).toBeTruthy();
+  });
+});
+
+describe("a stored zone Intl does not know is not sent back", () => {
+  // The dialog copied the stored zone and always sent it, and the service now
+  // refuses one Intl cannot build. An all-day event has no zone picker, so
+  // nothing on screen could fix it: the save failed every time.
+  it.each([
+    ["an all-day event", { allDay: true, startsAt: "2027-01-12T00:00:00.000Z", endsAt: "2027-01-13T00:00:00.000Z" }],
+    ["a timed event", { allDay: false, startsAt: "2027-01-12T15:00:00.000Z", endsAt: "2027-01-12T16:00:00.000Z" }],
+  ])("%s saves with UTC, the zone it was drawn in", async (_, shape) => {
+    eventsResponse = () => [{ ...EVENT, id: "bad", title: "Bad zone review", timeZone: "Mars/Olympus_Mons", ...shape }];
+    const user = userEvent.setup();
+    mount(overlays(), { canCreate: true });
+    await user.click(await screen.findByText("Bad zone review"));
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(vi.mocked(jsonFetch).mock.calls.some(([, i]) => i?.method === "PATCH")).toBe(true));
+    const patch = vi.mocked(jsonFetch).mock.calls.find(([, i]) => i?.method === "PATCH")!;
+    expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ timeZone: "UTC" });
+  });
+
+  it("control: a good zone is sent back as it is", async () => {
+    eventsResponse = () => [{ ...EVENT, id: "ok", title: "Good zone review", allDay: false, timeZone: "America/Chicago",
+      startsAt: "2027-01-12T15:00:00.000Z", endsAt: "2027-01-12T16:00:00.000Z" }];
+    const user = userEvent.setup();
+    mount(overlays(), { canCreate: true });
+    await user.click(await screen.findByText("Good zone review"));
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(vi.mocked(jsonFetch).mock.calls.some(([, i]) => i?.method === "PATCH")).toBe(true));
+    const patch = vi.mocked(jsonFetch).mock.calls.find(([, i]) => i?.method === "PATCH")!;
+    expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ timeZone: "America/Chicago" });
   });
 });

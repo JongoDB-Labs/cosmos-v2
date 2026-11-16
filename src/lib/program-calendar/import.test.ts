@@ -33,13 +33,16 @@ describe("time zones", () => {
     expect(resolveTimeZone("Eastern (ET)")).toBe("America/New_York");
     expect(resolveTimeZone("ET")).toBe("America/New_York");
     expect(resolveTimeZone("Pacific Time")).toBe("America/Los_Angeles");
-    // "GMT" needs no translation: Intl accepts it as a zone, so it passes
-    // through — the rule is "something Intl will take", not "an Area/City name".
-    expect(resolveTimeZone("GMT")).toBe("GMT");
+    // "GMT" needs no translation: Intl accepts it as a zone, and it is stored
+    // as the name Intl resolves it to, which ECMA-402 fixes as "UTC".
+    expect(resolveTimeZone("GMT")).toBe("UTC");
+    expect(resolveTimeZone("america/chicago")).toBe("America/Chicago");
   });
 
   it("rejects a label that means nothing, rather than storing it", () => {
     expect(resolveTimeZone("Narnia/Lamppost")).toBeNull();
+    // A bare offset builds in Node, but it is not a named zone.
+    expect(resolveTimeZone("+05:30")).toBeNull();
     expect(resolveTimeZone("")).toBeNull();
   });
 

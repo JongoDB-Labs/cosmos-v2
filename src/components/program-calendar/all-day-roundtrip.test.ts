@@ -107,7 +107,8 @@ describe("a timed event's date and time are its own zone's, not the machine's", 
   // machine's zone and UTC agree, so the zone is forced away from it here.
   const original = process.env.TZ;
   afterEach(() => {
-    process.env.TZ = original;
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
   });
   const timed: EventDraft = {
     ...base, allDay: false, startDate: "2026-11-10", endDate: "2026-11-10",

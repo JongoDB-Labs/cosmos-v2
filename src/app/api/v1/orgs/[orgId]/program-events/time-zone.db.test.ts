@@ -17,12 +17,13 @@ vi.mock("@/lib/openapi/org-context", () => ({
   orgContext: vi.fn(async () => ({ org: { slug: "o" }, ctx: h.ctx })),
 }));
 
-import { POST } from "./route";
+import { GET, POST } from "./route";
 import { PATCH } from "./[eventId]/route";
 import { createProgramEvent, listCategories } from "@/lib/program-calendar/service";
+import { canonicalZone } from "@/lib/program-calendar/time";
 
 const stamp = Math.random().toString(36).slice(2, 8);
-let orgId = "", userId = "", memberId = "", catId = "", eventId = "";
+let orgId = "", userId = "", memberId = "", teamId = "", catId = "", eventId = "";
 
 const BOGUS = "Mars/Olympus_Mons";
 const body = (title: string, timeZone: string) => ({
@@ -45,6 +46,8 @@ beforeAll(async () => {
   memberId = (await prisma.orgMember.create({ data: { orgId, userId, role: "ADMIN", permissions: "0" } })).id;
   h.ctx = { userId, orgId, orgRole: "ADMIN", abacRules: [], permissions: -1n, basePermissions: -1n } satisfies AuthContext;
   catId = (await listCategories(orgId))[0].id;
+  const projectId = (await prisma.project.create({ data: { orgId, name: "Teams", key: `TZ${stamp.slice(0, 3).toUpperCase()}` } })).id;
+  teamId = (await prisma.team.create({ data: { orgId, projectId, name: "Review board" } })).id;
   eventId = (await createProgramEvent(h.ctx as AuthContext, userId, {
     title: "Existing review", categoryId: catId, allDay: false, timeZone: "America/Los_Angeles",
     startsAt: new Date("2027-02-11T03:00:00.000Z"), endsAt: new Date("2027-02-11T04:00:00.000Z"),
@@ -77,7 +80,9 @@ describe("a time zone Intl cannot build is refused, and the refusal names it", (
   it("control: a real zone is taken, on create and on update", async () => {
     const created = await post(body("Kolkata review", "Asia/Kolkata"));
     expect(created.status).toBe(201);
-    expect(await prisma.programEvent.count({ where: { orgId, title: "Kolkata review", timeZone: "Asia/Kolkata" } })).toBe(1);
+    // Stored by its canonical name, which for Asia/Kolkata depends on the
+    // runtime's ICU (Node 22 resolves it to Asia/Calcutta).
+    expect(await prisma.programEvent.count({ where: { orgId, title: "Kolkata review", timeZone: canonicalZone("Asia/Kolkata")! } })).toBe(1);
 
     expect((await patch(body("Existing review", "Europe/Berlin"))).status).toBe(200);
     const row = await prisma.programEvent.findUniqueOrThrow({ where: { id: eventId }, select: { timeZone: true } });
@@ -114,7 +119,11 @@ describe("an update leaves alone what it does not send", () => {
   it("a title change keeps the zone, and every other field it did not send", async () => {
     const res = await patchEvent(id, { title: "Kolkata standup, renamed", categoryId: catId, allDay: false, ...range });
     expect(res.status).toBe(200);
-    expect(await stored()).toEqual({ ...FULL, title: "Kolkata standup, renamed", ownerMemberId: memberId });
+    // The zone as create stored it: its canonical name, which for Asia/Kolkata
+    // depends on the runtime's ICU.
+    expect(await stored()).toEqual({
+      ...FULL, timeZone: canonicalZone(FULL.timeZone), title: "Kolkata standup, renamed", ownerMemberId: memberId,
+    });
   });
 
   it("an all-day event stays all-day when the update does not say", async () => {
@@ -143,5 +152,82 @@ describe("an update leaves alone what it does not send", () => {
     expect(await stored()).toMatchObject({
       timeZone: "Europe/Berlin", location: null, ownerMemberId: null, recurrence: "NONE",
     });
+  });
+});
+
+describe("a zone is stored by its canonical name", () => {
+  it("a spelling Intl takes is stored as the name it resolves to", async () => {
+    const res = await post(body("Lower-case zone", "america/los_angeles"));
+    expect(res.status).toBe(201);
+    const row = await prisma.programEvent.findFirstOrThrow({ where: { orgId, title: "Lower-case zone" }, select: { timeZone: true } });
+    expect(row.timeZone).toBe("America/Los_Angeles");
+    expect(row.timeZone).toBe(canonicalZone("america/los_angeles"));
+  });
+
+  it("a bare UTC offset is refused, naming it", async () => {
+    const res = await post(body("Offset zone", "+05:30"));
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain("+05:30");
+    expect(await prisma.programEvent.count({ where: { orgId, title: "Offset zone" } })).toBe(0);
+  });
+});
+
+describe("a row stored with a zone Intl does not know", () => {
+  // Refused on write now, but rows from before can carry one. The list reads it
+  // as UTC, as the grid does, and still answers.
+  beforeAll(async () => {
+    await prisma.programEvent.create({
+      data: {
+        orgId, createdById: userId, categoryId: catId, title: "Stored bad zone", allDay: false, timeZone: "Mars/Olympus_Mons",
+        startsAt: new Date("2027-02-20T03:00:00.000Z"), endsAt: new Date("2027-02-20T04:00:00.000Z"),
+      },
+    });
+  });
+  const list = (from: string, to: string) =>
+    GET(new NextRequest(`http://localhost/x?from=${from}&to=${to}`), { params: Promise.resolve({ orgId }) });
+
+  it("is listed, 200, on its UTC date", async () => {
+    const res = await list("2027-02-20T00:00:00.000Z", "2027-02-21T00:00:00.000Z");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { title: string }[]).map((e) => e.title)).toContain("Stored bad zone");
+  });
+
+  it("control: not on the day before it", async () => {
+    const res = await list("2027-02-19T00:00:00.000Z", "2027-02-20T00:00:00.000Z");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { title: string }[]).map((e) => e.title)).not.toContain("Stored bad zone");
+  });
+});
+
+describe("the owner is one choice, but clearing one side leaves the other", () => {
+  const owned = async (title: string, owner: { ownerTeamId?: string; ownerMemberId?: string }) =>
+    (await createProgramEvent(h.ctx as AuthContext, userId, {
+      title, categoryId: catId, allDay: false, timeZone: "America/Los_Angeles", ...owner,
+      startsAt: new Date("2027-02-22T17:00:00.000Z"), endsAt: new Date("2027-02-22T18:00:00.000Z"),
+    })).id;
+  const send = (id: string, title: string, extra: Record<string, unknown>) =>
+    patchEvent(id, {
+      title, categoryId: catId, allDay: false,
+      startsAt: "2027-02-22T17:00:00.000Z", endsAt: "2027-02-22T18:00:00.000Z", ...extra,
+    });
+  const ownerOf = (id: string) =>
+    prisma.programEvent.findUniqueOrThrow({ where: { id }, select: { ownerTeamId: true, ownerMemberId: true } });
+
+  it("nulling the person on a team-owned event keeps the team", async () => {
+    const id = await owned("Team owned", { ownerTeamId: teamId });
+    expect((await send(id, "Team owned", { ownerMemberId: null })).status).toBe(200);
+    expect(await ownerOf(id)).toEqual({ ownerTeamId: teamId, ownerMemberId: null });
+  });
+
+  it("nulling the team on a person-owned event keeps the person", async () => {
+    const id = await owned("Person owned", { ownerMemberId: memberId });
+    expect((await send(id, "Person owned", { ownerTeamId: null })).status).toBe(200);
+    expect(await ownerOf(id)).toEqual({ ownerTeamId: null, ownerMemberId: memberId });
+  });
+
+  it("control: naming a person on a team-owned event replaces the team", async () => {
+    const id = await owned("Handed over", { ownerTeamId: teamId });
+    expect((await send(id, "Handed over", { ownerMemberId: memberId })).status).toBe(200);
+    expect(await ownerOf(id)).toEqual({ ownerTeamId: null, ownerMemberId: memberId });
   });
 });

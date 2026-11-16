@@ -77,6 +77,18 @@ const RELEASES: Release[] = [
         kind: "fix",
         text: "The program calendar now marks today, and opens on, your own date. Before, in the evening in a time zone west of UTC, it marked tomorrow, and on the last evening of a month it opened on the next month.",
       },
+      {
+        kind: "fix",
+        text: "An event saved earlier with a time zone the calendar doesn\u2019t recognize can be edited and saved again. It is shown in UTC, and is now saved in UTC. Before, saving it failed every time, and an all-day event had no way to change its time zone.",
+      },
+      {
+        kind: "fix",
+        text: "A time zone is now saved under its standard name, so \u201camerica/chicago\u201d is saved as America/Chicago. A bare UTC offset such as +05:30 is refused, and the message names it, because not every browser can show one.",
+      },
+      {
+        kind: "fix",
+        text: "Through the API, clearing the person who leads an event no longer clears the team that leads it, and clearing the team no longer clears the person.",
+      },
     ],
   },
   {

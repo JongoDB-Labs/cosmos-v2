@@ -92,7 +92,8 @@ describe("a timed event is on the day it is held, in its own zone", () => {
   // that leaned on the machine's clock would pass there by accident.
   const original = process.env.TZ;
   afterEach(() => {
-    process.env.TZ = original;
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
   });
 
   const timed = (id: string, startIso: string, endIso: string, timeZone: string) => ({
@@ -214,5 +215,30 @@ describe("week helpers", () => {
     const weeks = weeksIn(utc(2026, 11, 1), utc(2026, 12, 6));
     expect(weeks).toHaveLength(5);
     expect(weeks[0].toISOString()).toBe("2026-11-01T00:00:00.000Z");
+  });
+});
+
+describe("a timed event continues past a week only on its own clock", () => {
+  const timed = (id: string, startIso: string, endIso: string, timeZone: string) => ({
+    id, startsAt: new Date(startIso), endsAt: new Date(endIso), allDay: false, timeZone,
+  });
+
+  it("a Saturday evening in Los Angeles ends that Saturday: no arrow into the next week", () => {
+    // Saturday 14 Nov, 19:00-20:00 PST is 03:00-04:00 UTC on Sunday the 15th.
+    const { placed } = packWeek([timed("sat", "2026-11-15T03:00:00Z", "2026-11-15T04:00:00Z", "America/Los_Angeles")], WEEK);
+    expect(placed).toHaveLength(1);
+    expect(placed[0]).toMatchObject({ startCol: 7, continuesBefore: false, continuesAfter: false });
+  });
+
+  it("a Sunday morning in Tokyo starts that Sunday: no arrow from the week before", () => {
+    // Sunday 15 Nov, 08:00-09:00 in Tokyo is 23:00-00:00 UTC on Saturday the 14th.
+    const { placed } = packWeek([timed("sun", "2026-11-14T23:00:00Z", "2026-11-15T00:00:00Z", "Asia/Tokyo")], utc(2026, 11, 15));
+    expect(placed).toHaveLength(1);
+    expect(placed[0]).toMatchObject({ startCol: 1, continuesBefore: false, continuesAfter: false });
+  });
+
+  it("control: an all-day event that does run past the week still says so", () => {
+    const { placed } = packWeek([ev("long", 5, 4)], WEEK);
+    expect(placed[0]).toMatchObject({ continuesBefore: false, continuesAfter: true });
   });
 });

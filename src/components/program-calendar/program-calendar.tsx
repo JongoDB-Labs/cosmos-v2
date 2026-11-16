@@ -21,6 +21,7 @@ import {
   utcMidnight,
   wallClock,
   zonedInstant,
+  canonicalZone,
 } from "@/lib/program-calendar/time";
 import { weekDays } from "@/lib/program-calendar/layout";
 import {
@@ -154,10 +155,17 @@ export function ProgramCalendar({
   // their browser knows (`useToday`): in a Los Angeles evening the UTC date is
   // already tomorrow, and on a month's last evening the calendar opened on the
   // next month. The server, and the render that hydrates its HTML, have no
-  // reader's date and use the UTC one, so the two agree; the reader's date
-  // takes over straight after.
+  // reader's date and use the UTC one. That keeps hydration consistent, but it
+  // is NOT the reader's day whenever their date and UTC's differ (an evening
+  // west of UTC, a morning east of it): for that first paint the calendar
+  // shows UTC's day, or on a month's last evening UTC's next month, and the
+  // reader's date takes over straight after. The events and their category
+  // counts wait for it (`dayKnown`), so only the reader's window is fetched.
+  // Agile and Outlook need no wait: their toggles load from storage in an
+  // effect, so both are off in the render that hydrates.
   const [picked, setAnchor] = useState<Date | null>(null);
   const today = useToday();
+  const dayKnown = picked !== null || today !== null;
   const anchor = useMemo(
     () => picked ?? (today === null ? utcMidnight(new Date()) : new Date(today)),
     [picked, today],
@@ -221,13 +229,14 @@ export function ProgramCalendar({
     // assertion, not a check, so declaring one here type-checked cleanly and
     // rendered an empty calendar against a correct 200 response.
     queryFn: () => jsonFetch<ApiEvent[]>(`/api/v1/orgs/${orgId}/program-events?${params}`),
-    enabled: eventsOn,
+    enabled: dayKnown && eventsOn,
   });
 
   const categoriesQuery = useQuery({
     queryKey: categoriesKey,
     queryFn: () =>
       jsonFetch<(ChipCategory & { count: number })[]>(`/api/v1/orgs/${orgId}/event-categories?${filterParams}`),
+    enabled: dayKnown,
   });
 
   // The Agile overlay is not filtered by category or owner (those are program
@@ -477,7 +486,10 @@ export function ProgramCalendar({
       startTime: e.allDay ? "09:00" : hhmm(start),
       endTime: e.allDay ? "10:00" : hhmm(end),
       allDay: e.allDay,
-      timeZone: e.timeZone,
+      // The zone it was drawn in. A stored one `Intl` does not know was drawn
+      // as UTC, and sent back as it was, the service refuses it: an all-day
+      // event, which has no zone picker, could then never be saved.
+      timeZone: canonicalZone(e.timeZone) ?? "UTC",
       location: e.location ?? "",
       ownerKey: e.ownerTeam ? `team:${e.ownerTeam.id}` : e.ownerMember ? `member:${e.ownerMember.id}` : "",
       attendees: e.attendees,
