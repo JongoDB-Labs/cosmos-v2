@@ -12,16 +12,24 @@ const schema = z.object({
   note: z.string().max(1000).optional(),
 });
 
+/** Both limits answer alike, so neither says which one was reached. */
+function tooManyRequests() {
+  return NextResponse.json({ error: "Too many requests. Please wait and try again." }, { status: 429 });
+}
+
 /**
  * Ask an org for an account. Unauthenticated by necessity — the whole point is
  * that the requester has no way in yet.
  *
  * SECURITY: this endpoint MUST NOT reveal whether the org exists, whether it
  * accepts requests, what its allowed domains are, or whether the address
- * already has an account. Every path returns the SAME generic `{ ok: true }`;
- * what actually happened goes to the operator log and, for a queued request,
- * the org's audit trail. Rate-limited per IP and per address so it can't be
- * used to flood an admin's queue or to probe policy by timing.
+ * already has an account. Every path that takes the request returns the SAME
+ * generic `{ ok: true }`; what actually happened goes to the operator log and,
+ * for a queued request, the org's audit trail. Rate-limited per IP and per
+ * address so it can't be used to flood an admin's queue or to probe policy by
+ * timing. A request either limit refuses is answered 429, because it was not
+ * taken; both limits are reached before anything about the org or the address
+ * is looked up, so that answer can't depend on either.
  *
  * Nothing here grants access. A queued row is a request; only an admin
  * approving it mints an invitation, and that goes through the one shared
@@ -33,12 +41,7 @@ export async function POST(request: NextRequest) {
   // it a fresh limit per request.
   const ip = trustedClientIp(request.headers) ?? getIpAddress(request) ?? "unknown";
   const rl = rateLimit(`acctreq:${ip}`, { capacity: 5, refillPerSecond: 0.05 });
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Please wait and try again." },
-      { status: 429 },
-    );
-  }
+  if (!rl.allowed) return tooManyRequests();
 
   const parsed = schema.safeParse(await readJsonBody(request, { orElse: null }));
   // A malformed body still gets the generic OK — never surface validation detail.
@@ -46,12 +49,15 @@ export async function POST(request: NextRequest) {
   const { orgSlug, email, note } = parsed.data;
 
   // Per-address brake, so one address cannot be used to spray an org's queue
-  // even from many IPs.
+  // even from many IPs. Keyed on the address as typed, whether or not it has
+  // an account, so the 429 says only that this address was asked about too
+  // often. It used to answer 200, and the form said "sent" for a request it
+  // had dropped.
   const acctRl = rateLimit(`acctreq:addr:${email.trim().toLowerCase()}`, {
     capacity: 3,
     refillPerSecond: 0.02,
   });
-  if (!acctRl.allowed) return NextResponse.json({ ok: true });
+  if (!acctRl.allowed) return tooManyRequests();
 
   try {
     const result = await submitAccountRequest({ orgSlug, email, note, ipAddress: ip });

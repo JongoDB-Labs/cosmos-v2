@@ -457,7 +457,7 @@ export function ContractsList({ orgId }: ContractsListProps) {
           },
         ];
         return (
-          <div className="flex justify-end group/action">
+          <div className="flex justify-end">
             <ActionMenu groups={groups}>
               <span />
             </ActionMenu>

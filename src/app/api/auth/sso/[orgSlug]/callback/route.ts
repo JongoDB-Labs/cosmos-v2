@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { unstable_rethrow } from "next/navigation";
 import * as oidc from "openid-client";
 import { prisma } from "@/lib/db/client";
 import { getPublicOrigin } from "@/lib/auth/public-url";
+import { unexpectedErrorKind } from "@/lib/auth/unexpected-error";
 import { getIpAddress } from "@/lib/api-helpers";
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "@/lib/auth/client";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
@@ -14,6 +16,7 @@ import {
   type SsoTransaction,
 } from "@/lib/auth/sso";
 import { setRememberedOrgCookie } from "@/lib/auth/remembered-org";
+import { forgetReturnTo, loginUrl, rememberedReturnTo, ssoReturnTo } from "@/lib/auth/return-to";
 
 /**
  * SSO callback. openid-client checks the authorization response (state, and the
@@ -33,40 +36,41 @@ import { setRememberedOrgCookie } from "@/lib/auth/remembered-org";
 
 type RouteParams = { params: Promise<{ orgSlug: string }> };
 
-function redirectToLogin(origin: string, error: string) {
-  const res = NextResponse.redirect(
-    new URL(`/login?error=${encodeURIComponent(error)}`, origin),
-  );
+/** Back to the sign-in page with the error, keeping where the sign-in was headed. */
+function redirectToLogin(origin: string, error: string, returnTo: string) {
+  const res = NextResponse.redirect(loginUrl(origin, { error, returnTo }));
   res.cookies.delete(SSO_TX_COOKIE);
   return res;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function signInWithSso(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const origin = getPublicOrigin(request);
   const { orgSlug } = await params;
+  // The page the sign-in started from (kept by the start route), or "/".
+  const back = rememberedReturnTo(request);
 
   const rl = rateLimit(getRateLimitKey(request, "auth.sso.callback"), {
     capacity: 10,
     refillPerSecond: 1,
   });
   if (!rl.allowed) {
-    return redirectToLogin(origin, "rate_limited");
+    return redirectToLogin(origin, "rate_limited", back);
   }
 
   // 1. Recover + validate the transaction cookie (state/nonce/PKCE), bound to org.
   const txRaw = request.cookies.get(SSO_TX_COOKIE)?.value;
   if (!txRaw) {
-    return redirectToLogin(origin, "invalid_state");
+    return redirectToLogin(origin, "invalid_state", back);
   }
   let tx: SsoTransaction;
   try {
     tx = JSON.parse(txRaw) as SsoTransaction;
   } catch {
-    return redirectToLogin(origin, "invalid_state");
+    return redirectToLogin(origin, "invalid_state", back);
   }
   // The cookie must have been minted for THIS org — defeats cross-org replay.
   if (tx.orgSlug !== orgSlug || !tx.state || !tx.nonce || !tx.codeVerifier) {
-    return redirectToLogin(origin, "invalid_state");
+    return redirectToLogin(origin, "invalid_state", back);
   }
 
   // 2. Resolve the connection (must still be enabled).
@@ -76,7 +80,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   });
   const conn = org?.idpConnection;
   if (!conn || !conn.enabled) {
-    return redirectToLogin(origin, "sso_not_configured");
+    return redirectToLogin(origin, "sso_not_configured", back);
   }
 
   // 3. openid-client checks state, exchanges the code, and checks the ID token's
@@ -98,7 +102,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
     const idClaims = tokens.claims();
     if (!idClaims) {
-      return redirectToLogin(origin, "auth_failed");
+      return redirectToLogin(origin, "auth_failed", back);
     }
     claimsRaw = idClaims as Record<string, unknown>;
   } catch (err) {
@@ -108,13 +112,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // by name, code and message only, so a refused address or a bad token still
     // shows behind openid-client's "something went wrong".
     console.error("[sso] code grant / token validation failed", { orgSlug, error: describeSsoError(err) });
-    return redirectToLogin(origin, "auth_failed");
+    return redirectToLogin(origin, "auth_failed", back);
   }
 
   // 4. Normalize claims via attributeMapping and run the security core.
   const claims = extractClaims(claimsRaw, conn);
   if (!claims.subject) {
-    return redirectToLogin(origin, "auth_failed");
+    return redirectToLogin(origin, "auth_failed", back);
   }
 
   const result = await completeSsoLogin(orgSlug, conn, claims, {
@@ -139,12 +143,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     ) {
       console.warn("[sso] sign-in refused", { orgSlug, reason: result.reason });
     }
-    return redirectToLogin(origin, error);
+    return redirectToLogin(origin, error, back);
   }
 
   // 5. Set the session cookie (identical to the Google path) + clear the tx.
-  //    Straight to the org: an SSO session opens this org and no other.
-  const response = NextResponse.redirect(new URL(`/${encodeURIComponent(orgSlug)}`, origin));
+  //    To the page the sign-in started from when it is in this org, otherwise
+  //    the org's home: an SSO session opens this org and no other.
+  const response = NextResponse.redirect(new URL(ssoReturnTo(back, orgSlug), origin));
   response.cookies.set(SESSION_COOKIE, result.token, {
     httpOnly: true,
     sameSite: "lax",
@@ -156,4 +161,26 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // Remember this org so /login can pre-render its brand next time.
   setRememberedOrgCookie(response, orgSlug);
   return response;
+}
+
+/**
+ * Whatever the outcome, the address kept for this sign-in is spent: clear it
+ * (forgetReturnTo). A failure the handler didn't catch goes to the sign-in page
+ * as auth_failed, like the failures it does catch, rather than a bare 500 that
+ * would leave the cookie behind. Next's own control flow (redirect(),
+ * notFound()) is thrown on to Next first (unstable_rethrow): it is not a
+ * failure. Nothing in the handler uses it today; a redirect() added there
+ * would skip this clear, so it must clear the cookie itself.
+ */
+export async function GET(request: NextRequest, ctx: RouteParams) {
+  let response: NextResponse;
+  try {
+    response = await signInWithSso(request, ctx);
+  } catch (err) {
+    unstable_rethrow(err);
+    console.error("[sso] sign-in failed", unexpectedErrorKind(err));
+    // Clears the SSO transaction cookie too, as every refusal here does.
+    response = redirectToLogin(getPublicOrigin(request), "auth_failed", rememberedReturnTo(request));
+  }
+  return forgetReturnTo(response);
 }

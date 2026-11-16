@@ -20,7 +20,10 @@
 // email: `User.email` is not unique, so an email assertion cannot tell two
 // accounts apart.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest, type NextResponse } from "next/server";
+import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { getURLFromRedirectError } from "next/dist/client/components/redirect";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { sessionRowId } from "@/lib/auth/session-id";
@@ -28,6 +31,7 @@ import { createTestSession } from "@/lib/testing/sessions";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { MS_STATE_COOKIE, MSA_TENANT_ID } from "@/lib/auth/microsoft";
 import { CONNECT_COOKIE, connectCookieValue } from "@/lib/auth/connect-sign-in";
+import { RETURN_TO_COOKIE } from "@/lib/auth/return-to";
 
 const h = vi.hoisted(() => ({ tenant: "common" as string | null, trustedDomains: [] as string[] }));
 vi.mock("@/lib/auth/provider-config", async (importOriginal) => ({
@@ -125,7 +129,7 @@ const nextIp = () => `10.77.${Math.floor(++ipCounter / 250)}.${ipCounter % 250}`
 async function signIn(
   identity: FakeIdentity,
   extraCookie = "",
-): Promise<{ userId: string | null; error: string | null; authMethod: string | null; location: URL }> {
+): Promise<{ userId: string | null; error: string | null; authMethod: string | null; location: URL; res: NextResponse }> {
   next = identity;
   const req = new NextRequest("http://localhost/api/auth/microsoft/callback?code=c0de&state=st4te", {
     headers: { cookie: `${MS_STATE_COOKIE}=st4te${extraCookie}`, "x-forwarded-for": nextIp() },
@@ -134,10 +138,10 @@ async function signIn(
   const location = new URL(res.headers.get("location") ?? "/", "http://localhost");
   const error = location.searchParams.get("error");
   const sessionId = res.cookies.get(SESSION_COOKIE)?.value;
-  if (!sessionId) return { userId: null, error, authMethod: null, location };
+  if (!sessionId) return { userId: null, error, authMethod: null, location, res };
   const session = await prisma.session.findUnique({ where: { id: sessionRowId(sessionId) }, select: { userId: true, authMethod: true } });
   if (session && !createdUserIds.includes(session.userId)) createdUserIds.push(session.userId);
-  return { userId: session?.userId ?? null, error, authMethod: session?.authMethod ?? null, location };
+  return { userId: session?.userId ?? null, error, authMethod: session?.authMethod ?? null, location, res };
 }
 
 async function mkUser(email: string, extra: Record<string, unknown> = {}) {
@@ -501,5 +505,90 @@ describe("trusted domains set in Admin → Sign-in providers", () => {
     expect(r.error).toBeNull();
     expect(r.userId).toBe(id);
     expect(await boundTo(oid(17))).toBe(id);
+  });
+});
+
+describe("Microsoft sign-in lands on the page the sign-in started from", () => {
+  const returnEmail = `return-${stamp}@ms-bind.test`;
+  let returnId = "";
+  const bound = () => ({ tid: T_HOME, oid: oid(18), mail: returnEmail, upn: returnEmail });
+  const kept = (path: string) => `; ${RETURN_TO_COOKIE}=${encodeURIComponent(path)}`;
+
+  beforeAll(async () => {
+    vi.stubEnv("ALLOWED_EMAILS", [process.env.ALLOWED_EMAILS, returnEmail].join(","));
+    returnId = await mkUser(returnEmail);
+    await prisma.microsoftIdentity.create({ data: { userId: returnId, tenantId: T_HOME, objectId: oid(18) } });
+  });
+
+  it("sends a failure it didn't expect to the sign-in page, clears the cookie, and logs no address", async () => {
+    h.tenant = T_HOME;
+    const write = vi
+      .spyOn(prisma.session, "create")
+      .mockRejectedValueOnce(Object.assign(new Error(`session write failed for ${returnEmail}`), { code: "P1001" }));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await signIn(bound(), kept("/acme/issues"));
+      // Positive control: the sign-in reached the session write, past every refusal.
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(r.userId).toBeNull();
+      expect(r.location.pathname).toBe("/login");
+      expect(r.error).toBe("auth_failed");
+      expect(r.location.searchParams.get("next")).toBe("/acme/issues");
+      expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+      expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
+      // The one-time state is spent too, as on the failures the handler catches.
+      expect(r.res.cookies.get(MS_STATE_COOKIE)?.value).toBe("");
+      expect(r.res.cookies.get(MS_STATE_COOKIE)?.expires).toEqual(new Date(0));
+      expect(logged).toHaveBeenCalledWith("[auth:microsoft] sign-in failed", { name: "Error", code: "P1001" });
+      expect(JSON.stringify(logged.mock.calls)).not.toContain(returnEmail);
+    } finally {
+      write.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
+  it("lets Next's own redirect through, rather than reporting it as a failure", async () => {
+    h.tenant = T_HOME;
+    const write = vi.spyOn(prisma.session, "create").mockImplementationOnce((() => redirect("/elsewhere")) as never);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const thrown = await signIn(bound(), kept("/acme/issues")).then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(isRedirectError(thrown)).toBe(true);
+      expect(isRedirectError(thrown) && getURLFromRedirectError(thrown)).toBe("/elsewhere");
+      expect(logged).not.toHaveBeenCalledWith("[auth:microsoft] sign-in failed", expect.anything());
+    } finally {
+      write.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
+  it("lands on the page kept at the start, and clears it", async () => {
+    h.tenant = T_HOME;
+    const r = await signIn(bound(), kept("/acme/issues?view=list"));
+    expect(r.userId).toBe(returnId);
+    expect(`${r.location.pathname}${r.location.search}`).toBe("/acme/issues?view=list");
+    expect(r.res.headers.get("set-cookie")).toMatch(/signin_return=;/);
+  });
+
+  it("lands on / when what was kept is not a page on this site", async () => {
+    h.tenant = T_HOME;
+    const r = await signIn(bound(), kept("//elsewhere.example/acme"));
+    expect(r.userId).toBe(returnId);
+    expect(r.location.href).toBe("http://localhost/");
+  });
+
+  it("keeps the page on the sign-in page when the sign-in is refused, and clears the cookie", async () => {
+    h.tenant = T_HOME;
+    const r = await signIn({ ...bound(), tid: T_ATTACKER }, kept("/acme/issues"));
+    expect(r.userId).toBeNull();
+    expect(r.error).toBe("ms_wrong_tenant");
+    expect(r.location.searchParams.get("next")).toBe("/acme/issues");
+    // The address travels in the link now; the cookie is spent either way.
+    expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+    expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
   });
 });

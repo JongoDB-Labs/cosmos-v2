@@ -33,7 +33,6 @@ describe("copyFields", () => {
       workItemTypeId: "task",
       description: "d",
       columnKey: "todo",
-      assigneeId: "ann",
       priority: "HIGH",
       intervalId: "i1",
       parentId: "p1",
@@ -46,9 +45,9 @@ describe("copyFields", () => {
     });
   });
 
-  it("never carries identity, the run so far or another system's id", () => {
+  it("never carries identity, the run so far, another system's id, or the assignee (each caller decides it)", () => {
     const out = copyFields(source) as Record<string, unknown>;
-    for (const k of ["id", "ticketNumber", "actualStart", "completedAt", "cancelReason", "mergedIntoId", "externalId"]) {
+    for (const k of ["id", "ticketNumber", "actualStart", "completedAt", "cancelReason", "mergedIntoId", "externalId", "assigneeId"]) {
       expect(out).not.toHaveProperty(k);
     }
   });

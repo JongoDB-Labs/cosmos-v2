@@ -1,4 +1,5 @@
 import { serveHeaders } from "@/lib/files/serve";
+import { denyFramingUnlessSet } from "@/lib/security/headers";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
@@ -20,7 +21,7 @@ type RouteParams = { params: Promise<{ orgId: string; docId: string }> };
  * list, which simply omits it: whether a restricted project holds a particular
  * file is itself something they should not be able to determine.
  */
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function serveOriginal(_req: NextRequest, { params }: RouteParams): Promise<Response> {
   try {
     const { orgId, docId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
@@ -54,4 +55,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   } catch (e) {
     return handleApiError(e);
   }
+}
+
+/** Framing is this route's to state (routeSetsOwnCsp): a refusal says DENY. */
+export async function GET(req: NextRequest, ctx: RouteParams) {
+  return denyFramingUnlessSet(await serveOriginal(req, ctx));
 }

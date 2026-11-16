@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
-import { assertAssigneesInOrg } from "@/lib/work-items/apply-change.server";
+import { assertAssigneesInOrg, assigneeSetData } from "@/lib/work-items/apply-change.server";
 import { requireAccess } from "@/lib/abac/require-access";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -207,10 +207,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           title: data.title,
           description: data.description ?? "",
           columnKey: data.columnKey,
-          assigneeId: assigneeIds[0] ?? null,
-          assignees: {
-            create: assigneeIds.map((userId, i) => ({ userId, sortOrder: i })),
-          },
+          ...assigneeSetData(assigneeIds),
           priority: data.priority,
           intervalId: data.intervalId ?? null,
           teamId: data.teamId ?? null,

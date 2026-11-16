@@ -185,13 +185,18 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
 
   return (
     <>
-      <ActionMenu groups={menuGroups}>
-        <div className="group/action relative">
+      {/* `group/action` on a box AROUND the menu: ActionMenu's ⋯ trigger is a
+          sibling of the card, not inside it, so only an ancestor reveals it on
+          hover; the box also pins it over the card's corner. */}
+      <div className="group/action relative">
+      <ActionMenu groups={menuGroups} triggerClassName="absolute right-2 top-2 z-10">
+        <div>
           <Link
             href={projectHref}
-            className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-5 transition-shadow hover:shadow-[var(--shadow-glow)]"
+            className="block rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-5 transition-shadow group-hover/action:shadow-[var(--shadow-glow)]"
           >
-            <div className="mb-3 flex items-center gap-2">
+            {/* pr-6 leaves room for the hover ⋯ menu button */}
+            <div className="mb-3 flex items-center gap-2 pr-6">
               <div className="h-7 w-7 rounded bg-[var(--primary-tint)] flex items-center justify-center text-xs font-semibold text-[var(--primary)]">
                 {project.name.charAt(0).toUpperCase()}
               </div>
@@ -288,6 +293,7 @@ export function ProjectCard({ project, orgSlug, orgId }: ProjectCardProps) {
           </Link>
         </div>
       </ActionMenu>
+      </div>
 
       <Dialog
         open={showDeleteDialog}

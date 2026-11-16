@@ -8,6 +8,7 @@ import {
   SSO_TX_MAX_AGE_SECONDS,
 } from "@/lib/auth/sso";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
+import { RETURN_TO_PARAM, loginUrl, rememberReturnTo } from "@/lib/auth/return-to";
 
 /**
  * SSO login initiation. Resolves the org's IdpConnection, runs OIDC discovery,
@@ -18,15 +19,14 @@ import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 
 type RouteParams = { params: Promise<{ orgSlug: string }> };
 
-function redirectToLogin(origin: string, error: string) {
-  return NextResponse.redirect(
-    new URL(`/login?error=${encodeURIComponent(error)}`, origin),
-  );
+function redirectToLogin(origin: string, error: string, returnTo: string | null) {
+  return NextResponse.redirect(loginUrl(origin, { error, returnTo }));
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const origin = getPublicOrigin(request);
   const { orgSlug } = await params;
+  const returnTo = request.nextUrl.searchParams.get(RETURN_TO_PARAM);
 
   // Brake brute-forcing the login initiator per IP.
   const rl = rateLimit(getRateLimitKey(request, "auth.sso.login"), {
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     refillPerSecond: 1,
   });
   if (!rl.allowed) {
-    return redirectToLogin(origin, "rate_limited");
+    return redirectToLogin(origin, "rate_limited", returnTo);
   }
 
   // Resolve the IdP connection for this org. 404 if absent or disabled.
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   });
   const conn = org?.idpConnection;
   if (!org || !conn || !conn.enabled) {
-    return redirectToLogin(origin, "sso_not_configured");
+    return redirectToLogin(origin, "sso_not_configured", returnTo);
   }
 
   let config: oidc.Configuration;
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     config = await getOidcConfig(conn);
   } catch (err) {
     console.error("[sso] discovery failed", { orgSlug, issuer: conn.issuerUrl }, err);
-    return redirectToLogin(origin, "sso_discovery_failed");
+    return redirectToLogin(origin, "sso_discovery_failed", returnTo);
   }
 
   // PKCE + state + nonce — all unique per authorization request.
@@ -91,5 +91,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     maxAge: SSO_TX_MAX_AGE_SECONDS,
     secure: process.env.NODE_ENV === "production",
   });
+  // Where to land once the callback has signed the visitor in.
+  rememberReturnTo(response, request);
   return response;
 }

@@ -14,6 +14,8 @@ vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/abac/require-access", () => ({ requireAccess }));
 vi.mock("@/lib/integrations/google", () => ({ getMeetClient }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
+// The push to Outlook has its own DB-backed test (route.db.test.ts).
+vi.mock("@/lib/integrations/microsoft/calendar-sync.server", () => ({ syncMeetingSoon: vi.fn() }));
 
 import { POST } from "./route";
 const params = Promise.resolve({ orgId: "o", meetingId: "m" });

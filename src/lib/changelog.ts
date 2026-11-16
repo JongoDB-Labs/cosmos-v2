@@ -60,6 +60,83 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.563.2",
+    date: "2026-11-16",
+    title: "Cosmo invites people to meetings, an Upcoming section, and menus on hover",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmo can now invite people when it schedules a meeting, and can make it a Teams meeting. The meeting is sent right away to the Outlook calendar of each invited person who has connected Outlook, and a Teams meeting also to yours, as its host. Cosmo tells you the copies are on their way. Before, Cosmo couldn\u2019t invite anyone, so a meeting it made reached no one\u2019s Outlook until someone added attendees in the app.",
+      },
+      {
+        kind: "fix",
+        text: "Adding a Google Meet to a meeting now updates its copies in attendees\u2019 Outlook calendars right away, with the Meet link.",
+      },
+      {
+        kind: "fix",
+        text: "The meetings list has a new Upcoming section for meetings after this week. They used to be listed under Past. Today, This Week and Upcoming follow your own time zone and list the soonest meeting first. Past lists the most recent first.",
+      },
+      {
+        kind: "fix",
+        text: "The ⋯ menu on meeting, project, board, RAID and contact cards, and on the hidden board tabs, now appears when you point at the card. Before, it showed only when you tabbed to it or right-clicked. In the team, contracts and finance tables it appears when you point anywhere on the row, not only at its last cell.",
+      },
+    ],
+  },
+  {
+    version: "2.563.1",
+    date: "2026-11-16",
+    title: "Signing in takes you back to the page you opened",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If you open a link to a Cosmos page while signed out, signing in now takes you to that page instead of the home page. This works with a password, Google, Microsoft and your organization's single sign-on. Single sign-on takes you back only to a page in that organization, and to the organization's home otherwise.",
+      },
+      {
+        kind: "fix",
+        text: "The forgot-password form now tells you when a reset link could not be sent, so you can try again. It used to say a link was on its way whatever happened.",
+      },
+      {
+        kind: "fix",
+        text: "Asking an organization for an account too many times for the same address now asks you to wait and try again. It used to say the request was sent when it had not been.",
+      },
+      {
+        kind: "fix",
+        text: "View original in the file viewer now shows PDF files. They were blocked from showing inside the page. Other files still cannot be shown inside another page.",
+      },
+    ],
+  },
+  {
+    version: "2.563.0",
+    date: "2026-11-16",
+    title: "Team filters work for teams of any size",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Filtering by team with the query language (team = X, team != X, team IS EMPTY, assignee IN membersOf(X)) no longer fails as too broad when a team is very large. The filter used to list every member of every team inside the query.",
+      },
+      {
+        kind: "fix",
+        text: "A board filtered by team (team = X, or a person field IN membersOf(X)) no longer sends your browser the user ID of everyone on the team. Those IDs reached guests too.",
+      },
+      {
+        kind: "fix",
+        text: "On a board filtered by team, a card assigned to someone on the team now appears as soon as the change is saved, and one reassigned away leaves, without reloading. When the server takes too long to filter a board, the board now says to try again instead of asking you to narrow it to a project or sprint it is already on.",
+      },
+      {
+        kind: "fix",
+        text: "Duplicating an item now copies all of its assignees, for its sub-items too. The copy used to show as unassigned. Anyone who has left the organization is left off the copy.",
+      },
+      {
+        kind: "fix",
+        text: "Merging an item no longer fails when the duplicate names an assignee who has left the organization or no longer exists. They are left off the item it merges into.",
+      },
+      {
+        kind: "fix",
+        text: "Duplicating an item now needs permission to read it, and copying its sub-items needs permission to create each of them, as creating them would.",
+      },
+    ],
+  },
+  {
     version: "2.562.9",
     date: "2026-11-16",
     title: "Steadier releases",

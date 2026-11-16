@@ -656,7 +656,8 @@ export const BARE_USER_REF_COLUMNS: ReadonlyMap<string, readonly string[]> = new
   ["pm_links", ["created_by_id"]],
   ["supervisor_requests", ["requested_by_id"]],
   ["update_settings", ["updated_by_id"]],
-  ["work_items", ["assignee_id", "created_by_id"]],
+  // assignee_id is a real foreign key since 2.563.0 (fkEdgesOf finds it).
+  ["work_items", ["created_by_id"]],
   ["activities", ["user_id"]],
   // Feedback discussion (Phase 1): who deleted / hid a comment.
   ["comments", ["author_id", "deleted_by_id", "hidden_by_id"]],

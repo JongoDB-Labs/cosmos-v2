@@ -52,4 +52,51 @@ test.describe("journey — meetings", () => {
       timeout: 20_000,
     });
   });
+
+  // A meeting next month used to be listed under "Past", and a card's ⋯ menu
+  // never showed on hover: its `group/action` was on the card, and ActionMenu
+  // renders the trigger as the card's sibling, so only focus or a right-click
+  // found it. Seeded through the API (and deleted after), so the list holds a
+  // future meeting whatever day the suite runs.
+  test("a meeting next month is Upcoming, and hovering its card shows its ⋯ menu", async ({ page, signInAs, baseURL }) => {
+    test.setTimeout(60_000);
+    await signInAs(EMAIL);
+    const base = baseURL ?? "http://localhost:3000";
+    const orgs = await (await page.request.get("/api/v1/orgs")).json();
+    const org = ((orgs.data ?? orgs) as { id: string; slug: string }[]).find((o) => o.slug === ORG)!;
+    const title = `E2E Next month ${Date.now().toString().slice(-6)}`;
+    const res = await page.request.post(`/api/v1/orgs/${org.id}/meetings`, {
+      data: { title, meetingDate: new Date(Date.now() + 32 * 24 * 3600 * 1000).toISOString() },
+      headers: { Origin: base },
+    });
+    expect(res.status(), await res.text()).toBe(201);
+    const meeting = (await res.json()) as { id: string };
+    try {
+      await page.goto(`/${ORG}/meetings`, { waitUntil: "domcontentloaded" });
+      // The heading of the one section this meeting's own card sits in: it
+      // reads "Upcoming", so it can't be "Past" (or anything else).
+      const card = page.getByText(title, { exact: true });
+      await expect(card).toBeVisible({ timeout: 20_000 });
+      await expect(card.locator("xpath=ancestor::div[h2][1]/h2")).toHaveText("Upcoming");
+
+      const trigger = page.getByRole("button", { name: `Actions for ${title}` });
+      // The positive control: hidden while the pointer is elsewhere.
+      await page.mouse.move(0, 0);
+      await expect(trigger).toHaveCSS("opacity", "0");
+      await page.getByText(title, { exact: true }).hover();
+      await expect(trigger).toHaveCSS("opacity", "1");
+      // Over the card, and nothing paints on top of it: a real pointer reaches it.
+      const reachable = await trigger.evaluate((t) => {
+        const r = t.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return hit === t || t.contains(hit);
+      });
+      expect(reachable).toBe(true);
+      await trigger.click();
+      await expect(page.getByRole("menuitem", { name: "Open" })).toBeVisible();
+    } finally {
+      const removed = await page.request.delete(`/api/v1/orgs/${org.id}/meetings/${meeting.id}`, { headers: { Origin: base } });
+      expect(removed.status(), "the seeded meeting was cleaned up").toBe(204);
+    }
+  });
 });

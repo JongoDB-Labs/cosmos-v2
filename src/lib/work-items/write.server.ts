@@ -219,9 +219,10 @@ function updateRefs(data: Prisma.WorkItemUncheckedUpdateManyInput): Refs | null 
     interval: writtenId(data.intervalId),
     team: writtenId(data.teamId),
     workItemType: writtenId(data.workItemTypeId),
-    // Not `member`: a merge or a split carries an assignment forward, and the
-    // org keeps a removed member's assignments. Requests that name a person
-    // are held to current members by their own check (assertAssigneesInOrg).
+    // Not `member`: a split carries an assignment forward, and the org keeps a
+    // removed member's assignments. Requests that name a person are held to
+    // current members by their own check (assertAssigneesInOrg), and a merge
+    // or a copy by assigneesToCarry.
     memberOrFormer: [writtenId(data.assigneeId), writtenId(data.createdById)],
     project: writtenId(data.projectId),
   };

@@ -6,11 +6,10 @@ import { canReadMeeting, readableMeetingsWhere } from "@/lib/meetings/meeting-re
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { pullSoonIfStale, syncMeetingSoon, teamsRefusalForNew } from "@/lib/integrations/microsoft/calendar-sync.server";
-import { TEAMS_REFUSED } from "@/lib/meetings/teams-messages";
+import { pullSoonIfStale } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { createSyncMeeting, meetingRefusalResponse } from "@/lib/meetings/create-meeting.server";
 import { z } from "zod";
 import { MeetingType } from "@prisma/client";
-import { allOrgMembers, attendeesNotMembers } from "@/lib/meetings/attendee-members";
 import { requireProjectVisibleIf } from "@/lib/rbac/require-project-read";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
@@ -109,21 +108,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const data = createMeetingSchema.parse(body);
     // Filing it under a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);
-    if (data.attendeeIds && !(await allOrgMembers(orgId, data.attendeeIds))) return attendeesNotMembers();
     // The sprint has no foreign key, so nothing else stops another org's id:
     // it must be the meeting's project's, or one the caller can see.
     await assertRefsInScope({ orgId, projectId: data.projectId, viewer: ctx }, { interval: data.sprintId });
-
-    if (data.teamsMeeting) {
-      // A Teams meeting is made in a person's own mailbox: never on an API key.
-      if (ctx.isApiKey) return new Response("Forbidden", { status: 403 });
-      // Refused before anything is saved, so nobody gets a meeting they didn't ask for.
-      const refused = await teamsRefusalForNew(orgId, ctx.userId, { projectId: data.projectId ?? null, title: data.title });
-      if (refused) {
-        const [status, error] = TEAMS_REFUSED[refused];
-        return new Response(JSON.stringify({ error, reason: refused }), { status, headers: { "Content-Type": "application/json" } });
-      }
-    }
 
     // Validate a custom type belongs to this org (defense-in-depth); when set,
     // the built-in enum is OTHER and the label comes from the custom type.
@@ -140,48 +127,51 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const meeting = await prisma.syncMeeting.create({
-      data: {
-        orgId,
-        title: data.title,
-        projectId: data.projectId ?? null,
-        sprintId: data.sprintId ?? null,
-        meetingDate: new Date(data.meetingDate),
-        ...(data.durationMinutes !== undefined && { durationMinutes: data.durationMinutes }),
-        meetingType: data.customTypeId ? "OTHER" : data.meetingType ?? "STANDUP",
-        customTypeId: data.customTypeId ?? null,
-        notes: data.notes ?? "",
-        createdById: ctx.userId,
-        ...(data.teamsMeeting && { teamsHostId: ctx.userId }),
-        ...(data.attendeeIds && data.attendeeIds.length > 0
-          ? {
-              attendees: {
-                create: data.attendeeIds.map((userId) => ({ userId })),
-              },
-            }
-          : {}),
+    // Checked, saved and pushed to Outlook in one step, the path Cosmo's create
+    // takes too: attendees must be in the org, and a Teams meeting (made in the
+    // creator's own Outlook, never on an API key) is refused before anything is
+    // saved, so nobody gets a meeting they didn't ask for.
+    const made = await createSyncMeeting(
+      {
+        data: {
+          orgId,
+          title: data.title,
+          projectId: data.projectId ?? null,
+          sprintId: data.sprintId ?? null,
+          meetingDate: new Date(data.meetingDate),
+          ...(data.durationMinutes !== undefined && { durationMinutes: data.durationMinutes }),
+          meetingType: data.customTypeId ? "OTHER" : data.meetingType ?? "STANDUP",
+          customTypeId: data.customTypeId ?? null,
+          notes: data.notes ?? "",
+          createdById: ctx.userId,
+        },
+        attendeeIds: data.attendeeIds,
+        teamsMeeting: data.teamsMeeting,
+        isApiKey: !!ctx.isApiKey,
       },
-      include: {
-        attendees: true,
+      { include: { attendees: true } },
+      {
+        // Audited before the push is queued: if the audit fails, the 500 is
+        // for a meeting no one's Outlook has, so a retry can't add a second copy.
+        beforePush: (meeting) =>
+          logAudit({
+            orgId,
+            userId: ctx.userId,
+            action: "meeting.created",
+            entity: "sync_meeting",
+            entityId: meeting.id,
+            metadata: {
+              meetingType: meeting.meetingType,
+              attendeeCount: String(meeting.attendees.length),
+              ...(meeting.teamsHostId && { teamsMeeting: "on" }),
+            } as Record<string, string>,
+            ipAddress: getIpAddress(request),
+          }),
       },
-    });
+    );
+    if (made.refused) return meetingRefusalResponse(made.refused);
 
-    await logAudit({
-      orgId,
-      userId: ctx.userId,
-      action: "meeting.created",
-      entity: "sync_meeting",
-      entityId: meeting.id,
-      metadata: {
-        meetingType: meeting.meetingType,
-        attendeeCount: String(meeting.attendees.length),
-        ...(meeting.teamsHostId && { teamsMeeting: "on" }),
-      } as Record<string, string>,
-      ipAddress: getIpAddress(request),
-    });
-
-    syncMeetingSoon(orgId, meeting.id);
-    return created(meeting);
+    return created(made.meeting);
   } catch (error) {
     return handleApiError(error);
   }

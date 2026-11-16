@@ -92,16 +92,22 @@ export function ContactCard({ contact, members, onClick, onDelete }: ContactCard
 
   return (
     <>
-      <ActionMenu groups={groups}>
+      {/* `group/action` on a box AROUND the menu: ActionMenu's ⋯ trigger is a
+          sibling of the card, not inside it, so only an ancestor reveals it on
+          hover; the box also pins it over the card's corner. */}
+      <div className="group/action relative">
+      <ActionMenu groups={groups} triggerClassName="absolute right-1.5 top-1.5 z-10">
         <div
           role="button"
           tabIndex={0}
           aria-label={`Open contact ${contact.name}`}
-          className="group/action rounded-lg border bg-card p-3 cursor-pointer hover:border-primary/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="rounded-lg border bg-card p-3 cursor-pointer group-hover/action:border-primary/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => onClick(contact)}
           onKeyDown={activateOnKey(() => onClick(contact))}
         >
-          <div className="flex items-start justify-between gap-2">
+          {/* pr-6 leaves room for the hover ⋯ menu button; pr-7 for its 32px
+              touch size, always shown on a coarse pointer */}
+          <div className="flex items-start justify-between gap-2 pr-6 [@media(pointer:coarse)]:pr-7">
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{contact.name}</p>
               {contact.company && (
@@ -126,6 +132,7 @@ export function ContactCard({ contact, members, onClick, onDelete }: ContactCard
           )}
         </div>
       </ActionMenu>
+      </div>
 
       <Dialog
         open={confirmOpen}

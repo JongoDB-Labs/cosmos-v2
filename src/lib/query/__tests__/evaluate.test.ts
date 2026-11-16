@@ -76,6 +76,22 @@ describe("evaluate: values", () => {
     // …unless the answer doesn't depend on it.
     expect(matches({ AND: [{ id: "j" }, { labels: { some: { labelId: "l1" } } }] }, { id: "i" })).toBe(false);
   });
+  it("a to-one relation (`is`): decided on the row it is loaded on, FALSE where it is empty (as Prisma renders it), else undecided", () => {
+    const onTeam = { assignee: { is: { memberships: { some: { removedAt: null, projectMembers: { some: { teamMembers: { some: { teamId: { in: ["t1"] } } } } } } } } } };
+    const member = (removedAt: string | null, teamId: string) => ({ removedAt, projectMembers: [{ teamMembers: [{ teamId }] }] });
+    expect(matches(onTeam, { assignee: { memberships: [member(null, "t1")] } })).toBe(true);
+    expect(matches(onTeam, { assignee: { memberships: [member(null, "t2")] } })).toBe(false);
+    expect(matches(onTeam, { assignee: { memberships: [member("2026-09-01T00:00:00.000Z", "t1")] } })).toBe(false);
+    // No assignee: FALSE, and so its negation is TRUE (measured against Prisma).
+    expect(evalWhere(onTeam, { assignee: null })).toBe(false);
+    expect(matches({ NOT: onTeam }, { assignee: null })).toBe(true);
+    // A board row: no relation, or the relation without the part asked about.
+    expect(matches(onTeam, { assigneeId: "u1" })).toBe(UNDECIDED);
+    expect(matches(onTeam, { assignee: { id: "u1", displayName: "U" } })).toBe(UNDECIDED);
+    // A shape this interpreter wasn't written for: never a guess.
+    expect(matches({ assignee: { is: null } }, { assignee: null })).toBe(UNDECIDED);
+    expect(matches({ assignee: { is: { id: "u1" }, isNot: { id: "u2" } } }, { assignee: { id: "u1" } })).toBe(UNDECIDED);
+  });
 });
 
 /**

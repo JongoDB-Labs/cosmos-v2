@@ -9,18 +9,18 @@ import {
 } from "@/lib/auth/microsoft";
 import { getProviderConfig } from "@/lib/auth/provider-config";
 import { CONNECT_COOKIE } from "@/lib/auth/connect-sign-in";
+import { RETURN_TO_PARAM, loginUrl, rememberReturnTo } from "@/lib/auth/return-to";
 
 /** Begin Microsoft (Entra ID) sign-in: stash a CSRF state cookie and redirect
  *  to the Microsoft authorize endpoint. Creds come from the vault-backed
  *  provider config (set in /admin), not env. */
 export async function GET(request: NextRequest) {
   const origin = getPublicOrigin(request);
+  const returnTo = request.nextUrl.searchParams.get(RETURN_TO_PARAM);
 
   const cfg = await getProviderConfig("microsoft");
   if (!cfg || !cfg.enabled) {
-    return NextResponse.redirect(
-      new URL("/login?error=ms_not_configured", origin),
-    );
+    return NextResponse.redirect(loginUrl(origin, { error: "ms_not_configured", returnTo }));
   }
 
   const rl = rateLimit(getRateLimitKey(request, "auth.start"), {
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     refillPerSecond: 1,
   });
   if (!rl.allowed) {
-    return NextResponse.redirect(new URL("/login?error=rate_limited", origin));
+    return NextResponse.redirect(loginUrl(origin, { error: "rate_limited", returnTo }));
   }
 
   const state = crypto.randomBytes(16).toString("hex");
@@ -50,5 +50,7 @@ export async function GET(request: NextRequest) {
   // A sign-in, not a connect: drop any connect request left from an abandoned
   // round trip (its state would not match anyway).
   response.cookies.delete(CONNECT_COOKIE);
+  // Where to land once the callback has signed the visitor in.
+  rememberReturnTo(response, request);
   return response;
 }

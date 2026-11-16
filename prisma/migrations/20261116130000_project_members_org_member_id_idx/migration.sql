@@ -1,0 +1,16 @@
+-- project_members(org_member_id): the hop from a person's org membership to
+-- their project memberships.
+--
+-- Why: `team = X` and `assignee IN membersOf(X)` join an item's assignee to
+-- the team through org member -> project member -> team member. On a board
+-- (a project with tens of items) Postgres checks each item's assignee in
+-- turn, and without this index each check scanned project_members whole: the
+-- only index there leads with project_id. EXPLAIN on 80,000 project members
+-- and a 40-item project: about 14-34 ms before, under 2 ms with it, the
+-- org hop using org_members (org_id, user_id). A large project keeps the
+-- plan it had (it hashes the team's members once) and leaves this index
+-- unused. Indexes on org_members(user_id) and team_members(project_member_id)
+-- were tried as well and bought nothing, so they are not added.
+--
+-- IF NOT EXISTS, so an interrupted deploy can run it again.
+CREATE INDEX IF NOT EXISTS "project_members_org_member_id_idx" ON "project_members"("org_member_id");

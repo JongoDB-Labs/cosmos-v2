@@ -12,6 +12,8 @@ import { problem } from "@/lib/openapi/problem";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
 import { otherAddressRedirect } from "@/lib/deploy/other-address-redirect";
 import { legacyChatRedirect } from "@/lib/chat/legacy-chat-redirect";
+import { loginUrl, pageReturnTo } from "@/lib/auth/return-to";
+import { getPublicOrigin } from "@/lib/auth/public-url";
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
   applySecurityHeaders(res.headers);
@@ -127,8 +129,13 @@ export async function proxy(request: NextRequest) {
   // and only Microsoft Teams' hosts. Everything else keeps 'none'.
   if (isTabPath(request.nextUrl.pathname)) applyTeamsTabFraming(res.headers);
   // Stored files carry the CSP their route chose; the page CSP set above would
-  // replace it (see routeSetsOwnCsp).
-  if (routeSetsOwnCsp(request.nextUrl.pathname)) res.headers.delete("Content-Security-Policy");
+  // replace it (see routeSetsOwnCsp). So does a GET the route will answer: its
+  // framing is the route's too (a PDF preview may be framed by this site).
+  if (routeSetsOwnCsp(request.nextUrl.pathname)) {
+    res.headers.delete("Content-Security-Policy");
+    const toRoute = res.headers.get("x-middleware-next") === "1";
+    if (toRoute && (request.method === "GET" || request.method === "HEAD")) res.headers.delete("X-Frame-Options");
+  }
   // The reset page's URL carries the emailed token. Send no part of it on in a
   // Referer, even to this site. Its form posts with fetch(), which still sends
   // Origin under this policy, so the CSRF check is unaffected.
@@ -259,8 +266,14 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
     return withSecurityHeaders(problem(401, "unauthorized"));
   }
 
-  const loginUrl = new URL("/login", request.url);
-  return withSecurityHeaders(NextResponse.redirect(loginUrl));
+  // Back to this page after signing in, less any query parameter that can
+  // carry a credential (pageReturnTo). Built on the public origin: behind the
+  // edge, request.url carries the internal bind address. Built from the
+  // request's headers, so no cache may keep it and hand it to someone else.
+  const signIn = loginUrl(getPublicOrigin(request), { returnTo: pageReturnTo(pathname, request.nextUrl.search) });
+  const res = NextResponse.redirect(signIn);
+  res.headers.set("Cache-Control", "no-store");
+  return withSecurityHeaders(res);
 }
 
 export const config = {
