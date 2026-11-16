@@ -47,7 +47,9 @@ import type { SyncMeeting } from "@/types/models";
 import { jsonFetch, fetchErrorOf, FetchError } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { cn } from "@/lib/utils";
+import { viewerTimeZone } from "@/components/work-items/cql/use-cql";
 import { TeamsJoinLink } from "./teams-meeting";
+import { groupMeetingsByWhen } from "./meeting-groups";
 
 interface MeetingsListProps {
   orgId: string;
@@ -148,27 +150,13 @@ interface CustomMeetingType {
   label: string;
 }
 
-function isToday(date: Date): boolean {
-  const now = new Date();
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
-}
-
-function isThisWeek(date: Date): boolean {
-  const now = new Date();
-  const startOfWeek = new Date(now);
-  const day = startOfWeek.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  startOfWeek.setDate(startOfWeek.getDate() + diff);
-  startOfWeek.setHours(0, 0, 0, 0);
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setDate(endOfWeek.getDate() + 6);
-  endOfWeek.setHours(23, 59, 59, 999);
-  return date >= startOfWeek && date <= endOfWeek;
-}
+/** The list's sections, in page order. */
+const SECTIONS = [
+  ["today", "Today"],
+  ["thisWeek", "This Week"],
+  ["upcoming", "Upcoming"],
+  ["past", "Past"],
+] as const;
 
 export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
   const router = useRouter();
@@ -324,28 +312,8 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
     }
   };
 
-  const grouped = (() => {
-    const today: SyncMeeting[] = [];
-    const thisWeek: SyncMeeting[] = [];
-    const past: SyncMeeting[] = [];
-
-    const sorted = [...meetings].sort(
-      (a, b) => new Date(b.meetingDate).getTime() - new Date(a.meetingDate).getTime()
-    );
-
-    sorted.forEach((m) => {
-      const date = new Date(m.meetingDate);
-      if (isToday(date)) {
-        today.push(m);
-      } else if (isThisWeek(date)) {
-        thisWeek.push(m);
-      } else {
-        past.push(m);
-      }
-    });
-
-    return { today, thisWeek, past };
-  })();
+  // By the viewer's own calendar, the zone the cards' dates are shown in.
+  const grouped = groupMeetingsByWhen(meetings, new Date(), viewerTimeZone());
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -599,38 +567,19 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
         />
       ) : (
         <div className="flex flex-col gap-6">
-          {grouped.today.length > 0 && (
-            <MeetingGroup
-              title="Today"
-              meetings={grouped.today}
-              orgId={orgId}
-              onNavigate={openMeeting}
-              onDelete={(id) =>
-                setMeetings((prev) => prev.filter((m) => m.id !== id))
-              }
-            />
-          )}
-          {grouped.thisWeek.length > 0 && (
-            <MeetingGroup
-              title="This Week"
-              meetings={grouped.thisWeek}
-              orgId={orgId}
-              onNavigate={openMeeting}
-              onDelete={(id) =>
-                setMeetings((prev) => prev.filter((m) => m.id !== id))
-              }
-            />
-          )}
-          {grouped.past.length > 0 && (
-            <MeetingGroup
-              title="Past"
-              meetings={grouped.past}
-              orgId={orgId}
-              onNavigate={openMeeting}
-              onDelete={(id) =>
-                setMeetings((prev) => prev.filter((m) => m.id !== id))
-              }
-            />
+          {SECTIONS.map(([key, title]) =>
+            grouped[key].length > 0 ? (
+              <MeetingGroup
+                key={key}
+                title={title}
+                meetings={grouped[key]}
+                orgId={orgId}
+                onNavigate={openMeeting}
+                onDelete={(id) =>
+                  setMeetings((prev) => prev.filter((m) => m.id !== id))
+                }
+              />
+            ) : null,
           )}
         </div>
       )}
@@ -737,12 +686,21 @@ function MeetingCard({
 
   return (
     <>
-    <ActionMenu groups={groups}>
+    {/* `group/action` goes on a box AROUND the menu: ActionMenu renders its ⋯
+        trigger as a sibling of the card (its own wrapper is display:contents),
+        so a group on the card itself never reveals it on hover. The box also
+        keeps the trigger out of the list's flex flow and over the card. */}
+    <div className="group/action relative">
+    <ActionMenu
+      groups={groups}
+      triggerLabel={`Actions for ${meeting.title || "this meeting"}`}
+      triggerClassName="absolute right-2 top-2 z-10"
+    >
       {/* The join link sits beside the card's button, never inside it. */}
-      <div className="group/action relative rounded-lg border bg-background transition-colors hover:bg-muted/50">
+      <div className="relative rounded-lg border bg-background transition-colors group-hover/action:bg-muted/50">
         <button
           onClick={onClick}
-          className={cn("flex w-full items-start gap-4 rounded-lg p-4 text-left", joinUrl && "pb-12")}
+          className={cn("flex w-full items-start gap-4 rounded-lg p-4 pr-10 text-left", joinUrl && "pb-12")}
         >
           <div className="flex flex-1 flex-col gap-2">
             {meeting.title && (
@@ -790,6 +748,7 @@ function MeetingCard({
         {joinUrl && <TeamsJoinLink url={joinUrl} size="xs" className="absolute bottom-3 left-4" />}
       </div>
     </ActionMenu>
+    </div>
 
     <Dialog open={confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(false)}>
       <DialogContent className="sm:max-w-sm">

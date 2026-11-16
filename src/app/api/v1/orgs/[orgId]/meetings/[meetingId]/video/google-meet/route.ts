@@ -6,6 +6,7 @@ import { getMeetClient } from "@/lib/integrations/google";
 import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { canReadMeeting } from "@/lib/meetings/meeting-reader";
+import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 
 type RouteParams = { params: Promise<{ orgId: string; meetingId: string }> };
 
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
       include: { attendees: true },
     });
+    // The link shows in Outlook, so the attendees' copies get it now, as any
+    // other edit to a synced field does (SYNCED_MEETING_FIELDS).
+    syncMeetingSoon(orgId, meetingId);
 
     await logAudit({
       orgId, userId: ctx.userId,

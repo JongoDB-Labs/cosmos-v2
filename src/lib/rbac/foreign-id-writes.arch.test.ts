@@ -141,6 +141,8 @@ const VIA: Record<string, string> = {
   updateSavedView: "src/lib/query/saved-view-service.server.ts",
   deleteSavedView: "src/lib/query/saved-view-service.server.ts",
   createObjectiveDependency: "src/lib/okr/dependencies.server.ts",
+  // POST /meetings and create_meeting: the attendees are held to the org there.
+  createSyncMeeting: "src/lib/meetings/create-meeting.server.ts",
 };
 
 const READ = "a read: it filters a query run within the caller's own visibility, and stores nothing";
