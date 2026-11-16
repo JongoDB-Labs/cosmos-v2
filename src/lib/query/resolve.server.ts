@@ -21,7 +21,6 @@ import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { readableCommentsWhere } from "@/lib/work-items/read.server";
 import { orgDocumentVisibilityWhere } from "@/lib/files/access";
-import { loadTeamRosters } from "@/lib/teams/item-team.server";
 import { memberDisclosure } from "@/lib/members/scoped-roster.server";
 import {
   mentionsField,
@@ -675,12 +674,23 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
   // silently permissive default; see the throw in compile.ts.
   const readableProjectIds = mentionsField(a.query, "hasChildren") ? readableIds : undefined;
 
-  // ── 9. Team rosters, for `team` ────────────────────────────────────────────
+  // ── 9. Teams, for `team` ───────────────────────────────────────────────────
   // `team = X` takes the work of X's people that names no team (the rule in
-  // lib/teams/item-teams.ts). Every readable team, not only the named ones:
-  // `team IS EMPTY` needs all of them, and `myTeams()` or a variable can name
-  // teams the text does not. Only when the query names the field.
-  const teamRosters = mentionsField(a.query, "team") ? await loadTeamRosters(prisma, orgId, readableIds) : undefined;
+  // lib/teams/item-teams.ts), in X's project. Every readable team, not only
+  // the named ones: `team IS EMPTY` needs all of them, and `myTeams()` or a
+  // variable can name teams the text does not. Their projects only: the
+  // compiler joins to the people, so their ids never enter the where. Only
+  // when the query names the field.
+  const teamProjects = mentionsField(a.query, "team")
+    ? new Map(
+        (
+          await prisma.team.findMany({
+            where: { orgId, projectId: { in: readableIds } },
+            select: { id: true, projectId: true },
+          })
+        ).map((t) => [t.id, t.projectId]),
+      )
+    : undefined;
 
   // ── 10. Readable comments, for every field that reads comment text ────────
   // `mentions`, `comment` and `text` (COMMENT_TEXT_FIELDS). The comment
@@ -727,7 +737,7 @@ export async function resolveQuery(a: ResolveArgs): Promise<ResolveResult> {
     history: new Map(),
     ...(documentVisibility ? { documentVisibility } : {}),
     ...(readableProjectIds ? { readableProjectIds } : {}),
-    ...(teamRosters ? { teamRosters } : {}),
+    ...(teamProjects ? { teamProjects } : {}),
     ...(readableComments ? { readableComments } : {}),
     ...(contextProject ? { contextProjectId: contextProject } : {}),
     ...(a.sinceLastStandup ? { sinceLastStandup: a.sinceLastStandup } : {}),

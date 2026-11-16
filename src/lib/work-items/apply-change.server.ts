@@ -312,7 +312,7 @@ export function assignableMembersWhere(orgId: string, userIds: readonly string[]
 }
 
 /** Whether every one of these user ids is an assignable member of the org. */
-async function membersAmong(tx: Prisma.TransactionClient, orgId: string, ids: readonly string[]): Promise<boolean> {
+async function membersAmong(tx: Pick<Prisma.TransactionClient, "orgMember">, orgId: string, ids: readonly string[]): Promise<boolean> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return true;
   return (await tx.orgMember.count({ where: assignableMembersWhere(orgId, unique) })) === unique.length;
@@ -333,6 +333,24 @@ export async function assertAssigneesInOrg(
 ): Promise<void> {
   const named = ids.filter((id): id is string => !!id);
   if (!(await membersAmong(tx, orgId, named))) throw new ProblemError(422, "assignee_not_in_org", NOT_A_MEMBER);
+}
+
+/**
+ * The assignee a copy may carry over: `id` when creating an item could name
+ * them (the rule above), else null. For Duplicate, which takes its assignee
+ * from the source item rather than from the request, so nothing else checks
+ * it: the source can name someone who has left the org, or, on a row older
+ * than work_items.assignee_id's foreign key (added NOT VALID, so those rows
+ * stay), an id that is no user at all. Copying that broke the copy on the
+ * foreign key, and before the key it spread the bad id to a new item.
+ */
+export async function assigneeToCarry(
+  tx: Pick<Prisma.TransactionClient, "orgMember">,
+  orgId: string,
+  id: string | null,
+): Promise<string | null> {
+  if (!id) return null;
+  return (await membersAmong(tx, orgId, [id])) ? id : null;
 }
 
 /**

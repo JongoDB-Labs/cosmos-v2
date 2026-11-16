@@ -274,14 +274,14 @@ describe("rankOf — classification ordering (fail-closed)", () => {
 });
 
 describe("fkEdgesOf — referential-closure edge derivation (C1 + C2)", () => {
-  it("WorkItem: hard FK to WorkItemType (C1 global parent) + bare user refs (C2)", () => {
+  it("WorkItem: hard FKs to WorkItemType (C1 global parent) and its assignee, a bare user ref for its creator (C2)", () => {
     const edges = fkEdgesOf("WorkItem");
     const wit = edges.find((e) => e.fkColumn === "work_item_type_id");
     expect(wit).toMatchObject({ targetModel: "WorkItemType", targetTable: "work_item_types", hardFk: true });
-    // bare user refs (no DMMF relation) — assignee_id + created_by_id → users
-    const assignee = edges.find((e) => e.fkColumn === "assignee_id");
+    // assignee_id has a relation (and a DB FK) since 2.563.0; created_by_id is still bare.
+    const assignee = edges.filter((e) => e.fkColumn === "assignee_id");
     const creator = edges.find((e) => e.fkColumn === "created_by_id");
-    expect(assignee).toMatchObject({ targetTable: "users", hardFk: false });
+    expect(assignee).toEqual([expect.objectContaining({ targetModel: "User", targetTable: "users", hardFk: true })]);
     expect(creator).toMatchObject({ targetTable: "users", hardFk: false });
   });
 

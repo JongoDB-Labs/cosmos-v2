@@ -148,6 +148,45 @@ describe("duplicate", () => {
     const bad = new NextRequest("http://localhost/x", { method: "POST", body: "{nope", headers: { "Content-Type": "application/json" } });
     expect((await duplicate(bad, onItem(parent.id))).status).toBe(400);
   });
+
+  it("copies the assignee only when creating the item could name them: not an id that is no user, nor a former member", async () => {
+    h.ctx = session();
+    // work_items.assignee_id became a foreign key NOT VALID, so a row written
+    // before it can still name an id that is no user. Written here the way
+    // those rows were: past the key's check.
+    const noUser = "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+    const legacy = await item("Legacy");
+    const legacyChild = await item("Legacy child");
+    await prisma.workItem.update({ where: { id: legacyChild.id }, data: { parentId: legacy.id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL session_replication_role = replica`;
+      await tx.$executeRaw`UPDATE work_items SET assignee_id = ${noUser}::uuid WHERE id IN (${legacy.id}::uuid, ${legacyChild.id}::uuid)`;
+    });
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: legacy.id } })).assigneeId).toBe(noUser);
+
+    const former = (await prisma.user.create({ data: { email: `former-${stamp}@ac.test`, displayName: "Former" } })).id;
+    try {
+      await prisma.orgMember.create({ data: { orgId, userId: former, role: "MEMBER", permissions: "0", removedAt: new Date() } });
+      const left = await item("Theirs");
+      await prisma.workItem.update({ where: { id: left.id }, data: { assigneeId: former } });
+      const kept = await item("Ours");
+      await prisma.workItem.update({ where: { id: kept.id }, data: { assigneeId: other } });
+
+      const assigneeOfCopy = async (itemId: string, body?: unknown) => {
+        const res = await duplicate(body === undefined ? new NextRequest("http://localhost/x", { method: "POST" }) : req("POST", body), onItem(itemId));
+        expect(res.status).toBe(201);
+        const copy = await prisma.workItem.findUniqueOrThrow({ where: { id: (await res.json()).id }, include: { children: true } });
+        return { assigneeId: copy.assigneeId, children: copy.children.map((c) => c.assigneeId) };
+      };
+      expect(await assigneeOfCopy(legacy.id, { withChildren: true })).toEqual({ assigneeId: null, children: [null] });
+      expect(await assigneeOfCopy(left.id)).toEqual({ assigneeId: null, children: [] });
+      // A current member is copied, as before.
+      expect(await assigneeOfCopy(kept.id)).toEqual({ assigneeId: other, children: [] });
+    } finally {
+      // Takes their membership with it (a cascade); the items go with the org.
+      await prisma.user.deleteMany({ where: { id: former } });
+    }
+  });
 });
 
 describe("merge", () => {

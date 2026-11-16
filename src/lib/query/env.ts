@@ -12,7 +12,11 @@ import { stableStringify } from "./normalize";
 
 export type StatusCategory = "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";
 
-/** One team, as the team rule needs it: where it lives and who is on it. */
+/**
+ * One team, as the team rule needs it in memory: where it lives and who is on
+ * it. For server-side grouping (aggregate.server.ts); the compiler needs only
+ * the project (`teamProjects`).
+ */
 export interface TeamRoster {
   projectId: string;
   /** Sorted, distinct. */
@@ -68,17 +72,23 @@ export interface CompileEnv {
    */
   readableProjectIds?: string[];
   /**
-   * Every readable team by id: its project and the user ids on it. Set ONLY
-   * when the query names `team`.
+   * Every readable team's project, by team id. Set ONLY when the query names
+   * `team`.
    *
    * `team = X` follows the team rule the board's filter bar, its swimlanes and
    * Cosmo's team filter already use (lib/teams/item-teams.ts): an item that
    * names X, or one that names no team and whose primary assignee is on X, in
-   * X's project. The roster is the second half of that rule. Absent means the
-   * compiler refuses the field, because the only fallback is the item's own
-   * column, which leaves out every item nobody tagged with a team.
+   * X's project. The second half is a join from the item to its assignee's
+   * team memberships, so this carries teams and projects and never the people
+   * on them: the compiled where goes to the browser (`POST cql/predicate`),
+   * and it used to carry every member's user id, to a guest as much as anyone,
+   * and past 30,000 members was refused as too broad.
+   *
+   * Absent means the compiler refuses the field, because the only fallback is
+   * the item's own column, which leaves out every item nobody tagged with a
+   * team.
    */
-  teamRosters?: ReadonlyMap<string, TeamRoster>;
+  teamProjects?: ReadonlyMap<string, string>;
   /**
    * The comments this actor may read, for every field that reads comment text
    * (`mentions`, `comment`, `text`; see COMMENT_TEXT_FIELDS): the readable

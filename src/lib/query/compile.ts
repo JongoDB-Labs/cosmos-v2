@@ -505,30 +505,53 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
       // filter bar showed.
       //
       // FAIL CLOSED, like `hasChildren` above: the only fallback without the
-      // roster is the column-only answer, which is the defect itself.
-      const rosters = env.teamRosters;
-      if (!rosters) {
+      // teams is the column-only answer, which is the defect itself.
+      const teams = env.teamProjects;
+      if (!teams) {
         throw new Error(
-          "team needs env.teamRosters — resolve.server.ts must load the readable teams' rosters whenever the query names this field.",
+          "team needs env.teamProjects — resolve.server.ts must load the readable teams whenever the query names this field.",
         );
       }
       // Untagged items whose primary assignee is on one of `teamIds`, one
-      // clause per project. Every part is two-valued (nn), so NOT is a true
-      // complement for `!=`.
+      // clause per project, as a join through the assignee's memberships: the
+      // same path the board's teams route reads (team -> member -> project
+      // member -> org member), current members only. It names teams, never
+      // people, because this where goes to the browser (`POST cql/predicate`).
+      //
+      // A nested filter is outside the scope envelope, so it is held to the
+      // teams in `teamProjects`, which are all in readable projects. And it is
+      // the soft-delete hook's blind spot (it filters direct `orgMember` reads
+      // only), hence `removedAt: null` here.
+      //
+      // Every part is two-valued, so NOT is a true complement for `!=` (Prisma
+      // renders `is` as FALSE, not unknown, where there is no assignee). The
+      // `assigneeId` guard says the same thing in a column a board's row
+      // carries, so the browser decides every unassigned item itself; it does
+      // not carry the assignee's memberships, so only assigned, untagged items
+      // go to the server (lib/query/evaluate.ts).
       const derived = (teamIds: Iterable<string>): Where[] => {
         const byProject = new Map<string, Set<string>>();
         for (const id of teamIds) {
-          const r = rosters.get(id);
-          if (!r || r.userIds.length === 0) continue;
-          const users = byProject.get(r.projectId) ?? new Set<string>();
-          for (const u of r.userIds) users.add(u);
-          byProject.set(r.projectId, users);
+          const projectId = teams.get(id);
+          if (!projectId) continue;
+          byProject.set(projectId, (byProject.get(projectId) ?? new Set<string>()).add(id));
         }
         return [...byProject.keys()].sort().map((projectId) =>
-          and({ teamId: null }, { projectId }, nn("assigneeId", { in: [...byProject.get(projectId)!].sort() })),
+          and({ teamId: null }, { projectId }, nn("assigneeId", {}), {
+            assignee: {
+              is: {
+                memberships: {
+                  some: {
+                    removedAt: null,
+                    projectMembers: { some: { teamMembers: { some: { teamId: { in: [...byProject.get(projectId)!].sort() } } } } },
+                  },
+                },
+              },
+            },
+          }),
         );
       };
-      const anyTeam = derived(rosters.keys());
+      const anyTeam = derived(teams.keys());
       return {
         match: (b) => or(nn("teamId", { in: ids(b) }), ...derived(ids(b))),
         // No team of its own, and nobody on a team in its project is its

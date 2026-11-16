@@ -14,6 +14,7 @@ import { storeEmbedding } from "@/lib/rag/embed";
 import { allocateTicketNumber } from "@/lib/work-items/allocate";
 import { copyFields } from "@/lib/work-items/copy-fields";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { assigneeToCarry } from "@/lib/work-items/apply-change.server";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -39,11 +40,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!source) return problem(404, "not_found", undefined, { request });
 
+    // The copy is assigned only to someone the create route would accept; the
+    // source may name a person who has left, or an id from before the foreign
+    // key that is no user (assigneeToCarry). Anyone else, and the copy is
+    // unassigned rather than refused.
+    const assigneeId = await assigneeToCarry(prisma, orgId, source.assigneeId);
+
     // The actor becomes the creator of the new item — same authz model as POST
     // /work-items (ITEM_CREATE + any in-project deny policy).
     await requireAccess(ctx, "ITEM_CREATE", {
       createdById: ctx.userId,
-      assigneeId: source.assigneeId,
+      assigneeId,
       projectId,
     });
 
@@ -71,6 +78,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         omit: { searchVector: true },
         data: {
           ...copyFields(source),
+          assigneeId,
           orgId,
           projectId,
           title: `Copy of ${source.title}`,
@@ -114,6 +122,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           const child = await createWorkItemRow(tx, {
             data: {
               ...copyFields(kid),
+              assigneeId: await assigneeToCarry(tx, orgId, kid.assigneeId),
               orgId,
               projectId,
               title: kid.title,

@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.563.0",
+    date: "2026-11-16",
+    title: "Team filters work for teams of any size",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Filtering by team with the query language (team = X, team != X, team IS EMPTY) no longer fails as too broad when a team is very large. The filter used to list every member of every team inside the query.",
+      },
+      {
+        kind: "fix",
+        text: "A board filtered by team no longer sends your browser the user ID of everyone on each team. Those IDs reached guests too.",
+      },
+      {
+        kind: "fix",
+        text: "Duplicating an item whose assignee has left the organization now makes an unassigned copy instead of copying someone who can no longer be given work.",
+      },
+    ],
+  },
+  {
     version: "2.562.2",
     date: "2026-11-16",
     title: "Cosmo is clearer about what it did",

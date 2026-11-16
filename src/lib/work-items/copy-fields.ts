@@ -8,18 +8,22 @@ import type { Prisma, WorkItem } from "@prisma/client";
  * Deliberately NOT carried: identity (id, ticket number, sort order, creator),
  * the run so far (actualStart, completedAt, cancel and merge state), and
  * external-sync ids, which name the ORIGINAL in another system.
+ *
+ * Nor the assignee: each caller decides it. Duplicate keeps the source's only
+ * when the create route would accept them (assigneeToCarry), because the
+ * source can name someone who has left, or an id that is no user; Split gives
+ * each copy the person it splits off for.
  */
 export function copyFields(
   source: WorkItem,
 ): Omit<
   Prisma.WorkItemUncheckedCreateInput,
-  "orgId" | "projectId" | "title" | "ticketNumber" | "sortOrder" | "createdById"
+  "orgId" | "projectId" | "title" | "ticketNumber" | "sortOrder" | "createdById" | "assigneeId"
 > {
   return {
     workItemTypeId: source.workItemTypeId,
     description: source.description,
     columnKey: source.columnKey,
-    assigneeId: source.assigneeId,
     priority: source.priority,
     intervalId: source.intervalId,
     parentId: source.parentId,

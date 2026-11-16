@@ -187,6 +187,39 @@ describe("useBoardQuery", () => {
     expect(JSON.parse(String((calls("/work-items/query")[0][1] as RequestInit).body)).idsOnly).toBe(true);
   });
 
+  it("when the server won't settle them (too broad), the bar says what to narrow, and the board keeps only what it decided", async () => {
+    serve();
+    const base = vi.mocked(jsonFetch).getMockImplementation()!;
+    const tooBroad = {
+      code: "CQL_TOO_BROAD", severity: "error", message: "This query matches more than 5,000 items. Narrow it with a project or a sprint.",
+      from: 0, to: 0, line: 1, column: 1,
+    };
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) =>
+      String(url).endsWith("/work-items/query")
+        ? Promise.reject(new FetchError(422, { error: { code: "CQL_INVALID", message: tooBroad.message, diagnostics: [tooBroad] } }, tooBroad.message))
+        : base(url, init)) as never);
+    params = new URLSearchParams("cql=priority%20%3D%20HIGH%20OR%20watcher%20%3D%20me");
+    // Row a is decided (HIGH); row b needs the server (its watchers).
+    predicate = { OR: [{ priority: { in: ["HIGH"] } }, { watchers: { some: { userId: "me" } } }] };
+    const { result } = run();
+    await waitFor(() => expect(result.current.diagnostics).toEqual([tooBroad]));
+    expect(result.current.pending).toBe(false);
+    expect(result.current.keep(ROWS[0])).toBe(true);
+    expect(result.current.keep(ROWS[1])).toBe(false);
+  });
+
+  it("a failure with no reason still says the board couldn't finish, never silently fewer rows", async () => {
+    serve();
+    const base = vi.mocked(jsonFetch).getMockImplementation()!;
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) =>
+      String(url).endsWith("/work-items/query") ? Promise.reject(new FetchError(502, null, "")) : base(url, init)) as never);
+    params = new URLSearchParams("cql=watcher%20%3D%20me");
+    predicate = { watchers: { some: { userId: "me" } } };
+    const { result } = run();
+    await waitFor(() => expect(result.current.diagnostics).toHaveLength(1));
+    expect(result.current.diagnostics[0]).toMatchObject({ severity: "error", message: expect.stringMatching(/couldn't finish filtering/) });
+  });
+
   it("a PI scope asks the server for `pi`, and the scope line says so", async () => {
     serve();
     const { result } = run(undefined, { id: "pi1", name: "PI 9", kind: "PROGRAM_INCREMENT" });

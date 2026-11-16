@@ -11,19 +11,32 @@ import type { CompileEnv } from "../env";
 import { buildScopedWhere } from "@/lib/work-items/query/build-where";
 import { queryArb } from "./arbitraries";
 import type { CqlQuery } from "../ast";
-import { matches } from "../evaluate";
+import { UNDECIDED, matches } from "../evaluate";
 import { itemMatchesTeam, itemTeamIds, teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
 
 const NOW = new Date("2026-10-15T15:00:00Z");
 const ORG = "org-1";
 const READABLE = ["p1", "p2"];
 
-/** t1 and t3 in p1, t2 in p2; u2 is on t1 and t2; t3 has nobody. */
-const ROSTERS: NonNullable<CompileEnv["teamRosters"]> = new Map([
+/**
+ * t1 and t3 in p1, t2 in p2; u2 is on t1 and t2; t3 has nobody. u4 was on t1
+ * and has left the org, so is on no team (ROSTERS reads current members only,
+ * as loadTeamRosters does), though the membership rows are still there.
+ */
+const ROSTERS = new Map([
   ["t1", { projectId: "p1", userIds: ["u1", "u2"] }],
   ["t2", { projectId: "p2", userIds: ["u2"] }],
-  ["t3", { projectId: "p1", userIds: [] }],
+  ["t3", { projectId: "p1", userIds: [] as string[] }],
 ]);
+/** What the compiler is given: every readable team's project, and no people. */
+const TEAMS: NonNullable<CompileEnv["teamProjects"]> = new Map([...ROSTERS].map(([id, r]) => [id, r.projectId]));
+/** A user's org membership as `assignee.memberships` loads it: current, or left, with their team rows. */
+const MEMBERSHIPS: Record<string, { removedAt: string | null; projectMembers: { teamMembers: { teamId: string }[] }[] }[]> = {
+  u1: [{ removedAt: null, projectMembers: [{ teamMembers: [{ teamId: "t1" }] }] }],
+  u2: [{ removedAt: null, projectMembers: [{ teamMembers: [{ teamId: "t1" }] }, { teamMembers: [{ teamId: "t2" }] }] }],
+  u3: [{ removedAt: null, projectMembers: [{ teamMembers: [] }] }],
+  u4: [{ removedAt: "2026-09-01T00:00:00.000Z", projectMembers: [{ teamMembers: [{ teamId: "t1" }] }] }],
+};
 /** A stand-in for readableCommentsWhere. */
 const COMMENTS_YOU_CAN_READ = { visibility: "PUBLIC" as const, deletedAt: null, hiddenAt: null };
 /** What a comment-text predicate compiles to under the default env's comment scope. */
@@ -50,7 +63,7 @@ function env(over: Partial<CompileEnv> = {}): CompileEnv {
     milestoneItems: new Map([["m1", ["c1", "x9"]]]),
     milestoneLinked: ["c1", "x9", "y7"],
     history: new Map(),
-    teamRosters: ROSTERS,
+    teamProjects: TEAMS,
     readableComments: { projectIds: ["p1"], where: COMMENTS_YOU_CAN_READ },
     ...over,
   };
@@ -422,59 +435,102 @@ describe("compile — team is the team's work, as the board reads it", () => {
   // with none is the work of every team in its project its primary assignee is
   // on. The column alone was the defect: untagged work never matched.
   const own = (...ids: string[]) => ({ teamId: { in: ids, not: null } });
-  const theirs = (projectId: string, ...users: string[]) => ({
-    AND: [{ teamId: null }, { projectId }, { assigneeId: { in: users, not: null } }],
+  /** Untagged, in this project, and the primary assignee is a current member of one of these teams. */
+  const theirs = (projectId: string, ...teams: string[]) => ({
+    AND: [
+      { teamId: null },
+      { projectId },
+      { assigneeId: { not: null } },
+      {
+        assignee: {
+          is: { memberships: { some: { removedAt: null, projectMembers: { some: { teamMembers: { some: { teamId: { in: teams } } } } } } } },
+        },
+      },
+    ],
   });
 
   it("`team = X`: tagged with X, or untagged and assigned to someone on X in X's project", () => {
-    expect(where('team = "ref:team:t1"')).toEqual({ OR: [own("t1"), theirs("p1", "u1", "u2")] });
+    expect(where('team = "ref:team:t1"')).toEqual({ OR: [own("t1"), theirs("p1", "t1")] });
   });
 
   it("a list takes each named team's people in its own project", () => {
     expect(where('team IN ("ref:team:t1", "ref:team:t2")')).toEqual({
-      OR: [own("t1", "t2"), theirs("p1", "u1", "u2"), theirs("p2", "u2")],
+      OR: [own("t1", "t2"), theirs("p1", "t1"), theirs("p2", "t2")],
     });
   });
 
-  it("a team with nobody on it is its tagged work only", () => {
-    expect(where('team = "ref:team:t3"')).toEqual(own("t3"));
+  it("a team the actor can't read is its tagged work only", () => {
+    expect(where('team = "ref:team:t9"')).toEqual(own("t9"));
   });
 
   it("IS EMPTY is what no team claims; != stays two-valued and leaves out the unclaimed", () => {
-    const claimed = { OR: [theirs("p1", "u1", "u2"), theirs("p2", "u2")] };
+    const claimed = { OR: [theirs("p1", "t1", "t3"), theirs("p2", "t2")] };
     expect(where("team IS EMPTY")).toEqual({ AND: [{ teamId: null }, { NOT: claimed }] });
     expect(where('team != "ref:team:t1"')).toEqual({
-      AND: [{ NOT: { OR: [own("t1"), theirs("p1", "u1", "u2")] } }, { NOT: { AND: [{ teamId: null }, { NOT: claimed }] } }],
+      AND: [{ NOT: { OR: [own("t1"), theirs("p1", "t1")] } }, { NOT: { AND: [{ teamId: null }, { NOT: claimed }] } }],
     });
   });
 
-  it("FAILS CLOSED: no rosters means it throws, never the column-only answer", () => {
-    expect(() => where('team = "ref:team:t1"', env({ teamRosters: undefined }))).toThrow(/teamRosters/);
-    expect(() => where("team IS EMPTY", env({ teamRosters: undefined }))).toThrow(/teamRosters/);
+  it("the where names teams and never a person, however large the teams", () => {
+    // A where with user ids in it reached the browser (`POST cql/predicate`),
+    // and past 30,000 of them was refused as too broad.
+    for (const text of ['team = "ref:team:t1"', 'team != "ref:team:t2"', "team IS EMPTY", 'team IN ("ref:team:t1", "ref:team:t3")']) {
+      const json = JSON.stringify(where(text));
+      for (const user of Object.keys(MEMBERSHIPS)) expect(json).not.toContain(`"${user}"`);
+    }
+  });
+
+  it("FAILS CLOSED: no teams means it throws, never the column-only answer", () => {
+    expect(() => where('team = "ref:team:t1"', env({ teamProjects: undefined }))).toThrow(/teamProjects/);
+    expect(() => where("team IS EMPTY", env({ teamProjects: undefined }))).toThrow(/teamProjects/);
+  });
+
+  // The board sees one project's rows with that project's teams; so does
+  // this, item by item.
+  const teamsIn = (projectId: string): TeamLike[] =>
+    [...ROSTERS].filter(([, r]) => r.projectId === projectId).map(([id, r]) => ({ id, name: id, members: r.userIds.map((userId) => ({ userId })) }));
+  const itemArb = fc.constantFrom("p1", "p2").chain((projectId) =>
+    fc.record({
+      id: fc.constant("i"),
+      projectId: fc.constant(projectId),
+      teamId: fc.constantFrom(null, ...teamsIn(projectId).map((t) => t.id)),
+      assigneeId: fc.constantFrom(null, "u1", "u2", "u3", "u4"),
+    }),
+  );
+  /** The item with its assignee's memberships loaded, as the database would join them. */
+  const loaded = (item: { assigneeId: string | null }) => ({
+    ...item,
+    assignee: item.assigneeId ? { id: item.assigneeId, memberships: MEMBERSHIPS[item.assigneeId] } : null,
   });
 
   it("agrees with the board's rule (itemMatchesTeam) and the dashboards' groups (itemTeamIds) on every item", () => {
-    // The board sees one project's rows with that project's teams; so does
-    // this, item by item.
-    const teamsIn = (projectId: string): TeamLike[] =>
-      [...ROSTERS].filter(([, r]) => r.projectId === projectId).map(([id, r]) => ({ id, name: id, members: r.userIds.map((userId) => ({ userId })) }));
-    const itemArb = fc.constantFrom("p1", "p2").chain((projectId) =>
-      fc.record({
-        id: fc.constant("i"),
-        projectId: fc.constant(projectId),
-        teamId: fc.constantFrom(null, ...teamsIn(projectId).map((t) => t.id)),
-        assigneeId: fc.constantFrom(null, "u1", "u2", "u3"),
-      }),
-    );
     fc.assert(
       fc.property(itemArb, fc.constantFrom("t1", "t2", "t3"), (item, teamId) => {
         const board = itemMatchesTeam(item, teamId, teamsByUser(teamsIn(item.projectId)));
-        expect(matches(where(`team = "ref:team:${teamId}"`), item)).toBe(board);
+        expect(matches(where(`team = "ref:team:${teamId}"`), loaded(item))).toBe(board);
+        expect(matches(where(`team != "ref:team:${teamId}"`), loaded(item))).toBe(!board && itemTeamIds(item, ROSTERS).length > 0);
         expect(itemTeamIds(item, ROSTERS).includes(teamId)).toBe(board);
-        expect(matches(where("team IS EMPTY"), item)).toBe(itemTeamIds(item, ROSTERS).length === 0);
+        expect(matches(where("team IS EMPTY"), loaded(item))).toBe(itemTeamIds(item, ROSTERS).length === 0);
       }),
       { numRuns: 500 },
     );
+  });
+
+  it("on a board's row, which carries no memberships, it decides all but untagged assigned items, and decides them right", () => {
+    fc.assert(
+      fc.property(itemArb, fc.constantFrom("t1", "t2", "t3"), (item, teamId) => {
+        for (const text of [`team = "ref:team:${teamId}"`, `team != "ref:team:${teamId}"`, "team IS EMPTY"]) {
+          const verdict = matches(where(text), item);
+          if (verdict === UNDECIDED) expect(item.teamId === null && item.assigneeId !== null).toBe(true);
+          else expect(verdict).toBe(matches(where(text), loaded(item)));
+        }
+      }),
+      { numRuns: 300 },
+    );
+    // And the server really is asked: an untagged item assigned in the team's project.
+    const row = { id: "i", projectId: "p1", teamId: null, assigneeId: "u1" };
+    expect(matches(where('team = "ref:team:t1"'), row)).toBe(UNDECIDED);
+    expect(matches(where('team = "ref:team:t1"'), loaded(row))).toBe(true);
   });
 });
 

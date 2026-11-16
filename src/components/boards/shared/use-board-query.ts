@@ -18,7 +18,7 @@
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { parseCql } from "@/lib/query/parser";
 import { printCql } from "@/lib/query/print";
@@ -180,6 +180,15 @@ export function useBoardQuery(opts: {
     retry: false,
   });
   const idSet = useMemo(() => (ids.data ? new Set(ids.data.ids) : null), [ids.data]);
+  // When the server can't settle those rows (a 422: more than 5,000 match, or
+  // the query ran out of time), the bar says why and what to narrow. The board
+  // keeps the rows it decided itself and leaves the rest out, as it does while
+  // it waits: never a guess.
+  const validated = validation.data?.diagnostics;
+  const diagnostics = useMemo(
+    () => [...(validated ?? []), ...idsProblem(ids.error)],
+    [validated, ids.error],
+  );
 
   // The rows on the board, decided once per change of rows, predicate or ids.
   const kept = useMemo((): Set<string> | "all" | "none" => {
@@ -215,6 +224,28 @@ export function useBoardQuery(opts: {
     setCql: url.setCql,
     mode: url.mode,
     setMode: url.setMode,
-    diagnostics: validation.data?.diagnostics ?? [],
+    diagnostics,
   };
+}
+
+/**
+ * Why the server's ids for undecided rows didn't come: the diagnostics of a
+ * CQL refusal (`{ error: { diagnostics } }`), or one plain error otherwise.
+ */
+function idsProblem(error: unknown): CqlDiagnostic[] {
+  if (!error) return [];
+  const body = error instanceof FetchError ? (error.body as { error?: { diagnostics?: unknown } } | null) : null;
+  const sent = body?.error?.diagnostics;
+  if (Array.isArray(sent) && sent.length > 0) return sent as CqlDiagnostic[];
+  return [
+    {
+      code: "CQL_LIMIT",
+      severity: "error",
+      message: "This board couldn't finish filtering: some items need the server, and it didn't answer. Try again.",
+      from: 0,
+      to: 0,
+      line: 1,
+      column: 1,
+    },
+  ];
 }
