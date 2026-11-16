@@ -595,16 +595,27 @@ describe("compile — membersOf() joins to the team, and never lists its people"
     expect(where('watcher IN membersOf("ref:team:t1")')).toEqual({ watchers: { some: { user: { is: ON("t1") } } } });
   });
 
-  it("the joined fields name the team and none of its people", () => {
-    for (const text of [
-      'assignee IN membersOf("ref:team:t1")',
-      'assignee NOT IN membersOf("ref:team:t1")',
-      'primaryAssignee IN membersOf("ref:team:t2")',
-      'watcher IN membersOf("ref:team:t1")',
-    ]) {
-      const json = JSON.stringify(where(text));
-      for (const user of Object.keys(MEMBERSHIPS)) expect(json, text).not.toContain(`"${user}"`);
-      expect(json, text).toContain('"t');
+  it("the joined fields name the team and none of its people, though the people are to hand", () => {
+    // The teams' people are in the env, as on the server when another field in
+    // the same query needs them, so a joined field that read them would show.
+    const people = new Map([
+      [MEMBERS_OF("t1"), ON_TEAM("t1")],
+      [MEMBERS_OF("t2"), ON_TEAM("t2")],
+    ]);
+    expect(ON_TEAM("t1")).toEqual(["u1", "u2"]);
+    // Positive control: a field that takes the people does list them here.
+    expect(JSON.stringify(where('reporter IN membersOf("ref:team:t1")', env({ teamMemberIds: people })))).toContain('"u1"');
+    for (const e of [env({ teamMemberIds: people }), env({ teamMemberIds: people, forBrowser: true })]) {
+      for (const text of [
+        'assignee IN membersOf("ref:team:t1")',
+        'assignee NOT IN membersOf("ref:team:t1")',
+        'primaryAssignee IN membersOf("ref:team:t2")',
+        'watcher IN membersOf("ref:team:t1")',
+      ]) {
+        const json = JSON.stringify(where(text, e));
+        for (const user of Object.keys(MEMBERSHIPS)) expect(json, text).not.toContain(`"${user}"`);
+        expect(json, text).toContain('"t');
+      }
     }
   });
 
@@ -636,15 +647,16 @@ describe("compile — membersOf() joins to the team, and never lists its people"
   });
 
   it("for the browser they are left to the server: no person, and a marker the board can't decide", () => {
+    // The people are in the env, so a browser predicate that listed them would show them.
     for (const text of SERVER_SIDE) {
-      const w = whereOwner(text, withOwner({ forBrowser: true }));
+      const w = whereOwner(text, withOwner({ forBrowser: true, teamMemberIds: PEOPLE }));
       const json = JSON.stringify(w);
       for (const user of Object.keys(MEMBERSHIPS)) expect(json, text).not.toContain(`"${user}"`);
       expect(json, text).toContain(JSON.stringify(SERVER_ONLY));
       expect(matches(w, { id: "i", projectId: "p1", createdById: "u1", assigneeId: "u1", description: "<@u1>", customFields: { owner: "u1" } }), text).toBe(UNDECIDED);
     }
     // NOT of a deferred clause is deferred too, and decided parts stay decided.
-    const both = whereOwner('priority = HIGH AND reporter NOT IN membersOf("ref:team:t1")', withOwner({ forBrowser: true }));
+    const both = whereOwner('priority = HIGH AND reporter NOT IN membersOf("ref:team:t1")', withOwner({ forBrowser: true, teamMemberIds: PEOPLE }));
     expect(matches(both, { id: "i", priority: "LOW", createdById: "u1" })).toBe(false);
     expect(matches(both, { id: "i", priority: "HIGH", createdById: "u1" })).toBe(UNDECIDED);
   });
