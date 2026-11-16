@@ -11,7 +11,7 @@ import { problem } from "@/lib/openapi/problem";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
 import { otherAddressRedirect } from "@/lib/deploy/other-address-redirect";
 import { legacyChatRedirect } from "@/lib/chat/legacy-chat-redirect";
-import { loginUrl } from "@/lib/auth/return-to";
+import { loginUrl, pageReturnTo } from "@/lib/auth/return-to";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
@@ -251,10 +251,11 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
     return withSecurityHeaders(problem(401, "unauthorized"));
   }
 
-  // Back to this page after signing in. Built on the public origin: behind the
+  // Back to this page after signing in, less any query parameter that can
+  // carry a credential (pageReturnTo). Built on the public origin: behind the
   // edge, request.url carries the internal bind address. Built from the
   // request's headers, so no cache may keep it and hand it to someone else.
-  const signIn = loginUrl(getPublicOrigin(request), { returnTo: `${pathname}${request.nextUrl.search}` });
+  const signIn = loginUrl(getPublicOrigin(request), { returnTo: pageReturnTo(pathname, request.nextUrl.search) });
   const res = NextResponse.redirect(signIn);
   res.headers.set("Cache-Control", "no-store");
   return withSecurityHeaders(res);

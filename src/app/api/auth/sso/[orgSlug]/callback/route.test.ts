@@ -148,11 +148,15 @@ describe("SSO callback: where a sign-in lands", () => {
     expect(landed(await callback())).toBe("/acme");
   });
 
-  it("keeps the page on the sign-in page when the sign-in is refused", async () => {
+  it("keeps the page on the sign-in page when the sign-in is refused, and clears the cookie", async () => {
     completeSsoLogin.mockResolvedValue({ ok: false, reason: "jit_disabled" });
-    const url = new URL((await callback(kept("/acme/issues"))).headers.get("location")!);
+    const res = await callback(kept("/acme/issues"));
+    const url = new URL(res.headers.get("location")!);
     expect(url.pathname).toBe("/login");
     expect(url.searchParams.get("error")).toBe("sso_no_account");
     expect(url.searchParams.get("next")).toBe("/acme/issues");
+    // The address travels in the link now; the cookie is spent either way.
+    expect(res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+    expect(res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
   });
 });

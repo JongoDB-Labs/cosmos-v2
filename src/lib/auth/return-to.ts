@@ -33,9 +33,9 @@ const PLACEHOLDER = "http://return-to.invalid";
  * anywhere: URL parsing drops tabs and newlines and reads a backslash as a
  * slash, so either can turn a path into another host's address. It is then
  * resolved the way a browser resolves it, dot segments included, and must
- * still be a path on this site. The sign-in page and API routes are refused:
- * neither is somewhere to land after signing in. The answer is the resolved
- * address, so what was checked is what gets used.
+ * still be a path on this site. The sign-in page and API routes are refused,
+ * however they are spelled: neither is somewhere to land after signing in.
+ * The answer is the resolved address, so what was checked is what gets used.
  */
 export function safeReturnTo(raw: unknown): string {
   if (typeof raw !== "string" || raw.length > 2048 || !/^\/(?![/\\])[^\s\\\x00-\x1f\x7f]*$/.test(raw)) {
@@ -49,8 +49,14 @@ export function safeReturnTo(raw: unknown): string {
   }
   const { pathname } = url;
   if (url.origin !== PLACEHOLDER || pathname.startsWith("//")) return "/";
-  if (isUnder(pathname, "/login") || isUnder(pathname, "/api")) return "/";
+  const plain = decodeEscapes(pathname).toLowerCase();
+  if (isUnder(plain, "/login") || isUnder(plain, "/api")) return "/";
   return `${pathname}${url.search}${url.hash}`;
+}
+
+/** Each %XX escape as the character it stands for, one byte at a time: enough to compare with an ASCII name. */
+function decodeEscapes(pathname: string): string {
+  return pathname.replace(/%([0-9a-f]{2})/gi, (_escape, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
 }
 
 /** The path itself or below it, never a longer name that shares its prefix. */
@@ -62,6 +68,32 @@ function isUnder(pathname: string, prefix: string): boolean {
 export function landingUrl(origin: string, returnTo: unknown): URL {
   const url = new URL(safeReturnTo(returnTo), origin);
   return url.origin === new URL(origin).origin ? url : new URL("/", origin);
+}
+
+/** Query parameters a page's return address never carries: a credential can travel in them, and `_rsc` is Next's own. */
+const NEVER_CARRIED = new Set(["token", "code", "state", "_rsc"]);
+
+/**
+ * The address of a page someone was sent away from to sign in: its path and
+ * query as they were sent, less any parameter in NEVER_CARRIED, so a secret in
+ * a link isn't copied into the sign-in page's address.
+ */
+export function pageReturnTo(pathname: string, search: string): string {
+  const kept = search
+    .replace(/^\?/, "")
+    .split("&")
+    .filter((pair) => pair !== "" && !NEVER_CARRIED.has(paramName(pair)));
+  return kept.length > 0 ? `${pathname}?${kept.join("&")}` : pathname;
+}
+
+/** A query pair's name, decoded and lower-cased, for comparing with NEVER_CARRIED. */
+function paramName(pair: string): string {
+  const raw = pair.split("=", 1)[0].replace(/\+/g, " ");
+  try {
+    return decodeURIComponent(raw).toLowerCase();
+  } catch {
+    return raw.toLowerCase();
+  }
 }
 
 /** A sign-in start link (`/api/auth/google`, say) that carries the return address, when there is one. */
@@ -91,13 +123,23 @@ export function ssoReturnTo(returnTo: unknown, orgSlug: string): string {
 }
 
 /**
+ * The address as the cookie may hold it: the rule's answer, and only if it
+ * fits once stored. The start and the callback both use this, so they can't
+ * disagree about what is kept.
+ */
+function keepable(raw: unknown): string {
+  const back = safeReturnTo(raw);
+  return encodeURIComponent(back).length > RETURN_TO_COOKIE_MAX_CHARS ? "/" : back;
+}
+
+/**
  * At a sign-in start: keep this sign-in's return address for the callback, or
  * clear one left by an abandoned sign-in. An address too long to keep is not
  * kept, and that sign-in lands on "/".
  */
 export function rememberReturnTo(response: NextResponse, request: NextRequest): void {
-  const back = safeReturnTo(request.nextUrl.searchParams.get(RETURN_TO_PARAM));
-  if (back === "/" || encodeURIComponent(back).length > RETURN_TO_COOKIE_MAX_CHARS) {
+  const back = keepable(request.nextUrl.searchParams.get(RETURN_TO_PARAM));
+  if (back === "/") {
     response.cookies.delete(RETURN_TO_COOKIE);
     return;
   }
@@ -112,5 +154,15 @@ export function rememberReturnTo(response: NextResponse, request: NextRequest): 
 
 /** At a sign-in callback: the return address kept at the start, checked again. */
 export function rememberedReturnTo(request: NextRequest): string {
-  return safeReturnTo(request.cookies.get(RETURN_TO_COOKIE)?.value);
+  return keepable(request.cookies.get(RETURN_TO_COOKIE)?.value);
+}
+
+/**
+ * Clears the kept address. A callback does this whatever its outcome (a
+ * refused sign-in carries the address in the sign-in page's link instead), and
+ * so does signing out.
+ */
+export function forgetReturnTo<T extends NextResponse>(response: T): T {
+  response.cookies.delete(RETURN_TO_COOKIE);
+  return response;
 }

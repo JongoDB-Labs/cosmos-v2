@@ -20,7 +20,7 @@
 // email: `User.email` is not unique, so an email assertion cannot tell two
 // accounts apart.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest, type NextResponse } from "next/server";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { sessionRowId } from "@/lib/auth/session-id";
@@ -126,7 +126,7 @@ const nextIp = () => `10.77.${Math.floor(++ipCounter / 250)}.${ipCounter % 250}`
 async function signIn(
   identity: FakeIdentity,
   extraCookie = "",
-): Promise<{ userId: string | null; error: string | null; authMethod: string | null; location: URL; res: Response }> {
+): Promise<{ userId: string | null; error: string | null; authMethod: string | null; location: URL; res: NextResponse }> {
   next = identity;
   const req = new NextRequest("http://localhost/api/auth/microsoft/callback?code=c0de&state=st4te", {
     headers: { cookie: `${MS_STATE_COOKIE}=st4te${extraCookie}`, "x-forwarded-for": nextIp() },
@@ -532,11 +532,14 @@ describe("Microsoft sign-in lands on the page the sign-in started from", () => {
     expect(r.location.href).toBe("http://localhost/");
   });
 
-  it("keeps the page on the sign-in page when the sign-in is refused", async () => {
+  it("keeps the page on the sign-in page when the sign-in is refused, and clears the cookie", async () => {
     h.tenant = T_HOME;
     const r = await signIn({ ...bound(), tid: T_ATTACKER }, kept("/acme/issues"));
     expect(r.userId).toBeNull();
     expect(r.error).toBe("ms_wrong_tenant");
     expect(r.location.searchParams.get("next")).toBe("/acme/issues");
+    // The address travels in the link now; the cookie is spent either way.
+    expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+    expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
   });
 });

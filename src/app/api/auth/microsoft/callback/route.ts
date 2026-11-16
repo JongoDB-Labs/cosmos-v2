@@ -24,14 +24,14 @@ import { connectIntent, finishConnect } from "@/lib/auth/connect-flow";
 import { connectOutcomeUrl, CONNECT_COOKIE } from "@/lib/auth/connect-sign-in";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
-import { RETURN_TO_COOKIE, landingUrl, loginUrl, rememberedReturnTo } from "@/lib/auth/return-to";
+import { forgetReturnTo, landingUrl, loginUrl, rememberedReturnTo } from "@/lib/auth/return-to";
 
 /** Back to the sign-in page with the error, keeping where the sign-in was headed. */
 function redirectToLogin(origin: string, error: string, returnTo: string) {
   return NextResponse.redirect(loginUrl(origin, { error, returnTo }));
 }
 
-export async function GET(request: NextRequest) {
+async function signInWithMicrosoft(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const origin = getPublicOrigin(request);
   // The page the sign-in started from (kept by the start route), or "/".
@@ -164,6 +164,10 @@ export async function GET(request: NextRequest) {
     secure: process.env.NODE_ENV === "production",
   });
   response.cookies.delete(MS_STATE_COOKIE);
-  response.cookies.delete(RETURN_TO_COOKIE);
   return response;
+}
+
+/** Whatever the outcome, the address kept for this sign-in is spent: clear it (forgetReturnTo). */
+export async function GET(request: NextRequest) {
+  return forgetReturnTo(await signInWithMicrosoft(request));
 }

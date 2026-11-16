@@ -14,7 +14,7 @@ import {
   type SsoTransaction,
 } from "@/lib/auth/sso";
 import { setRememberedOrgCookie } from "@/lib/auth/remembered-org";
-import { RETURN_TO_COOKIE, loginUrl, rememberedReturnTo, ssoReturnTo } from "@/lib/auth/return-to";
+import { forgetReturnTo, loginUrl, rememberedReturnTo, ssoReturnTo } from "@/lib/auth/return-to";
 
 /**
  * SSO callback. openid-client checks the authorization response (state, and the
@@ -41,7 +41,7 @@ function redirectToLogin(origin: string, error: string, returnTo: string) {
   return res;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+async function signInWithSso(request: NextRequest, { params }: RouteParams): Promise<NextResponse> {
   const origin = getPublicOrigin(request);
   const { orgSlug } = await params;
   // The page the sign-in started from (kept by the start route), or "/".
@@ -156,8 +156,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     secure: process.env.NODE_ENV === "production",
   });
   response.cookies.delete(SSO_TX_COOKIE);
-  response.cookies.delete(RETURN_TO_COOKIE);
   // Remember this org so /login can pre-render its brand next time.
   setRememberedOrgCookie(response, orgSlug);
   return response;
+}
+
+/** Whatever the outcome, the address kept for this sign-in is spent: clear it (forgetReturnTo). */
+export async function GET(request: NextRequest, ctx: RouteParams) {
+  return forgetReturnTo(await signInWithSso(request, ctx));
 }

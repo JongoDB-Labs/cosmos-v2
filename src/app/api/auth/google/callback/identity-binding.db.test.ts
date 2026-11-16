@@ -328,12 +328,15 @@ describe("Google sign-in lands on the page the sign-in started from", () => {
     expect(r.location.href).toBe("http://localhost/");
   });
 
-  it("keeps the page on the sign-in page when the sign-in is refused", async () => {
+  it("keeps the page on the sign-in page when the sign-in is refused, and clears the cookie", async () => {
     // A second Google account for an address already bound to another is refused.
     const r = await signIn({ sub: `sub-refused-${stamp}`, email: preboundEmail, email_verified: true }, kept("/acme/issues"));
     expect(r.userId).toBeNull();
     expect(r.location.pathname).toBe("/login");
     expect(r.error).toBeTruthy();
     expect(r.location.searchParams.get("next")).toBe("/acme/issues");
+    // The address travels in the link now; the cookie is spent either way.
+    expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+    expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
   });
 });

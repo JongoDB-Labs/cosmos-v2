@@ -1,11 +1,12 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 import {
   RETURN_TO_COOKIE,
   landingUrl,
   loginUrl,
   rememberReturnTo,
+  pageReturnTo,
   rememberedReturnTo,
   safeReturnTo,
   ssoReturnTo,
@@ -48,6 +49,10 @@ describe("safeReturnTo", () => {
     ["the sign-in page with its own return address", "/login?next=/acme"],
     ["an API route", "/api/auth/logout"],
     ["an API route behind a dot segment", "/./api/auth/logout"],
+    ["an API route in capitals", "/API/auth/logout"],
+    ["an API route with an encoded letter", "/%61pi/auth/logout"],
+    ["the sign-in page in capitals", "/Login"],
+    ["the sign-in page with an encoded letter", "/%6Cogin"],
     ["something far too long", `/${"a".repeat(2048)}`],
     ["an empty string", ""],
     ["nothing", null],
@@ -62,6 +67,22 @@ describe("safeReturnTo", () => {
     expect(safeReturnTo("/acme")).toBe("/acme");
     expect(safeReturnTo("/elsewhere.example")).toBe("/elsewhere.example");
     expect(safeReturnTo("/loginhelp")).toBe("/loginhelp");
+    expect(safeReturnTo("/apis")).toBe("/apis");
+    // An encoded letter elsewhere is left as it was sent.
+    expect(safeReturnTo("/%41cme/issues")).toBe("/%41cme/issues");
+  });
+});
+
+describe("pageReturnTo", () => {
+  it("keeps the page's path and query as they were sent", () => {
+    expect(pageReturnTo("/acme/issues", "?view=list&q=a%20b")).toBe("/acme/issues?view=list&q=a%20b");
+    expect(pageReturnTo("/acme/issues", "")).toBe("/acme/issues");
+  });
+
+  it("leaves out parameters that can carry a credential, and Next's own", () => {
+    expect(pageReturnTo("/acme/x", "?view=list&token=t1&code=c1&state=s1&_rsc=r1&q=1")).toBe("/acme/x?view=list&q=1");
+    expect(pageReturnTo("/acme/x", "?Token=t1&%74oken=t2")).toBe("/acme/x");
+    expect(pageReturnTo("/acme/x", "?token=t1")).toBe("/acme/x");
   });
 });
 
@@ -116,6 +137,7 @@ describe("ssoReturnTo", () => {
 
 describe("the return address across the provider round trip", () => {
   const start = (search: string) => new NextRequest(`http://localhost/api/auth/google${search}`);
+  afterEach(() => vi.unstubAllEnvs());
 
   it("is kept in a cookie when the sign-in starts", () => {
     const res = NextResponse.redirect("https://idp.example/authorize");
@@ -124,6 +146,17 @@ describe("the return address across the provider round trip", () => {
     expect(cookie?.value).toBe("/acme/issues?x=1");
     expect(cookie?.httpOnly).toBe(true);
     expect(cookie?.sameSite).toBe("lax");
+    expect(cookie?.path).toBe("/");
+    expect(cookie?.maxAge).toBe(600);
+    expect(cookie?.secure).toBe(false);
+  });
+
+  it("is a secure cookie in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const res = NextResponse.redirect("https://idp.example/authorize");
+    rememberReturnTo(res, start("?next=%2Facme"));
+    expect(res.cookies.get(RETURN_TO_COOKIE)?.secure).toBe(true);
+    expect(res.headers.get("set-cookie")).toMatch(/; Secure/i);
   });
 
   it("clears an earlier one when this sign-in has none, or one that is refused", () => {
@@ -146,6 +179,26 @@ describe("the return address across the provider round trip", () => {
     rememberReturnTo(res, start(`?next=${encodeURIComponent(long)}`));
     expect(res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
     expect(res.headers.get("set-cookie")).toMatch(/signin_return=;.*Expires=Thu, 01 Jan 1970/);
+  });
+
+  it("measures what is stored, not what was typed", () => {
+    // Short as typed, and accepted by the rule, but six times longer once
+    // resolved: each "ä" becomes %C3%A4.
+    const wide = `/${"ä".repeat(2047)}`;
+    expect(safeReturnTo(wide)).toHaveLength(12_283);
+    const res = NextResponse.redirect("https://idp.example/authorize");
+    rememberReturnTo(res, start(`?next=${encodeURIComponent(wide)}`));
+    expect(res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+  });
+
+  it("is held to the same limit when it is read back at the callback", () => {
+    const callback = (value: string) =>
+      new NextRequest("http://localhost/api/auth/google/callback", {
+        headers: { cookie: `${RETURN_TO_COOKIE}=${encodeURIComponent(value)}` },
+      });
+    const fits = `/${"a".repeat(1997)}`;
+    expect(rememberedReturnTo(callback(fits))).toBe(fits);
+    expect(rememberedReturnTo(callback(`${fits}a`))).toBe("/");
   });
 
   it("keeps the longest address that fits, well under the browser's cookie limit", () => {

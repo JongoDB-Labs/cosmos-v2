@@ -14,14 +14,14 @@ import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
 import { resolveFirstPartyUser } from "@/lib/auth/first-party-identity";
 import { storeGoogleRefreshToken } from "@/lib/integrations/google";
 import { connectIntent, finishConnect } from "@/lib/auth/connect-flow";
-import { RETURN_TO_COOKIE, landingUrl, loginUrl, rememberedReturnTo } from "@/lib/auth/return-to";
+import { forgetReturnTo, landingUrl, loginUrl, rememberedReturnTo } from "@/lib/auth/return-to";
 
 /** Back to the sign-in page with the error, keeping where the sign-in was headed. */
 function redirectToLogin(origin: string, error: string, returnTo: string) {
   return NextResponse.redirect(loginUrl(origin, { error, returnTo }));
 }
 
-export async function GET(request: NextRequest) {
+async function signInWithGoogle(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   // Use the public origin from forwarded headers — `url.origin` would be the
   // internal bind hostname (localhost:3000), breaking redirects behind nginx.
@@ -174,6 +174,10 @@ export async function GET(request: NextRequest) {
     secure: process.env.NODE_ENV === "production",
   });
   response.cookies.delete(OAUTH_STATE_COOKIE);
-  response.cookies.delete(RETURN_TO_COOKIE);
   return response;
+}
+
+/** Whatever the outcome, the address kept for this sign-in is spent: clear it (forgetReturnTo). */
+export async function GET(request: NextRequest) {
+  return forgetReturnTo(await signInWithGoogle(request));
 }

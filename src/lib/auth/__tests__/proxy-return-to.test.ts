@@ -61,6 +61,20 @@ describe("proxy: signed-out page visits keep their address", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("leaves parameters that can carry a credential out of the address it keeps", async () => {
+    const location = await loginRedirect("/acme/issues?view=list&token=t1&code=c1&state=s1");
+    expect(location.searchParams.get("next")).toBe("/acme/issues?view=list");
+  });
+
+  it("uses the first host when the edge forwards several", async () => {
+    const location = await loginRedirect("/acme/issues", {
+      host: "localhost:3000",
+      "x-forwarded-host": "cosmos.example.dev, internal.example",
+      "x-forwarded-proto": "https",
+    });
+    expect(location.origin).toBe("https://cosmos.example.dev");
+  });
+
   it("still answers an API call with 401, not a redirect", async () => {
     const res = await signedOut("/api/v1/orgs/o1/projects");
     expect(res.status).toBe(401);
