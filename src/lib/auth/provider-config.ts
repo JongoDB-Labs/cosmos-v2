@@ -15,10 +15,14 @@ export interface ProviderCreds {
   /** Microsoft only: tenant segment of the authority ("common", a domain, or a
    *  directory id). Ignored for providers that don't use it. */
   tenant?: string | null;
+  /** Microsoft only: domains whose member accounts' sign-in names may link an
+   *  existing account (lib/auth/microsoft microsoftTrustedDomains). */
+  trustedDomains?: string[] | null;
 }
 
 export interface ProviderConfig extends ProviderCreds {
   enabled: boolean;
+  trustedDomains: string[];
 }
 
 /** Read + unseal a provider's config, or null if unset/disabled-shaped/corrupt. */
@@ -42,6 +46,7 @@ export async function getProviderConfig(
     clientId: bundle.clientId,
     clientSecret: bundle.clientSecret,
     tenant: bundle.tenant ?? null,
+    trustedDomains: bundle.trustedDomains ?? [],
   };
 }
 
@@ -52,7 +57,14 @@ export async function getProviderConfig(
  *  re-enable a disabled provider). */
 export async function setProviderConfig(
   provider: AuthProvider,
-  input: { clientId: string; clientSecret?: string; tenant?: string | null; enabled?: boolean },
+  input: {
+    clientId: string;
+    clientSecret?: string;
+    tenant?: string | null;
+    enabled?: boolean;
+    /** Omitted keeps the stored list, like a blank secret; [] clears it. */
+    trustedDomains?: string[];
+  },
   updatedBy?: string,
 ): Promise<void> {
   const existing = await getProviderConfig(provider);
@@ -69,6 +81,7 @@ export async function setProviderConfig(
       clientId: input.clientId.trim(),
       clientSecret,
       tenant: input.tenant?.trim() || null,
+      trustedDomains: input.trustedDomains ?? existing?.trustedDomains ?? [],
     }),
   );
   await prisma.authProviderConfig.upsert({
@@ -89,6 +102,7 @@ export async function getProviderStatus(
   enabled: boolean;
   clientId: string | null;
   tenant: string | null;
+  trustedDomains: string[];
 }> {
   const cfg = await getProviderConfig(provider);
   return {
@@ -101,5 +115,6 @@ export async function getProviderStatus(
     // to any other field then appeared to save but sent nothing.
     clientId: cfg?.clientId ?? null,
     tenant: cfg?.tenant ?? null,
+    trustedDomains: cfg?.trustedDomains ?? [],
   };
 }

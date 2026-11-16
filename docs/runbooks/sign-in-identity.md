@@ -17,8 +17,9 @@ with it.
     tenant admin can set to any address, so it never counts alone (pinned tenant
     or not);
   - a member account's sign-in name (`preferred_username`), when its domain is
-    listed in `MICROSOFT_TRUSTED_DOMAINS`. Guests and personal Microsoft accounts
-    never count.
+    a trusted email domain: listed in Admin → Sign-in providers, or in
+    `MICROSOFT_TRUSTED_DOMAINS` (the two lists add up). Guests and personal
+    Microsoft accounts never count.
   Microsoft never links by address onto an account that already has Google, or
   onto a platform admin's address. Those people connect Microsoft from their
   profile.
@@ -53,11 +54,14 @@ with it.
    - In the Entra app registration, Token configuration, add the optional claims
      `email` and `xms_edov` to the ID token.
    - Pin the tenant in Admin → Sign-in providers (its directory ID or domain),
-     and set `MICROSOFT_TRUSTED_DOMAINS` to your own verified domains.
+     and list your own verified domains under Trusted email domains there.
    Without either, a first Microsoft sign-in can't find an existing account. The
    person sees "Your administrator needs to finish setting up Microsoft sign-in",
    and can still sign in another way and connect Microsoft from their profile.
-   While `MICROSOFT_TRUSTED_DOMAINS` is unset, the server says at start that
+   This covers returning users too: an account that has never signed in with
+   Microsoft since this server started recording Microsoft identities takes the
+   first-sign-in path once. While no trusted domain is set, Sign-in providers
+   shows a warning, and the server says at start that
    linking rests on `xms_edov`. It can't see the app registration, so it can't
    tell whether the claim is sent: a refused sign-in logs
    `[auth:microsoft] sign-in refused: ms_setup_incomplete` when it isn't. The

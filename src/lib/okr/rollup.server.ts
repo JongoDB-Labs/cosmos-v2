@@ -1,18 +1,21 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/client";
-import { measureKeyResult, rollUpObjective } from "./progress";
+import { measureKeyResult, rollUpObjective, shownKeyResult } from "./progress";
 
 /**
- * Live objective progress, for every server path that shows or stores it.
+ * Live objective progress, for every server path that shows it.
  *
- * `Objective.progress` is a stored copy. It used to be recomputed only when a
- * key result was edited or checked in, from the stored numbers alone, so it
- * ignored linked work items entirely: a key result whose three linked tickets
- * were all done still counted as 0 there while the OKR board said 100. A
- * dashboard widget and a goal's auto progress read that copy. Every reader now
- * computes from the same rule as the board (`measureKeyResult` and
- * `rollUpObjective` in ./progress), and the stored copy is written by that rule
- * too.
+ * `Objective.progress` is a stored copy, and nothing should read it. It was
+ * recomputed only when a key result was edited or checked in, so it went stale
+ * whenever a linked ticket finished, a key result was added or deleted, or a
+ * ticket was linked or unlinked: a key result whose three linked tickets were
+ * all done still counted as 0 there while the OKR board said 100. Keeping it
+ * current would mean a write on every path that finishes or reopens a work
+ * item, a list that keeps growing. So every reader computes from the same rule
+ * as the board instead (`measureKeyResult` and `rollUpObjective` in
+ * ./progress), and so does every response that hands out an existing
+ * objective. The copy is still written where it always was, for anything
+ * outside the app that reads the table, but the app never reads it back.
  */
 
 const DONE = { select: { workItem: { select: { completedAt: true } } } } as const;
@@ -20,7 +23,9 @@ const DONE = { select: { workItem: { select: { completedAt: true } } } } as cons
 /** What an objective's live progress reads. Spread it into a `select`. */
 export const LIVE_PROGRESS_SELECT = {
   keyResults: {
-    select: { startValue: true, currentValue: true, targetValue: true, lowerIsBetter: true, links: DONE },
+    select: {
+      startValue: true, currentValue: true, targetValue: true, lowerIsBetter: true, status: true, links: DONE,
+    },
   },
   links: DONE,
 } as const satisfies Prisma.ObjectiveSelect;
@@ -42,6 +47,37 @@ export async function liveObjectiveProgress(
     select: { id: true, ...LIVE_PROGRESS_SELECT },
   });
   return new Map(rows.map((o) => [o.id, liveProgressOf(o)]));
+}
+
+/**
+ * One objective as the API hands it out: its row, with live progress, and its
+ * key results with the numbers and status they show. Null when `where` matches
+ * nothing.
+ */
+export async function liveObjective(where: Prisma.ObjectiveWhereInput) {
+  const objective = await prisma.objective.findFirst({
+    where,
+    include: { keyResults: { orderBy: { sortOrder: "asc" }, include: { links: DONE } }, links: DONE },
+  });
+  if (!objective) return null;
+  const { keyResults, links, ...row } = objective;
+  const measured = keyResults.map(({ links: krLinks, ...kr }) => ({
+    kr,
+    m: measureKeyResult(kr, krLinks.map((l) => l.workItem)),
+  }));
+  return {
+    ...row,
+    progress: rollUpObjective(measured.map(({ m }) => m), links.map((l) => l.workItem)).progress,
+    keyResults: measured.map(({ kr, m }) => shownKeyResult(kr, m)),
+  };
+}
+
+/** One key result as the API hands it out: the numbers and status it shows. */
+export async function liveKeyResult(id: string) {
+  const kr = await prisma.keyResult.findUnique({ where: { id }, include: { links: DONE } });
+  if (!kr) return null;
+  const { links, ...row } = kr;
+  return shownKeyResult(row, measureKeyResult(row, links.map((l) => l.workItem)));
 }
 
 /** Write an objective's stored progress from the live rule. */
