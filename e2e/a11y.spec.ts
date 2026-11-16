@@ -335,11 +335,9 @@ const BOARDS: Array<{
       p.getByRole("button", { name: "Next month" }),
       p.getByRole("button", { name: "Gallery item in progress" }),
     ],
-    // The per-day "N item" toggle is `text-muted-foreground` at 10px on the
-    // `bg-muted` day cell: 4.32:1 against a 4.5:1 requirement
-    // (calendar-view.tsx:311, and the "+N more" twin at :347). Fixing it is a
-    // colour decision, not a naming one.
-    known: ["color-contrast"],
+    // The per-day "N item" toggle was `--text-muted` at 10px on a weekend
+    // cell: 4.32:1. The default skin's `--text-muted` is darker now (see
+    // src/lib/theme/muted-text-contrast.test.ts), so no rule is known here.
   },
   {
     name: "timeline (gantt)",
@@ -384,9 +382,7 @@ const BOARDS: Array<{
       p.getByText("Gallery item in backlog"),
     ],
     // The status/label chips on a RAID card are `--text-muted` on a 12% tint of
-    // itself: 3.91:1 (raid-view.tsx:694 and :706). Inside a card, and a colour
-    // decision — same reason as the Calendar above.
-    known: ["color-contrast"],
+    // itself, and were 3.91:1; fixed with the Calendar above.
   },
   {
     name: "cumulative flow",

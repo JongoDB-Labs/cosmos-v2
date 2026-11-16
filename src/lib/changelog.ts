@@ -59,6 +59,10 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
+        text: "When a board card has more than one assignee, screen readers now say \u201c1 more assignee\u201d and the other person\u2019s name, instead of \u201cplus 1\u201d.",
+      },
+      {
+        kind: "fix",
         text: "In the Work Items list, a status, priority or assignee cell is read as one phrase, such as \u201cTo Do, change status\u201d, without a stray pause in the middle.",
       },
       {
@@ -72,6 +76,10 @@ const RELEASES: Release[] = [
       {
         kind: "fix",
         text: "Form error messages and the Blocked badge in the light theme use a darker colour, so they are easier to read.",
+      },
+      {
+        kind: "fix",
+        text: "Small grey text in the default light theme is a little darker, so it is easier to read. This includes the item counts on calendar days and the tags on RAID cards.",
       },
       {
         kind: "fix",

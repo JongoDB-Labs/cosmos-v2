@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { contrastRatio } from "./contrast";
+import { DEFAULT_SKIN_ID, getSkinPreset } from "./skins";
 
 /**
  * Every Badge variant's label must clear WCAG AA (4.5:1; the text is 12px) on
@@ -38,10 +39,20 @@ function themeBlock(selector: string): Record<string, string> {
   return found[0].vars;
 }
 
-const LIGHT = themeBlock(":root");
+/**
+ * The default skin's look tokens (the grounds and `--text-muted`, which tints
+ * the neutral badge) override the :root ones at runtime, so they are layered
+ * on top. Status colours stay in globals.css; a skin never sets them.
+ */
+const SKIN = getSkinPreset(DEFAULT_SKIN_ID);
+const look = (t: Record<string, string>) =>
+  Object.fromEntries(["--bg", "--surface", "--overlay", "--text-muted"].map((k) => [k, t[k]]));
+
+const ROOT_LIGHT = themeBlock(":root");
+const LIGHT = { ...ROOT_LIGHT, ...look(SKIN.light) };
 // Dark is declared twice, for the OS preference and for an explicit choice.
-const DARK_SYSTEM = { ...LIGHT, ...themeBlock(":root:not(.light)") };
-const DARK = { ...LIGHT, ...themeBlock(":root.dark") };
+const DARK_SYSTEM = { ...ROOT_LIGHT, ...themeBlock(":root:not(.light)"), ...look(SKIN.dark) };
+const DARK = { ...ROOT_LIGHT, ...themeBlock(":root.dark"), ...look(SKIN.dark) };
 
 const TINT_PERCENT = Number(BADGE.match(/color-mix\(in oklab, \$\{tint\} (\d+)%, transparent\)/)?.[1]);
 const VARIANTS = Object.keys(LIGHT)

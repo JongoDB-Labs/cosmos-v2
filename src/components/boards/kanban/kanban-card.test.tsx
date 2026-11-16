@@ -293,6 +293,34 @@ describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", ()
     expect(nameAndText().name.match(/Ada Lovelace/g)).toHaveLength(1);
   });
 
+  // The "+N" chip beside the avatar was read as "+1": a number with no
+  // meaning. Like the avatar, it now says what it means: how many more people
+  // are assigned, and who when their names are loaded.
+  const ADA_REF = { userId: "u-ada", user: { id: "u-ada", displayName: "Ada Lovelace", avatarUrl: null } };
+  const BOB_REF = { userId: "u-bob", user: { id: "u-bob", displayName: "Bob", avatarUrl: null } };
+  const CAROL_REF = { userId: "u-carol", user: { id: "u-carol", displayName: "Carol", avatarUrl: null } };
+
+  it("says how many more people are assigned, and who", () => {
+    renderCard({ item: { ...FULL, assignees: [ADA_REF, BOB_REF] }, members: [ADA] });
+    // Positive control: the chip is there, showing "+1".
+    expect(screen.getByText("+1")).toBeTruthy();
+    const { name } = nameAndText();
+    expect(name).toMatch(/assigned to Ada Lovelace 1 more assignee: Bob\b/);
+    expect(name).not.toMatch(/\+1/);
+  });
+
+  it("names every other assignee, in the plural", () => {
+    renderCard({ item: { ...FULL, assignees: [ADA_REF, BOB_REF, CAROL_REF] }, members: [ADA] });
+    expect(nameAndText().name).toMatch(/assigned to Ada Lovelace 2 more assignees: Bob, Carol\b/);
+  });
+
+  it("says the count alone when the other names aren't loaded", () => {
+    renderCard({ item: { ...FULL, assignees: [ADA_REF, { userId: "u-x" }, { userId: "u-y" }] }, members: [ADA] });
+    const { name } = nameAndText();
+    expect(name).toMatch(/assigned to Ada Lovelace 2 more assignees\b/);
+    expect(name).not.toMatch(/assignees:/);
+  });
+
   it("an unassigned card says nothing about an assignee", () => {
     renderCard({ item: { ...FULL, assigneeId: null }, members: [ADA] });
     expect(nameAndText().name).not.toMatch(/assigned/);

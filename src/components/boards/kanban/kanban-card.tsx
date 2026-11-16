@@ -370,15 +370,10 @@ export function KanbanCard({
               </Avatar>
               {/* Multi-assign: surface extra assignees as a +N chip. */}
               {(item.assignees?.length ?? 0) > 1 && (
-                <span
-                  className="z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium text-muted-foreground ring-1 ring-[var(--surface)]"
-                  title={item.assignees
-                    ?.filter((a) => a.userId !== item.assigneeId)
-                    .map((a) => a.user?.displayName ?? "?")
-                    .join(", ")}
-                >
-                  +{(item.assignees?.length ?? 1) - 1}
-                </span>
+                <MoreAssignees
+                  count={(item.assignees?.length ?? 1) - 1}
+                  others={item.assignees?.filter((a) => a.userId !== item.assigneeId) ?? []}
+                />
               )}
             </div>
           )}
@@ -394,6 +389,29 @@ export function KanbanCard({
         ticketLabel={ticketLabel}
         title={item.title}
       />
+    </>
+  );
+}
+
+/**
+ * The "+N" chip for the assignees after the first. It shows a bare number, so,
+ * like the avatar beside it, it is hidden from the card's name and words take
+ * its place: "1 more assignee: Bob", or "3 more assignees" when their names
+ * are not loaded. The tooltip still lists them on hover.
+ */
+function MoreAssignees({ count, others }: { count: number; others: NonNullable<WorkItem["assignees"]> }) {
+  const names = others.map((a) => a.user?.displayName).filter((n): n is string => !!n);
+  const spoken = `${count} more ${count === 1 ? "assignee" : "assignees"}${names.length === count ? `: ${names.join(", ")}` : ""}`;
+  return (
+    <>
+      <span className="sr-only">{spoken}</span>
+      <span
+        aria-hidden
+        className="z-10 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium text-muted-foreground ring-1 ring-[var(--surface)]"
+        title={others.map((a) => a.user?.displayName ?? "?").join(", ")}
+      >
+        +{count}
+      </span>
     </>
   );
 }

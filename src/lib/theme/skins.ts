@@ -29,7 +29,13 @@ const UNIVERSE: SkinPreset = {
   light: {
     "color-scheme": "light",
     "--bg": "#FFFFFF", "--surface": "#F8F9FC", "--overlay": "#FFFFFF",
-    "--border": "#E5E7EB", "--text": "#0F172A", "--text-muted": "#64748B",
+    // #5B697E: #64748B's hue and saturation, darkened until small muted text
+    // clears 4.5:1 on every ground it was measured on. #64748B was 4.32:1 on a
+    // calendar weekend cell and 3.91:1 on a RAID card chip, a 12% tint of
+    // itself. globals.css had already darkened this token for the same reason,
+    // but this skin is the default and re-set it. Held by
+    // src/lib/theme/muted-text-contrast.test.ts.
+    "--border": "#E5E7EB", "--text": "#0F172A", "--text-muted": "#5B697E",
     "--primary": "#0F172A", "--primary-hover": "#1E293B",
     "--primary-tint": "rgb(15 23 42 / 0.08)", "--primary-foreground": "#FFFFFF",
     "--radius-sm": "4px", "--radius": "6px", "--radius-md": "6px", "--radius-lg": "10px",
