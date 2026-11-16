@@ -8,6 +8,7 @@ import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { createPasswordResetToken } from "@/lib/auth/password-reset";
+import { resetPasswordUrl } from "@/lib/auth/reset-link";
 import { sendPasswordResetEmail } from "@/lib/integrations/invitation-email";
 
 type RouteParams = { params: Promise<{ orgId: string; memberId: string }> };
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       passwordHash: user.passwordHash,
       passwordSetAt: user.passwordSetAt,
     });
-    const resetUrl = `${getPublicOrigin(request)}/reset-password?token=${encodeURIComponent(token)}`;
+    const resetUrl = resetPasswordUrl(getPublicOrigin(request), token);
 
     let sent = false;
     let emailError: string | null = null;

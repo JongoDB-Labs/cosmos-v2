@@ -4,7 +4,9 @@ import { test, expect } from "@playwright/test";
 // reach the reset form with its token, not bounce to the sign-in page, which
 // drops the token and leaves no way to reset.
 test("a signed-out visit to the reset link shows the reset form", async ({ page }) => {
-  await page.goto("/reset-password?token=not-a-real-token");
+  const res = await page.goto("/reset-password?token=not-a-real-token");
+  // The URL carries the token, so the page sends no Referer anywhere.
+  expect(res?.headers()["referrer-policy"]).toBe("no-referrer");
 
   await expect(page).toHaveURL(/\/reset-password\?token=not-a-real-token$/);
   await expect(page.getByRole("heading", { name: "Reset your password" })).toBeVisible();
