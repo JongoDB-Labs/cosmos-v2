@@ -8,6 +8,8 @@ const RESERVED_SLUGS = new Set([
   "api",
   "login",
   "logout",
+  "reset-password",
+  "teams",
   "onboarding",
   "internal",
   "settings",

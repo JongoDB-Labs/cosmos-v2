@@ -2,40 +2,41 @@
 // sign in, which is why they asked. The proxy must let that visit reach the
 // page with its token, rather than send it to a bare /login that drops it.
 import { describe, it, expect, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/db/client", () => ({ prisma: { session: { findUnique: vi.fn(async () => null) } } }));
 vi.mock("@/lib/cutover/freeze", () => ({ isMutatingMethod: () => false, isPathOrgFrozen: async () => false }));
 
 import { proxy } from "@/proxy";
+import { resetPasswordUrl } from "@/lib/auth/reset-link";
 
 const BASE = "http://localhost:3000";
 const get = (path: string) => new NextRequest(new URL(path, BASE), { method: "GET", headers: { host: "localhost:3000" } });
 
-// The page the reset email links to, read from the route that writes the link,
-// so the two can't drift apart.
-const linkPath = (() => {
-  const src = readFileSync(join(process.cwd(), "src/app/api/auth/password/reset/request/route.ts"), "utf8");
-  const m = src.match(/getPublicOrigin\(request\)\}(\/[a-z-]+)\?token=/);
-  if (!m) throw new Error("the reset request route no longer builds its link the way this test reads it");
-  return m[1];
-})();
+// The link exactly as both routes that send it build it.
+const link = new URL(resetPasswordUrl(BASE, "abc"));
 
 describe("proxy: the password-reset page", () => {
   it("lets a signed-out visit to the emailed link through, token and all", async () => {
-    expect(linkPath).toBe("/reset-password");
-    const res = await proxy(get(`${linkPath}?token=abc`));
+    expect(link.pathname).toBe("/reset-password");
+    const res = await proxy(get(`${link.pathname}${link.search}`));
     expect(res.headers.get("x-middleware-next")).toBe("1");
     expect(res.headers.get("location")).toBeNull();
   });
 
-  it("still sends a signed-out visit to any other page to sign in", async () => {
-    for (const path of ["/reset-passwordX", "/projects"]) {
+  it("opens only the page itself, not paths below it or beside it", async () => {
+    for (const path of ["/reset-password/projects", "/reset-passwordX", "/projects"]) {
       const res = await proxy(get(path));
-      expect(res.status).toBe(307);
-      expect(new URL(res.headers.get("location")!, BASE).pathname).toBe("/login");
+      expect(res.status, path).toBe(307);
+      expect(new URL(res.headers.get("location")!, BASE).pathname, path).toBe("/login");
     }
+  });
+
+  it("sends no referrer from the page whose URL carries the token", async () => {
+    const reset = await proxy(get(`${link.pathname}${link.search}`));
+    expect(reset.headers.get("referrer-policy")).toBe("no-referrer");
+    // Every other page keeps the site-wide policy.
+    const login = await proxy(get("/login"));
+    expect(login.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
   });
 });
