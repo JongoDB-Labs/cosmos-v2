@@ -36,7 +36,9 @@ describe("the reset page's path", () => {
   });
 
   it("is read by the proxy and by every route that emails a reset link", () => {
-    expect(code("src/proxy.ts")).toMatch(/\bRESET_PASSWORD_PATH\b/);
+    // Used, not just imported.
+    const proxy = code("src/proxy.ts").replace(/^import[^;]*;$/gm, "");
+    expect(proxy).toMatch(/\bRESET_PASSWORD_PATH\b/);
     const senders = files.filter((f) => /createPasswordResetToken\(/.test(code(f)) && f !== "src/lib/auth/password-reset.ts");
     expect(senders.length).toBeGreaterThanOrEqual(2);
     for (const f of senders) expect(code(f), f).toMatch(/\bresetPasswordUrl\(/);

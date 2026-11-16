@@ -39,6 +39,9 @@ describe("reserved org slugs", () => {
     expect(existsSync(join(APP, "login"))).toBe(true);
     expect(segments).toContain("login");
     expect(segments).toContain("api");
+    // ...and those inside route groups: (developers)/developers, (dashboard)/admin.
+    expect(segments).toContain("developers");
+    expect(segments).toContain("admin");
   });
 
   it("reserve every top-level route", () => {
