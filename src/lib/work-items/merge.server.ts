@@ -108,9 +108,10 @@ export async function mergeWorkItems(
   if (missing.length) fill.customFields = { ...bCustom, ...Object.fromEntries(missing) } as Prisma.InputJsonValue;
   // Assignees are one field (who owns it): taken only when the survivor has
   // none, and only the people Create could name (assigneesToCarry, as
-  // Duplicate): the duplicate can name someone who has left, or an id from
-  // before the foreign key that is no user, which the writer refuses. They are
-  // left off, primary first as Create writes it, rather than fail the merge.
+  // Duplicate): the duplicate can name someone who has left, or (on a row
+  // imported past the foreign key) an id that is no user, which the writer
+  // refuses. They are left off, primary first as Create writes it, rather than
+  // fail the merge.
   if (b.assignees.length === 0 && a.assignees.length > 0) {
     const carry = await assigneesToCarry(tx, orgId, a);
     if (carry.length > 0) {

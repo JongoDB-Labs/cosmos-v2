@@ -46,8 +46,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // The copy is assigned to the source's assignees whom the create route
     // would accept, written as Create writes them (primary first, and the
-    // set); anyone who has left, or an id from before the foreign key that is
-    // no user, is left off rather than refused (assigneesToCarry).
+    // set); anyone who has left, or an id that is no user (a row imported past
+    // the foreign key), is left off rather than refused (assigneesToCarry).
     const assigneeIds = await assigneesToCarry(prisma, orgId, source);
 
     // The actor becomes the creator of the new item — same authz model as POST

@@ -1511,11 +1511,12 @@ model WorkItem {
   workItemType     WorkItemType       @relation(fields: [workItemTypeId], references: [id])
   interval         Interval?          @relation(fields: [intervalId], references: [id])
   team             Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  /// The primary assignee. A real foreign key since 2.563.0, added NOT VALID:
-  /// rows written before it are not checked, so an old row can still name an id
-  /// that is no user. It exists so a query can join an item to its assignee's
-  /// teams (the `team` field in the query language) instead of carrying every
-  /// member's id. The full assignee set is `assignees`.
+  /// The primary assignee. A real foreign key since 2.563.0: its migration
+  /// cleared any assignee that named no user, and the next one validated it,
+  /// so every row is checked (a row imported with foreign-key checks off, as
+  /// the cutover does, is not). It exists so a query can join an item to its
+  /// assignee's teams (the `team` field in the query language) instead of
+  /// carrying every member's id. The full assignee set is `assignees`.
   assignee         User?              @relation("WorkItemPrimaryAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   activities       Activity[]
   comments         Comment[]

@@ -169,9 +169,8 @@ describe("duplicate", () => {
 
   it("copies the assignee only when creating the item could name them: not an id that is no user, nor a former member", async () => {
     h.ctx = session();
-    // work_items.assignee_id became a foreign key NOT VALID, so a row written
-    // before it can still name an id that is no user. Written here the way
-    // those rows were: past the key's check.
+    // A row imported with foreign-key checks off (the cutover does this) can
+    // name an id that is no user. Written here the same way: past the key.
     const noUser = "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
     const legacy = await item("Legacy");
     const legacyChild = await item("Legacy child");
@@ -287,8 +286,8 @@ describe("merge", () => {
 describe("merge: the survivor's assignees", () => {
   it("takes only assignees Create would accept: an id that is no user doesn't fail the merge, someone who has left is not kept", async () => {
     h.ctx = session();
-    // A row older than work_items.assignee_id's foreign key (NOT VALID) can
-    // name an id that is no user beside a real assignee set.
+    // A row imported with foreign-key checks off can name an id that is no
+    // user beside a real assignee set. Written here the same way.
     const noUser = "6e2d3c4b-5f60-4b7c-9d8e-0f1a2b3c4d5e";
     const legacy = await item("Legacy dup");
     await assign(legacy.id, null, [other]);

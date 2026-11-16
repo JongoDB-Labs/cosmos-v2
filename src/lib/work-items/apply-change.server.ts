@@ -340,10 +340,10 @@ export async function assertAssigneesInOrg(
  * its primary, then the rest of its set in order, keeping only the people
  * creating an item could name (the rule above). Nothing else checks them, as
  * they come from the source rather than a request, and the source can name
- * someone who has left the org or, on a row older than
- * work_items.assignee_id's foreign key (added NOT VALID, so those rows stay),
- * an id that is no user at all. Those are dropped, not refused: the copy or
- * the merge loses that assignee instead of failing on it.
+ * someone who has left the org or, on a row imported with foreign-key checks
+ * off (the cutover import does this; 20261116120000 cleared the ones written
+ * before the key), an id that is no user at all. Those are dropped, not
+ * refused: the copy or the merge loses that assignee instead of failing on it.
  */
 export async function assigneesToCarry(
   tx: Pick<Prisma.TransactionClient, "orgMember">,
