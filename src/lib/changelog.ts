@@ -49,28 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-      version: "2.562.1",
-      date: "2026-11-16",
-      title: "OKRs show where the work really is",
-      highlights: [
-        {
-          kind: "fix",
-          text: "A key result whose linked work items are all done now shows Done, on the OKR board, through the API and to Cosmo. It used to keep showing In Progress. A key result without linked items keeps the status you set.",
-        },
-        {
-          kind: "fix",
-          text: "Saving an objective now answers with its real progress. It used to answer with an old number after a linked item finished or a key result was added, deleted, linked or unlinked.",
-        },
-        {
-          kind: "fix",
-          text: "A cancelled objective past its due date shows as Cancelled, not Behind, on its card, in what depends on it, and to Cosmo.",
-        },
-        {
-          kind: "fix",
-          text: "An OKR progress bar at 0% now shows its empty track, in light and dark themes, and a key result\u2019s actions menu has a name screen readers can announce.",
-        },
-      ],
-    },
+    version: "2.562.1",
+    date: "2026-11-16",
+    title: "OKRs show where the work really is",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A key result whose linked work items are all done now shows Done, on the OKR board, through the API and to Cosmo. It used to keep showing In Progress. A key result without linked items keeps the status you set.",
+      },
+      {
+        kind: "fix",
+        text: "Saving an objective now answers with its real progress. It used to answer with an old number after a linked item finished or a key result was added, deleted, linked or unlinked.",
+      },
+      {
+        kind: "fix",
+        text: "A cancelled objective past its due date shows as Cancelled, not Behind, on its card, in what depends on it, and to Cosmo.",
+      },
+      {
+        kind: "fix",
+        text: "An OKR progress bar at 0% now shows its empty track, in light and dark themes, and a key result\u2019s actions menu has a name screen readers can announce.",
+      },
+    ],
+  },
   {
     version: "2.562.0",
     date: "2026-11-16",
