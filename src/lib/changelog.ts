@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.562.9",
+    date: "2026-11-16",
+    title: "Steadier releases",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Behind the scenes: building a release now uses less than half the memory it did, so a release is less likely to fail partway and wait for a retry before it reaches you.",
+      },
+    ],
+  },
+  {
     version: "2.562.8",
     date: "2026-11-16",
     title: "Password reset, tightened",
