@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.562.3",
+    date: "2026-11-16",
+    title: "Sign-in sessions are stored hashed",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmos now stores only a one-way hash of each sign-in session, never the value your browser holds. Signing in, signing out, signing out your other sessions and an admin ending a session all work as before. Anyone who signs in during the few seconds the update takes to roll out may be asked to sign in once more, and going back to an earlier version after this update signs everyone out.",
+      },
+    ],
+  },
+  {
     version: "2.562.2",
     date: "2026-11-16",
     title: "Cosmo is clearer about what it did",

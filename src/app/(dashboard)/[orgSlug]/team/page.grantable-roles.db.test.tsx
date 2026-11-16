@@ -10,7 +10,6 @@
 // be read. Own org and users; the seeded users are shared.
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
-import { randomBytes } from "node:crypto";
 
 const h = vi.hoisted(() => ({ headers: new Headers() }));
 vi.mock("next/headers", () => ({
@@ -29,6 +28,7 @@ vi.mock("@/app/(dashboard)/[orgSlug]/team/invite-member-button", () => ({ Invite
 vi.mock("@/app/(dashboard)/[orgSlug]/team/account-request-queue", () => ({ AccountRequestQueue: () => null }));
 
 import { prisma } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { Permission, maskToDb } from "@/lib/rbac/permissions";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { getAuthContext } from "@/lib/auth/session";
@@ -51,11 +51,8 @@ async function person(role: "OWNER" | "MEMBER", workRoleId?: string): Promise<He
   users.push(userId);
   const memberId = (await prisma.orgMember.create({ data: { orgId, userId, role, permissions: maskToDb(0n) } })).id;
   if (workRoleId) await prisma.orgMemberWorkRole.create({ data: { orgMemberId: memberId, workRoleId } });
-  const id = randomBytes(24).toString("hex");
-  await prisma.session.create({
-    data: { id, userId, expiresAt: new Date(Date.now() + 60 * 60_000), authMethod: "password", mfaSatisfied: true },
-  });
-  return new Headers({ cookie: `${SESSION_COOKIE}=${id}` });
+  const token = await createTestSession({ userId, expiresAt: new Date(Date.now() + 60 * 60_000), authMethod: "password", mfaSatisfied: true });
+  return new Headers({ cookie: `${SESSION_COOKIE}=${token}` });
 }
 
 /** The props the Org page hands `component`, rendered as `who`. Walks every prop, since the invite button rides in `actions`. */

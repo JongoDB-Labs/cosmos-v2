@@ -9,6 +9,8 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { sessionRowId } from "@/lib/auth/session-id";
+import { createTestSession } from "@/lib/testing/sessions";
 import { Permission, RolePermissions, maskToDb } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 
@@ -33,12 +35,11 @@ async function person(role: Role) {
   return { userId, memberId };
 }
 
-/** A live sign-in for `userId`, recorded in this org's Sessions list. */
+/** A live sign-in for `userId`, recorded (by its row id) in this org's Sessions list. */
 async function signedIn(userId: string) {
-  const token = `sc-${stamp}-${Math.random().toString(36).slice(2)}-${"t".repeat(20)}`;
   const expiresAt = new Date(Date.now() + 3_600_000);
-  await prisma.session.create({ data: { id: token, userId, expiresAt } });
-  const record = await prisma.sessionRecord.create({ data: { orgId, userId, sessionToken: token, expiresAt } });
+  const token = await createTestSession({ userId, expiresAt });
+  const record = await prisma.sessionRecord.create({ data: { orgId, userId, sessionToken: sessionRowId(token), expiresAt } });
   return { token, recordId: record.id };
 }
 
@@ -56,7 +57,7 @@ const revoke = (body: unknown) =>
     }),
     { params: Promise.resolve({ orgId }) },
   );
-const alive = async (token: string) => (await prisma.session.count({ where: { id: token } })) === 1;
+const alive = async (token: string) => (await prisma.session.count({ where: { id: sessionRowId(token) } })) === 1;
 
 beforeAll(async () => {
   orgId = (await prisma.organization.create({ data: { name: `sc ${stamp}`, slug: `sc-${stamp}` } })).id;

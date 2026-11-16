@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isSsoSession } from "@/lib/auth/org-session-scope";
 import { verifyTotp, generateRecoveryCodes, hashRecoveryCode } from "@/lib/auth/totp";
 import { openSecret } from "@/lib/crypto/vault";
-import { SESSION_COOKIE } from "@/lib/auth/client";
 import { readJsonBody } from "@/lib/api-helpers";
 
 const schema = z.object({ code: z.string().min(1).max(20) });
@@ -63,13 +61,11 @@ export async function POST(request: NextRequest) {
   });
 
   // The user just proved possession of the second factor — upgrade THIS session
-  // so an org's mfaRequired floor is satisfied immediately.
-  const sid = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (sid) {
-    await prisma.session
-      .update({ where: { id: sid }, data: { mfaSatisfied: true } })
-      .catch(() => undefined);
-  }
+  // (the one getCurrentUser read, by its row id) so an org's mfaRequired floor
+  // is satisfied immediately.
+  await prisma.session
+    .update({ where: { id: me.sessionId }, data: { mfaSatisfied: true } })
+    .catch(() => undefined);
 
   // Shown ONCE — never retrievable again.
   return NextResponse.json({ recoveryCodes });

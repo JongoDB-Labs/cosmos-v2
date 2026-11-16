@@ -8,6 +8,8 @@ import { NextRequest } from "next/server";
 
 import type { AuthContext } from "@/lib/rbac/check";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { sessionRowId } from "@/lib/auth/session-id";
+import { createTestSession } from "@/lib/testing/sessions";
 import { loadMemberAuthContext } from "@/lib/rbac/effective-permissions";
 import { scopeMask } from "@/lib/auth/api-key";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -96,11 +98,10 @@ async function open(ctx: AuthContext, sessionId?: string, headers: Record<string
 
 const ctxOf = async (userId: string) => (await loadMemberAuthContext(orgId, userId))!;
 
-/** A live session row: a recompute re-checks it, and a stream without one closes at its first. */
+/** A live session row, and its cookie: a recompute re-checks it, and a stream without one closes at its first. */
 async function sessionFor(userId: string, row: { authMethod?: string; mfaSatisfied?: boolean } = {}) {
-  const id = `sse-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
-  await prisma.session.create({ data: { id, userId, expiresAt: new Date(Date.now() + 3_600_000), ...row } });
-  return id;
+  const token = `sse-${stamp}-${Math.random().toString(36).slice(2, 10)}`;
+  return createTestSession({ token, userId, expiresAt: new Date(Date.now() + 3_600_000), ...row });
 }
 
 beforeAll(async () => {
@@ -285,7 +286,7 @@ describe("a stream and the session it opened with", () => {
     try {
       const s = await open(await ctxOf(users.insider), sid);
       await s.until(hello);
-      await prisma.session.delete({ where: { id: sid } });
+      await prisma.session.delete({ where: { id: sessionRowId(sid) } });
       await vi.advanceTimersByTimeAsync(PAST_REFRESH);
       expect(await s.ended()).toBe(true);
     } finally {
