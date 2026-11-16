@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.562.5",
+    date: "2026-11-16",
+    title: "Program calendar events on the right day",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A timed event on the program calendar now shows on the day it is held in its own time zone. Before, an evening event in a zone west of UTC, such as 7 PM in Los Angeles, showed on the next day in the week and month views, and could be missing from the day view.",
+      },
+      {
+        kind: "fix",
+        text: "Opening and saving a timed event now keeps its date and time in the event’s own time zone, as the form says. Before, the date could move by a day and the time could shift by your computer’s offset.",
+      },
+      {
+        kind: "fix",
+        text: "With a project picked, the category counts on the calendar now count that project’s events under the same filters as the calendar, not the whole organization’s.",
+      },
+      {
+        kind: "fix",
+        text: "If you can see a project but can’t add events to it, a new event now goes on the organization’s calendar and the form says so, instead of failing with an error when you save.",
+      },
+    ],
+  },
+  {
     version: "2.562.0",
     date: "2026-11-16",
     title: "Trusted domains for Microsoft sign-in",

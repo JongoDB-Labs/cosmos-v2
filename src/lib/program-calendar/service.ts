@@ -7,7 +7,7 @@ import { canManageProject } from "@/lib/rbac/scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { ProblemError } from "@/lib/openapi/problem";
 import { DEFAULT_CATEGORIES } from "./categories";
-import { normalizeRange } from "./time";
+import { DRAWN_PAD_MS, drawnRange, normalizeRange, overlaps } from "./time";
 
 /**
  * Reading and writing the program calendar.
@@ -118,13 +118,36 @@ async function scopeWhere(
 }
 
 /**
- * Events touching the half-open window [from, to).
+ * The window's rows as the database can find them: the instants a day either
+ * side of [from, to), because a timed event is drawn on its own zone's clock
+ * and can sit up to 14 hours off the UTC dates it is drawn on. `drawnIn` cuts
+ * the extra back.
+ */
+function paddedWindow(from: Date, to: Date): Prisma.ProgramEventWhereInput {
+  return {
+    startsAt: { lt: new Date(to.getTime() + DRAWN_PAD_MS) },
+    endsAt: { gt: new Date(from.getTime() - DRAWN_PAD_MS) },
+  };
+}
+
+/** Is the event drawn in [from, to)? The grid's own rule (`drawnRange`). */
+const drawnIn = (from: Date, to: Date) => (e: { startsAt: Date; endsAt: Date; allDay: boolean; timeZone: string }) =>
+  overlaps(drawnRange(e), from, to);
+
+/**
+ * Events drawn in the half-open window [from, to) of calendar dates.
  *
  * The overlap test is `startsAt < to AND endsAt > from`, which is what makes a
  * multi-day event appear in every window it crosses. The naive
  * `startsAt BETWEEN from AND to` drops an event that began last month and
  * is still running — the single most common way a program calendar loses the
  * events that matter most.
+ *
+ * It is tested on the dates the event is DRAWN on (`drawnRange`): a timed
+ * event's in its own zone, so a 19:00 review in Los Angeles on the 31st (03:00
+ * UTC on the 1st) is listed for the month it is drawn in. Tested on raw
+ * instants, it was fetched only for the next month's grid, which then did not
+ * draw it, and so it was on neither.
  */
 export async function listProgramEvents(
   ctx: AuthContext,
@@ -132,11 +155,12 @@ export async function listProgramEvents(
   to: Date,
   f: EventFilters = {},
 ): Promise<ProgramEventRow[]> {
-  return prisma.programEvent.findMany({
-    where: { ...(await scopeWhere(ctx, f)), startsAt: { lt: to }, endsAt: { gt: from } },
+  const rows = await prisma.programEvent.findMany({
+    where: { ...(await scopeWhere(ctx, f)), ...paddedWindow(from, to) },
     select: eventSelect,
     orderBy: [{ startsAt: "asc" }, { title: "asc" }],
   });
+  return rows.filter(drawnIn(from, to));
 }
 
 /** Per-category totals for the same window and filters, for the overlay menu's
@@ -148,16 +172,18 @@ export async function categoryCounts(
   to: Date,
   f: EventFilters = {},
 ): Promise<Record<string, number>> {
-  const rows = await prisma.programEvent.groupBy({
-    by: ["categoryId"],
+  // Counted here rather than grouped in SQL: which window a timed event falls
+  // in depends on its own zone, which the list reads the same way (`drawnIn`).
+  const rows = await prisma.programEvent.findMany({
     where: {
       ...(await scopeWhere(ctx, { ...f, categoryIds: undefined })),
-      startsAt: { lt: to },
-      endsAt: { gt: from },
+      ...paddedWindow(from, to),
     },
-    _count: { _all: true },
+    select: { categoryId: true, startsAt: true, endsAt: true, allDay: true, timeZone: true },
   });
-  return Object.fromEntries(rows.map((r) => [r.categoryId, r._count._all]));
+  const counts: Record<string, number> = {};
+  for (const r of rows.filter(drawnIn(from, to))) counts[r.categoryId] = (counts[r.categoryId] ?? 0) + 1;
+  return counts;
 }
 
 /** The org's categories, seeding the defaults the first time one is asked for.

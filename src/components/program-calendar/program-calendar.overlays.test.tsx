@@ -73,7 +73,7 @@ function overlays(storageKey = "cosmos:pm-calendar-overlays:o1:u1", outlook: Out
 
 function mount(
   o?: CalendarOverlays,
-  extra: { projectId?: string; includeOrgEvents?: boolean; canCreate?: boolean } = {},
+  extra: { projectId?: string; projectName?: string; canAttach?: boolean; includeOrgEvents?: boolean; canCreate?: boolean } = {},
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -85,6 +85,8 @@ function mount(
         deliverables={[]}
         overlays={o}
         projectId={extra.projectId}
+        projectName={extra.projectName}
+        canAttach={extra.canAttach}
         includeOrgEvents={extra.includeOrgEvents}
       />
     </QueryClientProvider>,
@@ -329,14 +331,58 @@ describe("a picked project", () => {
 
   it("a new event is filed under the picked project, so it stays in the view it was made in", async () => {
     const user = userEvent.setup();
-    mount(overlays(), { projectId: PROJECT, includeOrgEvents: true, canCreate: true });
+    mount(overlays(), { projectId: PROJECT, projectName: "Website", canAttach: true, includeOrgEvents: true, canCreate: true });
     await screen.findByText("Program review");
     await user.click(screen.getByRole("button", { name: "New event" }));
     await user.type(await screen.findByLabelText("Event title"), "Planning call");
+    // Nothing to explain: it goes where the reader is looking.
+    expect(screen.queryByRole("note")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(saved("POST")).not.toBeNull());
     expect(saved("POST")!.url).toBe("/api/v1/orgs/o1/program-events");
     expect(saved("POST")!.body).toMatchObject({ title: "Planning call", projectId: PROJECT });
+  });
+
+  it("a reader the project will not take an event from files it at org level, and is told so first", async () => {
+    // The server refuses an event on a project the caller cannot attach to
+    // (canAttachToProject), and the form used to send it anyway: a 400 on
+    // every save. Now it is not sent there, and the form says where it goes.
+    const user = userEvent.setup();
+    mount(overlays(), { projectId: PROJECT, projectName: "Website", canAttach: false, includeOrgEvents: true, canCreate: true });
+    await screen.findByText("Program review");
+    await user.click(screen.getByRole("button", { name: "New event" }));
+    await user.type(await screen.findByLabelText("Event title"), "Planning call");
+    expect(screen.getByRole("note").textContent).toBe(
+      "You can't add events to Website, so this event goes on the organization's calendar, where everyone in the organization can see it.",
+    );
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(saved("POST")).not.toBeNull());
+    expect(saved("POST")!.body).toMatchObject({ title: "Planning call" });
+    expect(saved("POST")!.body).not.toHaveProperty("projectId");
+  });
+
+  it("editing says nothing about where it goes: an edit never moves an event", async () => {
+    const user = userEvent.setup();
+    mount(overlays(), { projectId: PROJECT, projectName: "Website", canAttach: false, includeOrgEvents: true, canCreate: true });
+    await user.click(await screen.findByText("Program review"));
+    await screen.findByRole("button", { name: "Save event" });
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("the category counts are asked for under the same project and filters as the events", async () => {
+    mount(overlays(), { projectId: PROJECT, includeOrgEvents: true });
+    await screen.findByText("Program review");
+    const categoriesUrl = new URL(
+      String(vi.mocked(jsonFetch).mock.calls.find(([u]) => String(u).includes("/event-categories?"))![0]),
+      "http://x",
+    );
+    expect(categoriesUrl.searchParams.get("projectId")).toBe(PROJECT);
+    expect(categoriesUrl.searchParams.get("includeOrgEvents")).toBe("true");
+    // Every filter the events list is read with, but the categories themselves,
+    // which the counts ignore by design.
+    const events = [...eventsUrl().searchParams].filter(([k]) => k !== "categoryIds");
+    expect([...categoriesUrl.searchParams]).toEqual(events);
+    expect(events.length).toBeGreaterThanOrEqual(4);
   });
 
   it("control: with no project picked, a new event is org-level", async () => {
@@ -358,6 +404,40 @@ describe("a picked project", () => {
     await waitFor(() => expect(saved("PATCH")).not.toBeNull());
     expect(saved("PATCH")!.url).toBe("/api/v1/orgs/o1/program-events/e1");
     expect(saved("PATCH")!.body).not.toHaveProperty("projectId");
+  });
+});
+
+describe("a timed event opens and saves on its own clock", () => {
+  // 19:00 on Tuesday 12 Jan in Los Angeles is 03:00 UTC on the 13th. The grid
+  // draws it on the 12th; the form must open on the 12th too, and saving it
+  // unchanged must not move it. CI runs in UTC, so the zone is forced here.
+  const original = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = original;
+  });
+  const LA_EVENING = {
+    ...EVENT, id: "la", title: "West coast review", allDay: false, timeZone: "America/Los_Angeles",
+    startsAt: "2027-01-13T03:00:00.000Z", endsAt: "2027-01-13T04:00:00.000Z",
+  };
+
+  it.each(["America/New_York", "Asia/Kolkata"])("under TZ=%s", async (zone) => {
+    process.env.TZ = zone;
+    expect(new Date(2026, 0, 1).toISOString()).not.toBe("2026-01-01T00:00:00.000Z");
+    eventsResponse = () => [LA_EVENING];
+    const user = userEvent.setup();
+    mount(overlays(), { canCreate: true });
+    await user.click(await screen.findByText("West coast review"));
+
+    expect((screen.getByLabelText("Start date") as HTMLInputElement).value).toBe("2027-01-12");
+    expect((screen.getByLabelText("End date") as HTMLInputElement).value).toBe("2027-01-12");
+    expect((screen.getByLabelText("Start time") as HTMLInputElement).value).toBe("19:00");
+    expect((screen.getByLabelText("End time") as HTMLInputElement).value).toBe("20:00");
+
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(vi.mocked(jsonFetch).mock.calls.some(([, i]) => i?.method === "PATCH")).toBe(true));
+    const patch = vi.mocked(jsonFetch).mock.calls.find(([, i]) => i?.method === "PATCH")!;
+    const body = JSON.parse(String(patch[1]!.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ startsAt: LA_EVENING.startsAt, endsAt: LA_EVENING.endsAt, timeZone: "America/Los_Angeles" });
   });
 });
 

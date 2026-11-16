@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { EventChip } from "./event-chip";
 import type { CalendarEvent } from "./month-grid";
 import { packWeek } from "@/lib/program-calendar/layout";
-import { DAY_MS, utcMidnight } from "@/lib/program-calendar/time";
+import { DAY_MS, drawnRange, utcMidnight } from "@/lib/program-calendar/time";
 import { useUtcToday } from "./use-utc-today";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -22,7 +22,9 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
  * The hour grid positions a timed event by its offset from midnight in the
  * event's OWN zone, not the reader's: a program runs on one clock, and showing
  * an 09:00 review at 06:00 because the reader is in another zone would be
- * actively misleading about when to join.
+ * actively misleading about when to join. The COLUMN is read on that same
+ * clock. Both come from one `drawnRange` conversion, so a 19:00 review in Los
+ * Angeles (03:00 UTC the next day) is drawn at 19:00 on the day it is held.
  */
 export function TimeGrid({
   days,
@@ -55,13 +57,7 @@ export function TimeGrid({
   // moment they scrolled away.
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const earliestHour = useMemo(() => {
-    const hours = timed.map((e) =>
-      Number(
-        new Intl.DateTimeFormat("en-GB", {
-          hour: "2-digit", hour12: false, timeZone: e.timeZone || "UTC",
-        }).format(e.startsAt),
-      ),
-    );
+    const hours = timed.map((e) => drawnRange(e).startsAt.getUTCHours());
     return hours.length ? Math.min(...hours) : 8;
   }, [timed]);
 
@@ -182,9 +178,10 @@ export function TimeGrid({
           )}
 
           {timed.map((e) => {
-            const col = days.findIndex((d) => sameUtcDay(d, e.startsAt));
+            const drawn = drawnRange(e);
+            const col = days.findIndex((d) => sameUtcDay(d, drawn.startsAt));
             if (col < 0) return null;
-            const { top, height } = hourOffsets(e);
+            const { top, height } = hourOffsets(drawn);
             return (
               <div
                 key={e.id}
@@ -212,25 +209,23 @@ export function TimeGrid({
   );
 }
 
+/** Multi-day on the clock it is drawn on: 15:00-17:00 in Los Angeles is one
+ *  afternoon there, though in UTC it runs over midnight. */
 function spansDays(e: CalendarEvent): boolean {
-  return e.endsAt.getTime() - e.startsAt.getTime() > DAY_MS || !sameUtcDay(e.startsAt, e.endsAt);
+  const { startsAt, endsAt } = drawnRange(e);
+  return endsAt.getTime() - startsAt.getTime() > DAY_MS || !sameUtcDay(startsAt, endsAt);
 }
 
 function sameUtcDay(a: Date, b: Date): boolean {
   return utcMidnight(a).getTime() === utcMidnight(b).getTime();
 }
 
-/** Pixel offset and height for a timed event, at 48px per hour. Read in the
- *  event's own zone so the grid shows the program's clock. */
-function hourOffsets(e: CalendarEvent): { top: number; height: number } {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: e.timeZone || "UTC",
-  }).formatToParts(e.startsAt);
-  const hh = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
-  const mm = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
-  const minutes = (e.endsAt.getTime() - e.startsAt.getTime()) / 60000;
+/** Pixel offset and height for a timed event, at 48px per hour. Takes the
+ *  DRAWN range, already on the event's own clock (`drawnRange`), so the hour
+ *  is read from the same conversion that picked the column. */
+function hourOffsets(drawn: { startsAt: Date; endsAt: Date }): { top: number; height: number } {
+  const hh = drawn.startsAt.getUTCHours();
+  const mm = drawn.startsAt.getUTCMinutes();
+  const minutes = (drawn.endsAt.getTime() - drawn.startsAt.getTime()) / 60000;
   return { top: (hh + mm / 60) * 48, height: Math.max(20, (minutes / 60) * 48) };
 }

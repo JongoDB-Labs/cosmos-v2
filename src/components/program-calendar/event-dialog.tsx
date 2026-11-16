@@ -69,6 +69,7 @@ export function EventDialog({
   owners,
   deliverables,
   saving,
+  filingNote,
   onSave,
   onDelete,
 }: {
@@ -79,6 +80,9 @@ export function EventDialog({
   owners: { key: string; label: string }[];
   deliverables: { id: string; name: string }[];
   saving?: boolean;
+  /** Said on a NEW event when it will not go where the reader might expect,
+   *  e.g. at org level while a project is picked. Edits never move. */
+  filingNote?: string;
   onSave: (d: EventDraft) => void;
   onDelete?: (id: string) => void;
 }) {
@@ -99,6 +103,7 @@ export function EventDialog({
         owners={owners}
         deliverables={deliverables}
         saving={saving}
+        filingNote={draft.id ? undefined : filingNote}
         onSave={onSave}
         onDelete={onDelete}
         onOpenChange={onOpenChange}
@@ -113,6 +118,7 @@ function EventForm({
   owners,
   deliverables,
   saving,
+  filingNote,
   onSave,
   onDelete,
   onOpenChange,
@@ -122,6 +128,7 @@ function EventForm({
   owners: { key: string; label: string }[];
   deliverables: { id: string; name: string }[];
   saving?: boolean;
+  filingNote?: string;
   onSave: (d: EventDraft) => void;
   onDelete?: (id: string) => void;
   onOpenChange: (o: boolean) => void;
@@ -155,6 +162,11 @@ function EventForm({
         </DialogHeader>
 
         <div className="grid max-h-[60vh] gap-4 overflow-y-auto px-1">
+          {filingNote ? (
+            <p role="note" className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-foreground">
+              {filingNote}
+            </p>
+          ) : null}
           <div className="grid gap-1.5">
             <Label htmlFor="pc-title">Event title</Label>
             <Input

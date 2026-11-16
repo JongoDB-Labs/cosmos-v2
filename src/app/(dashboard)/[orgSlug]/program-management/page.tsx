@@ -15,6 +15,7 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { ProgramCalendar } from "@/components/program-calendar/program-calendar";
 import { togglesStorageKey } from "@/lib/program-calendar/overlays";
 import { outlookOverlayStatus } from "@/lib/program-calendar/outlook.server";
+import { canAttachToProject } from "@/lib/program-calendar/visibility";
 import { NoPageAccess } from "@/components/ui/no-page-access";
 import { PageShell, pageShellBoxClassName, type PageShellProps } from "@/components/ui/page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -385,6 +386,10 @@ async function programScope(ctx: AuthContext, requestedKey: string | null) {
  * - Where the reader's OWN Outlook connection stands, so the Outlook toggle
  *   can say "connect" before it is pressed. Their events are read by the
  *   calendar, through the Outlook route, for them alone.
+ * - Whether a new event may be filed under the picked project, by the
+ *   server's own rule (`canAttachToProject`, the check the create route makes).
+ *   The picker offers every project the reader may see, and seeing one is not
+ *   being allowed to add to its calendar.
  */
 async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedKey: string | null) {
   const embedded = programManagementEmbedUrl() !== null;
@@ -397,7 +402,7 @@ async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedK
   const { all, analyticsIds, visibleProjects, selected, milestoneScopeIds } = scope;
   const keyById = new Map(all.map((p) => [p.id, p.key]));
 
-  const [teams, members, deliverables, milestones, outlook] = await Promise.all([
+  const [teams, members, deliverables, milestones, outlook, canAttach] = await Promise.all([
     prisma.team.findMany({
       where: { orgId: ctx.orgId, ...(hidden.length ? { projectId: { notIn: hidden } } : {}) },
       select: { id: true, name: true },
@@ -417,6 +422,7 @@ async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedK
     }),
     loadMilestonesWithDerived(ctx.orgId, milestoneScopeIds),
     outlookOverlayStatus(ctx.orgId, ctx.userId),
+    selected ? canAttachToProject(ctx, selected.id) : Promise.resolve(false),
   ]);
 
   const owners = [
@@ -446,6 +452,8 @@ async function programCalendarView(ctx: AuthContext, orgSlug: string, requestedK
       <ProgramCalendar
         orgId={ctx.orgId}
         projectId={selected?.id}
+        projectName={selected?.name}
+        canAttach={canAttach}
         includeOrgEvents
         canCreate={hasPermission(ctx.permissions, Permission.BOARD_UPDATE)}
         owners={owners}

@@ -12,7 +12,15 @@ import { TimeGrid } from "./time-grid";
 import { EventDialog, type EventDraft } from "./event-dialog";
 import type { ChipCategory } from "./event-chip";
 import { OverlayLegend, OverlayToggles, useOverlayToggles, type OverlayToggleSpec } from "./overlay-toggles";
-import { monthGridWindow, weekWindow, dayWindow, DAY_MS, utcMidnight } from "@/lib/program-calendar/time";
+import {
+  monthGridWindow,
+  weekWindow,
+  dayWindow,
+  DAY_MS,
+  utcMidnight,
+  wallClock,
+  zonedInstant,
+} from "@/lib/program-calendar/time";
 import { weekDays } from "@/lib/program-calendar/layout";
 import {
   agileItems,
@@ -89,6 +97,15 @@ function viewerTimeZone(): string {
 /** `yyyy-mm-dd` from a UTC instant — never the local getters, which would
  *  shift the date for readers west of UTC. */
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
+/** `HH:mm` from a UTC instant, for a time already moved onto its own clock. */
+const hhmm = (d: Date) => d.toISOString().slice(11, 16);
+
+/** A form's `yyyy-mm-dd` and `HH:mm`, as the instant they are in `timeZone`. */
+function instantIn(date: string, time: string, timeZone: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const [hh, mm] = time.split(":").map(Number);
+  return zonedInstant(y, m, d, hh, mm, timeZone).toISOString();
+}
 
 /**
  * The program calendar.
@@ -102,6 +119,8 @@ const ymd = (d: Date) => d.toISOString().slice(0, 10);
 export function ProgramCalendar({
   orgId,
   projectId,
+  projectName,
+  canAttach = false,
   includeOrgEvents = false,
   canCreate,
   owners,
@@ -109,8 +128,19 @@ export function ProgramCalendar({
   overlays,
 }: {
   orgId: string;
-  /** Show this project's events, and file a new event under it. */
+  /** Show this project's events, and file a new event under it when
+   *  `canAttach` says the server will take it there. */
   projectId?: string;
+  /** The picked project's name, for the event form to say where a new event goes. */
+  projectName?: string;
+  /**
+   * The server's own answer (`canAttachToProject`) for `projectId`. Seeing a
+   * project's calendar is not the same as being allowed to add to it: a reader
+   * who is not on a project whose calendar is not open to the org was offered
+   * the form, and every save came back a 400. Without it, a new event is filed
+   * at org level, and the form says so before it is saved.
+   */
+  canAttach?: boolean;
   /** With `projectId`, also show the org-level events (those with no project). */
   includeOrgEvents?: boolean;
   canCreate: boolean;
@@ -145,12 +175,14 @@ export function ProgramCalendar({
     return dayWindow(anchor);
   }, [view, anchor]);
 
-  const params = useMemo(() => {
+  // The window and every filter but the categories: what the category counts
+  // are counted over, so each count says what turning that category on would
+  // show HERE, with this project, these owners and these filters.
+  const filterParams = useMemo(() => {
     const p = new URLSearchParams({
       from: window.from.toISOString(),
       to: window.to.toISOString(),
     });
-    if (selectedCategories.length) p.set("categoryIds", selectedCategories.join(","));
     if (selectedOwners.length) p.set("ownerKeys", selectedOwners.join(","));
     if (projectId) p.set("projectId", projectId);
     if (projectId && includeOrgEvents) p.set("includeOrgEvents", "true");
@@ -158,11 +190,17 @@ export function ProgramCalendar({
     if (filters.customerAttending) p.set("customerAttending", "true");
     if (filters.hasDeliverable) p.set("hasDeliverable", "true");
     return p.toString();
-  }, [window, selectedCategories, selectedOwners, filters, projectId, includeOrgEvents]);
+  }, [window, selectedOwners, filters, projectId, includeOrgEvents]);
+
+  const params = useMemo(() => {
+    const p = new URLSearchParams(filterParams);
+    if (selectedCategories.length) p.set("categoryIds", selectedCategories.join(","));
+    return p.toString();
+  }, [filterParams, selectedCategories]);
 
   // Through useOrgQueryKey so switching org serves a different cache namespace.
   const eventsKey = useOrgQueryKey("program-events", params);
-  const categoriesKey = useOrgQueryKey("event-categories", window.from.toISOString());
+  const categoriesKey = useOrgQueryKey("event-categories", filterParams);
 
   const eventsQuery = useQuery({
     queryKey: eventsKey,
@@ -177,9 +215,7 @@ export function ProgramCalendar({
   const categoriesQuery = useQuery({
     queryKey: categoriesKey,
     queryFn: () =>
-      jsonFetch<(ChipCategory & { count: number })[]>(
-        `/api/v1/orgs/${orgId}/event-categories?from=${window.from.toISOString()}&to=${window.to.toISOString()}`,
-      ),
+      jsonFetch<(ChipCategory & { count: number })[]>(`/api/v1/orgs/${orgId}/event-categories?${filterParams}`),
   });
 
   // The Agile overlay is not filtered by category or owner (those are program
@@ -346,9 +382,11 @@ export function ProgramCalendar({
   const save = useOrgMutation({
     mutationFn: async (d: EventDraft) => {
       // A NEW event goes under the picked project, so it stays in the view it
-      // was made in. An edit leaves the event's project as it is: with org
-      // events shown, an org-level event edited here must not move.
-      const body = draftToBody(d, d.id ? undefined : projectId);
+      // was made in -- when the server will take it there (`canAttach`);
+      // otherwise it is org-level, which the form has already said. An edit
+      // leaves the event's project as it is: with org events shown, an
+      // org-level event edited here must not move.
+      const body = draftToBody(d, d.id || !canAttach ? undefined : projectId);
       const url = d.id
         ? `/api/v1/orgs/${orgId}/program-events/${d.id}`
         : `/api/v1/orgs/${orgId}/program-events`;
@@ -408,15 +446,15 @@ export function ProgramCalendar({
   const openExisting = (id: string) => {
     const e = (eventsQuery.data ?? []).find((x) => x.id === id);
     if (!e) return;
-    const start = new Date(e.startsAt);
-    const end = new Date(e.endsAt);
+    // A timed event's date AND time are read on its own zone's clock, the one
+    // the grid draws it on, and `draftToBody` writes them back on the same
+    // clock. Reading the date in UTC opened a 19:00 Los Angeles review on the
+    // next day, and saving it unchanged then moved it there.
+    const start = e.allDay ? new Date(e.startsAt) : wallClock(new Date(e.startsAt), e.timeZone);
+    const end = e.allDay ? new Date(e.endsAt) : wallClock(new Date(e.endsAt), e.timeZone);
     // The stored end is EXCLUSIVE for an all-day event; the form shows it the
     // way the user typed it, which is inclusive.
     const shownEnd = e.allDay ? new Date(end.getTime() - DAY_MS) : end;
-    const hhmm = (d: Date) =>
-      new Intl.DateTimeFormat("en-GB", {
-        hour: "2-digit", minute: "2-digit", hour12: false, timeZone: e.timeZone || "UTC",
-      }).format(d);
     setDraft({
       id: e.id,
       title: e.title,
@@ -512,11 +550,18 @@ export function ProgramCalendar({
         owners={owners}
         deliverables={deliverables}
         saving={save.isPending}
+        filingNote={projectId && !canAttach ? orgLevelNote(projectName) : undefined}
         onSave={(d) => save.mutate(d, { onSuccess: () => setDraft(null) })}
         onDelete={(id) => remove.mutate(id, { onSuccess: () => setDraft(null) })}
       />
     </div>
   );
+}
+
+/** Where a new event goes when the picked project will not take it. */
+function orgLevelNote(projectName?: string): string {
+  const project = projectName ?? "this project";
+  return `You can't add events to ${project}, so this event goes on the organization's calendar, where everyone in the organization can see it.`;
 }
 
 /** What the Outlook toggle says beside its name, when it cannot show anything yet. */
@@ -570,15 +615,18 @@ function outlookNote(orgSlug: string, status: OutlookStatus | undefined, detail?
 }
 
 /** Form values to the API body. The single place a date STRING becomes an
- *  instant, so the all-day rule is applied once. `projectId` is sent only when
- *  given; leaving it out of an edit keeps the event's project unchanged. */
+ *  instant, so the all-day rule is applied once. A timed event's date and time
+ *  are a wall clock in the event's OWN zone, as the form says, never the
+ *  browser's: `new Date("...T09:00:00")` would read them on the laptop's clock.
+ *  `projectId` is sent only when given; leaving it out of an edit keeps the
+ *  event's project unchanged. */
 export function draftToBody(d: EventDraft, projectId?: string) {
   const startsAt = d.allDay
     ? `${d.startDate}T00:00:00.000Z`
-    : new Date(`${d.startDate}T${d.startTime}:00`).toISOString();
+    : instantIn(d.startDate, d.startTime, d.timeZone);
   const endsAt = d.allDay
     ? `${d.endDate}T00:00:00.000Z`
-    : new Date(`${d.endDate}T${d.endTime}:00`).toISOString();
+    : instantIn(d.endDate, d.endTime, d.timeZone);
   return {
     title: d.title.trim(),
     categoryId: d.categoryId,

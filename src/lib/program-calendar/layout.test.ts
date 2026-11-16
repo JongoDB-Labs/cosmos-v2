@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { packWeek, weekDays, weeksIn } from "./layout";
 import { DAY_MS } from "./time";
 
@@ -80,6 +80,56 @@ describe("lanes keep overlapping events apart", () => {
     const first = packWeek(input, WEEK).placed.map((p) => `${p.event.id}:${p.lane}`);
     const second = packWeek([...input].reverse(), WEEK).placed.map((p) => `${p.event.id}:${p.lane}`);
     expect(new Set(first)).toEqual(new Set(second));
+  });
+});
+
+describe("a timed event is on the day it is held, in its own zone", () => {
+  // The hour grid reads a timed event on its own zone's clock, so the column
+  // has to as well. Placing by the UTC date put a 19:00 review in Los Angeles
+  // (03:00 UTC next day) in Wednesday's column at 19:00.
+  //
+  // The machine's zone is forced away from UTC too: CI runs in UTC, so a rule
+  // that leaned on the machine's clock would pass there by accident.
+  const original = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = original;
+  });
+
+  const timed = (id: string, startIso: string, endIso: string, timeZone: string) => ({
+    id, startsAt: new Date(startIso), endsAt: new Date(endIso), allDay: false, timeZone,
+  });
+  // Tuesday 10 Nov, 19:00-20:00 in Los Angeles (PST, UTC-8).
+  const laEvening = timed("la", "2026-11-11T03:00:00Z", "2026-11-11T04:00:00Z", "America/Los_Angeles");
+  // Wednesday 11 Nov, 08:00-09:00 in Tokyo (UTC+9): still Tuesday in UTC.
+  const tokyoMorning = timed("tokyo", "2026-11-10T23:00:00Z", "2026-11-11T00:00:00Z", "Asia/Tokyo");
+  const colOf = (placed: { event: { id: string }; startCol: number }[], id: string) =>
+    placed.find((p) => p.event.id === id)?.startCol;
+
+  it.each(["America/New_York", "Asia/Kolkata", "UTC"])("west and east of UTC, under TZ=%s", (zone) => {
+    process.env.TZ = zone;
+    // Control: the zone took (UTC itself is the CI case).
+    if (zone !== "UTC") expect(new Date(2026, 0, 1).toISOString()).not.toBe("2026-01-01T00:00:00.000Z");
+
+    const { placed } = packWeek([laEvening, tokyoMorning], WEEK);
+    expect(colOf(placed, "la")).toBe(3); // Tuesday
+    expect(colOf(placed, "tokyo")).toBe(4); // Wednesday
+  });
+
+  it("an evening late on the week's last day belongs to that week, not the next", () => {
+    // Saturday 14 Nov, 19:00 in Los Angeles is Sunday 03:00 UTC.
+    const lateSaturday = timed("sat", "2026-11-15T03:00:00Z", "2026-11-15T04:00:00Z", "America/Los_Angeles");
+    expect(colOf(packWeek([lateSaturday], WEEK).placed, "sat")).toBe(7);
+    expect(packWeek([lateSaturday], new Date(WEEK.getTime() + 7 * DAY_MS)).placed).toHaveLength(0);
+  });
+
+  it("control: all-day dates and items already on the grid's clock do not move", () => {
+    // An all-day event's UTC midnight is a date, whatever zone it was entered in.
+    const allDay = { ...ev("day", 2, 1), allDay: true, timeZone: "America/Los_Angeles" };
+    // Overlay items say UTC: they were put on the grid's clock already.
+    const overlay = { ...timed("o", "2026-11-11T03:00:00Z", "2026-11-11T04:00:00Z", "UTC") };
+    const { placed } = packWeek([allDay, overlay], WEEK);
+    expect(colOf(placed, "day")).toBe(3);
+    expect(colOf(placed, "o")).toBe(4);
   });
 });
 

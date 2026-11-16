@@ -20,6 +20,7 @@ import {
   updateProgramEvent,
   listCategories,
 } from "./service";
+import { canAttachToProject } from "./visibility";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let orgId = "";
@@ -174,6 +175,30 @@ describe("writing obeys the same rule as reading", () => {
     // assertion above while making the feature unusable.
     await expect(attempt(alice, projA)).resolves.toBeTruthy();
     await expect(attempt(bob, projOpen)).resolves.toBeTruthy();
+  });
+
+  // The calendar offers to file a new event under the picked project only when
+  // `canAttachToProject` says yes (the page asks it), and files it at org level
+  // otherwise. That offer is only honest if create takes exactly what it says.
+  it("what the calendar offers is what create accepts, for every reader and project", async () => {
+    const seen: string[] = [];
+    for (const [who, ctx] of [["alice", member(alice)], ["bob", member(bob)], ["admin", orgAdmin(admin)]] as const) {
+      for (const [name, projectId] of [["A", projA], ["B", projB], ["Open", projOpen]] as const) {
+        const offered = await canAttachToProject(ctx, projectId);
+        const accepted = await createProgramEvent(ctx, ctx.userId, {
+          title: "Offer", categoryId: catId, projectId,
+          startsAt: utc(2026, 11, 26), endsAt: utc(2026, 11, 26), allDay: true,
+        }).then(() => true, () => false);
+        expect(offered, `${who} on ${name}`).toBe(accepted);
+        seen.push(`${who}/${name}=${offered}`);
+      }
+    }
+    // Both answers occur, so agreement is not two checks that both say no. The
+    // reader the bug was about: a project member elsewhere, looking at a project
+    // they can open but whose events are its members' own.
+    expect(seen).toContain("alice/B=false");
+    expect(seen).toContain("alice/A=true");
+    expect(seen).toContain("bob/Open=true");
   });
 });
 
