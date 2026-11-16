@@ -337,9 +337,12 @@ export function ReportsManager({ orgId }: ReportsManagerProps) {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-end gap-1">
+                        {/* Icon-only, once per row: named after the report so
+                            each says which one it acts on. */}
                         <Button
                           variant="ghost"
                           size="icon-sm"
+                          aria-label={`Edit ${report.name}`}
                           onClick={() => openEdit(report)}
                         >
                           <Pencil className="size-3.5" />
@@ -347,6 +350,7 @@ export function ReportsManager({ orgId }: ReportsManagerProps) {
                         <Button
                           variant="ghost"
                           size="icon-sm"
+                          aria-label={`Delete ${report.name}`}
                           onClick={() => openDelete(report.id)}
                         >
                           <Trash2 className="size-3.5 text-destructive" />

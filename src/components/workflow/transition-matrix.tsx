@@ -124,8 +124,13 @@ function EditButton({ name, ruled, onClick }: { name: string; ruled: boolean; on
     <button
       type="button"
       onClick={onClick}
-      aria-label={`Edit transition ${name}`}
-      title={ruled ? `${name}: has rules` : name}
+      // A ruled transition's button shows "Rules" (from the sm breakpoint), so
+      // its name has to say it too (WCAG 2.5.3 Label in Name).
+      aria-label={ruled ? `Edit transition ${name}, has rules` : `Edit transition ${name}`}
+      // The tooltip is the only place the transition's name shows. A browser
+      // also reads a title as the button's description, so it carries the
+      // name alone: "has rules" here would be said twice.
+      title={name}
       className={cn(
         "inline-flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2",
         ruled && "text-primary",

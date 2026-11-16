@@ -13,7 +13,7 @@
 // expand/collapse. Splitting them rather than adding a third control matters:
 // ffe324aa is a complaint that this very row is too cluttered, so the fix had
 // to spend no new horizontal space.
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react";
 import { SprintPicker } from "./sprint-board";
 import type { Interval } from "@/types/models";
@@ -44,7 +44,22 @@ const S3 = iv({ id: "s3", name: "Sprint 3", number: 5, parentId: "pi2", status: 
 const S4 = iv({ id: "s4", name: "Sprint 4", number: 6, parentId: "pi2" });
 const ALL = [PI2, S3, S4];
 
-afterEach(cleanup);
+// The PI pill is named by its content: a "Show all work in" lead-in, the PI's
+// name, then its Past chip and sprint count (WCAG 2.5.3). A browser spaces
+// those words because none of them is inline: the lead-in is absolutely
+// positioned and the rest are items of the pill's flex row, and both compute
+// to `display: block`. jsdom applies no Tailwind and blockifies nothing, so it
+// would run them together ("inPI 2"). These rules give it the browser's values.
+let style: HTMLStyleElement;
+beforeEach(() => {
+  style = document.createElement("style");
+  style.textContent = ".sr-only { position: absolute; display: block; } .inline-flex > * { display: block; }";
+  document.head.appendChild(style);
+});
+afterEach(() => {
+  style.remove();
+  cleanup();
+});
 
 function renderPicker(shownId: string | null, intervals = ALL) {
   const onSelect = vi.fn();
@@ -53,7 +68,8 @@ function renderPicker(shownId: string | null, intervals = ALL) {
 }
 
 /** The PI's scope control, as distinct from the chevron that expands it. */
-const piScope = (name: string) => screen.getByRole("button", { name: `Show all work in ${name}` });
+const piScope = (name: string) =>
+  screen.getByRole("button", { name: new RegExp(`^Show all work in ${name}( |$)`) });
 const piChevron = (name: string) =>
   screen.getByRole("button", { name: new RegExp(`(Collapse|Expand) ${name}`) });
 
@@ -101,6 +117,24 @@ describe("filtering on the PI itself", () => {
     fireEvent.click(piChevron("PI 2"));
     fireEvent.click(piScope("PI 2"));
     expect(onSelect).toHaveBeenCalledWith("pi2");
+  });
+
+  // WCAG 2.5.3 Label in Name: an aria-label of "Show all work in PI 2" left
+  // out the sprint count and the Past chip the pill shows. Its name is now its
+  // content, so it holds every word on the pill, in order.
+  it("names the PI pill by everything it shows", () => {
+    renderPicker("s3");
+    fireEvent.click(piChevron("PI 2"));
+    expect(piScope("PI 2")).toHaveAccessibleName("Show all work in PI 2 2 sprints");
+  });
+
+  it("says Past on a past PI's pill", () => {
+    const PI1 = iv({ id: "pi1", name: "PI 1", number: 1, intervalKind: "PROGRAM_INCREMENT", status: "COMPLETED" });
+    const S1 = iv({ id: "s1", name: "Sprint 1", number: 1, parentId: "pi1", status: "COMPLETED" });
+    renderPicker("s3", [PI1, S1, ...ALL]);
+    // Positive control: the pill really shows the chip.
+    expect(within(piScope("PI 1")).getByText("Past")).toBeTruthy();
+    expect(piScope("PI 1")).toHaveAccessibleName(/^Show all work in PI 1 Past( |$)/);
   });
 
   it("offers no PI scope control for a project without PIs", () => {
