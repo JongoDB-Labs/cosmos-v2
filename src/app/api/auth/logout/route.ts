@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from "@/lib/auth/client";
 import { sessionRowId } from "@/lib/auth/session-id";
 import { SKIN_COOKIE } from "@/lib/theme/cookie";
 import { getPublicOrigin } from "@/lib/auth/public-url";
+import { forgetReturnTo } from "@/lib/auth/return-to";
 
 async function clearSession(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
@@ -26,7 +27,9 @@ async function clearSession(request: NextRequest) {
   // session, so it's cleared here alongside the session cookie — the next
   // sign-in reseeds it from that user's own resolution.
   response.cookies.delete(SKIN_COOKIE);
-  return response;
+  // A sign-in's kept return address, which the next person to sign in on this
+  // browser would otherwise land on.
+  return forgetReturnTo(response);
 }
 
 export async function POST(request: NextRequest) {

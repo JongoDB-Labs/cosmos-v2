@@ -87,9 +87,24 @@ type Bound =
   | { k: "scalar"; v: string | number | boolean }
   /** An instant, or for a date literal / `=` the whole day. */
   | { k: "time"; from: Date; to: Date; day: boolean }
-  | { k: "where"; where: Where };
+  | { k: "where"; where: Where }
+  /** `membersOf(team)`: the readable teams it names (`key` finds its people in `env.teamMemberIds`). */
+  | { k: "members"; key: string; teamIds: string[] };
 
 class Inert extends Error {}
+
+/** A clause a browser predicate leaves to the server (`env.forBrowser`): see SERVER_ONLY. */
+class ServerOnly extends Error {}
+
+/**
+ * What a browser predicate (`env.forBrowser`) has in place of a clause that
+ * would carry `membersOf()`'s people as ids: `reporter`, `mentions`, a person
+ * custom field, history. evaluate.ts reads a field the row doesn't carry as
+ * UNDECIDED, so the board asks the server's ids for those rows, and the server
+ * compiles the clause in full. Not valid Prisma, on purpose: if it ever
+ * reached the database it would fail loudly rather than match wrongly.
+ */
+export const SERVER_ONLY = { $serverOnly: "membersOf" } as unknown as Where;
 
 function timeOf(v: CqlValue, env: CompileEnv): Bound {
   switch (v.t) {
@@ -205,6 +220,14 @@ function bind(values: CqlValue[], field: FieldRef, env: CompileEnv): Bound[] {
           out.push(env.contextProjectId ? { k: "id", id: env.contextProjectId } : { k: "where", where: FALSE });
           break;
         }
+        if (v.name === "membersOf") {
+          // The teams, never the people: each field decides how to reach them
+          // (peopleOrTeams for the joined ones, `people` for the rest).
+          const teamIds = env.fnIds.get(fnKey(v));
+          if (!teamIds) throw new Error("membersOf() needs its teams — resolve.server.ts files the readable ones in env.fnIds.");
+          out.push({ k: "members", key: fnKey(v), teamIds });
+          break;
+        }
         const itemWhere = itemFnWhere(v, env);
         if (itemWhere) {
           out.push({ k: "where", where: itemWhere });
@@ -235,7 +258,75 @@ function bind(values: CqlValue[], field: FieldRef, env: CompileEnv): Bound[] {
   return out;
 }
 
-const ids = (b: Bound[]) => b.filter((x): x is Extract<Bound, { k: "id" }> => x.k === "id").map((x) => x.id);
+/**
+ * The ids among the values. FAILS CLOSED on `membersOf()`: a field that takes
+ * people says how it reaches them (peopleOrTeams or `people`), so no field
+ * can drop a team's people silently by reading only the named ones.
+ */
+const ids = (b: Bound[]) => {
+  if (b.some((x) => x.k === "members")) {
+    throw new Error("membersOf() reached a field that neither joins to a team nor takes people's ids (see MEMBER_JOIN_FIELDS in env.ts).");
+  }
+  return namedIds(b);
+};
+const namedIds = (b: Bound[]) => b.filter((x): x is Extract<Bound, { k: "id" }> => x.k === "id").map((x) => x.id);
+
+/**
+ * For a field that reaches a person through a relation (MEMBER_JOIN_FIELDS):
+ * the people named outright, and the teams `membersOf()` names, which it joins
+ * to (`onTeams`) instead of listing who is on them. `viaTeams` says a
+ * `membersOf()` was there, so an unreadable team (no teams) matches no one
+ * rather than reading as an empty list of people.
+ */
+function peopleOrTeams(b: Bound[]): { users: string[]; teams: string[]; viaTeams: boolean } {
+  const members = b.filter((x): x is Extract<Bound, { k: "members" }> => x.k === "members");
+  return { users: namedIds(b), teams: [...new Set(members.flatMap((m) => m.teamIds))].sort(), viaTeams: members.length > 0 };
+}
+
+/**
+ * For a field that stores people's ids with no relation to join through
+ * (`reporter`, `mentions`, a person custom field, history): the people named,
+ * and `membersOf()`'s people as the server loaded them. In a browser predicate
+ * the clause is left to the server instead (SERVER_ONLY), so the ids never
+ * reach the browser. FAILS CLOSED on the server: without the people, it throws.
+ */
+function people(b: Bound[], env: CompileEnv): string[] {
+  const out = namedIds(b);
+  for (const x of b) {
+    if (x.k !== "members") continue;
+    if (env.forBrowser) throw new ServerOnly();
+    const users = env.teamMemberIds?.get(x.key);
+    if (!users) {
+      throw new Error("membersOf() here needs env.teamMemberIds — resolve.server.ts must load the people for a use outside MEMBER_JOIN_FIELDS.");
+    }
+    out.push(...users);
+  }
+  return out;
+}
+
+/**
+ * A person who is a current member of one of `teamIds`, through their
+ * membership of the teams' org (team -> team member -> project member -> org
+ * member, the path the board's teams route reads). Names teams, never people:
+ * this where goes to the browser (`POST cql/predicate`).
+ *
+ * The org is not scope (the envelope does that); it keeps a membership of
+ * another org from counting and lets the hop use org_members' (org_id,
+ * user_id) index. `removedAt: null` because a nested filter is the soft-delete
+ * hook's blind spot (it filters direct `orgMember` reads only). FAILS CLOSED
+ * without the org.
+ */
+function onTeams(env: CompileEnv, teamIds: string[]): Prisma.UserWhereInput {
+  const orgId = env.teamOrgId;
+  if (!orgId) {
+    throw new Error("team and membersOf() need env.teamOrgId — resolve.server.ts must set the teams' org whenever the query joins to a team.");
+  }
+  return {
+    memberships: {
+      some: { orgId, removedAt: null, projectMembers: { some: { teamMembers: { some: { teamId: { in: teamIds } } } } } },
+    },
+  };
+}
 const scalars = (b: Bound[]) => b.filter((x): x is Extract<Bound, { k: "scalar" }> => x.k === "scalar").map((x) => x.v);
 const wheres = (b: Bound[]) => b.filter((x): x is Extract<Bound, { k: "where" }> => x.k === "where").map((x) => x.where);
 const hasEmpty = (b: Bound[]) => b.some((x) => x.k === "empty");
@@ -425,20 +516,46 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
       };
     case "priority":
       return enumCompiler("priority", false);
+    // The person fields with a relation to the person join to `membersOf()`'s
+    // teams (onTeams); the `assigneeId` guard keeps the primary's half
+    // two-valued, so NOT IN is a true complement.
     case "assignee":
       return {
         match: (b) => {
-          const u = ids(b);
-          return or(nn("assigneeId", { in: u }), { assignees: { some: { userId: { in: u } } } });
+          const { users: u, teams, viaTeams } = peopleOrTeams(b);
+          return or(
+            ...(u.length || !viaTeams ? [nn("assigneeId", { in: u }), { assignees: { some: { userId: { in: u } } } }] : []),
+            ...(teams.length
+              ? [and(nn("assigneeId", {}), { assignee: { is: onTeams(env, teams) } }), { assignees: { some: { user: { is: onTeams(env, teams) } } } }]
+              : []),
+          );
         },
         isEmpty: { assigneeId: null, assignees: { none: {} } },
       };
     case "primaryAssignee":
-      return { match: (b) => nn("assigneeId", { in: ids(b) }), isEmpty: { assigneeId: null } };
+      return {
+        match: (b) => {
+          const { users: u, teams, viaTeams } = peopleOrTeams(b);
+          return or(
+            ...(u.length || !viaTeams ? [nn("assigneeId", { in: u })] : []),
+            ...(teams.length ? [and(nn("assigneeId", {}), { assignee: { is: onTeams(env, teams) } })] : []),
+          );
+        },
+        isEmpty: { assigneeId: null },
+      };
     case "reporter":
-      return { match: (b) => ({ createdById: { in: ids(b) } }), isEmpty: null };
+      return { match: (b) => ({ createdById: { in: people(b, env) } }), isEmpty: null };
     case "watcher":
-      return { match: (b) => ({ watchers: { some: { userId: { in: ids(b) } } } }), isEmpty: { watchers: { none: {} } } };
+      return {
+        match: (b) => {
+          const { users: u, teams, viaTeams } = peopleOrTeams(b);
+          return or(
+            ...(u.length || !viaTeams ? [{ watchers: { some: { userId: { in: u } } } }] : []),
+            ...(teams.length ? [{ watchers: { some: { user: { is: onTeams(env, teams) } } } }] : []),
+          );
+        },
+        isEmpty: { watchers: { none: {} } },
+      };
     case "mentions": {
       // An @mention is a token in the text (lib/mentions/refs.ts): `<@id>` as
       // the composers write it, or the typed `<@user:id>` the parser also
@@ -450,7 +567,7 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
       const tokens = (users: string[]) => users.flatMap((u) => [`<@${u}>`, `<@user:${u}>`].map(likeText));
       return {
         match: (b) => {
-          const users = ids(b);
+          const users = people(b, env);
           if (users.length === 0) return FALSE;
           const inDescription = or(...tokens(users).map((t): Where => ({ description: { contains: t, mode: "insensitive" } })));
           if (scope.projectIds.length === 0) return inDescription;
@@ -505,30 +622,44 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
       // filter bar showed.
       //
       // FAIL CLOSED, like `hasChildren` above: the only fallback without the
-      // roster is the column-only answer, which is the defect itself.
-      const rosters = env.teamRosters;
-      if (!rosters) {
+      // teams is the column-only answer, which is the defect itself.
+      const teams = env.teamProjects;
+      if (!teams) {
         throw new Error(
-          "team needs env.teamRosters — resolve.server.ts must load the readable teams' rosters whenever the query names this field.",
+          "team needs env.teamProjects — resolve.server.ts must load the readable teams whenever the query names this field.",
         );
       }
+      if (!env.teamOrgId) {
+        throw new Error("team and membersOf() need env.teamOrgId — resolve.server.ts must set the teams' org whenever the query joins to a team.");
+      }
       // Untagged items whose primary assignee is on one of `teamIds`, one
-      // clause per project. Every part is two-valued (nn), so NOT is a true
-      // complement for `!=`.
+      // clause per project, as a join through the assignee's membership of
+      // the teams' org (onTeams), current members only. It names teams, never
+      // people, because this where goes to the browser (`POST cql/predicate`).
+      //
+      // A nested filter is outside the scope envelope, so it is held to the
+      // teams in `teamProjects`, which are all in readable projects.
+      //
+      // Every part is two-valued, so NOT is a true complement for `!=` (Prisma
+      // renders `is` as FALSE, not unknown, where there is no assignee). The
+      // `assigneeId` guard says the same thing in a column a board's row
+      // carries, so the browser decides every unassigned item itself; it does
+      // not carry the assignee's memberships, so only assigned, untagged items
+      // go to the server (lib/query/evaluate.ts).
       const derived = (teamIds: Iterable<string>): Where[] => {
         const byProject = new Map<string, Set<string>>();
         for (const id of teamIds) {
-          const r = rosters.get(id);
-          if (!r || r.userIds.length === 0) continue;
-          const users = byProject.get(r.projectId) ?? new Set<string>();
-          for (const u of r.userIds) users.add(u);
-          byProject.set(r.projectId, users);
+          const projectId = teams.get(id);
+          if (!projectId) continue;
+          byProject.set(projectId, (byProject.get(projectId) ?? new Set<string>()).add(id));
         }
         return [...byProject.keys()].sort().map((projectId) =>
-          and({ teamId: null }, { projectId }, nn("assigneeId", { in: [...byProject.get(projectId)!].sort() })),
+          and({ teamId: null }, { projectId }, nn("assigneeId", {}), {
+            assignee: { is: onTeams(env, [...byProject.get(projectId)!].sort()) },
+          }),
         );
       };
-      const anyTeam = derived(rosters.keys());
+      const anyTeam = derived(teams.keys());
       return {
         match: (b) => or(nn("teamId", { in: ids(b) }), ...derived(ids(b))),
         // No team of its own, and nobody on a team in its project is its
@@ -706,16 +837,20 @@ function sysCompiler(id: SystemFieldId, env: CompileEnv): FieldCompiler {
   }
 }
 
-function cfCompiler(key: string, type: CustomFieldType): FieldCompiler {
+function cfCompiler(key: string, type: CustomFieldType, env: CompileEnv): FieldCompiler {
   const at = (f: Omit<Prisma.JsonNullableFilter<"WorkItem">, "path">): Where => ({ customFields: { path: [key], ...f } });
   // Empty: never set (or JSON null), or cleared to "" / []. Checkboxes are
   // never empty; an unset one is false.
   const isEmpty = or(at({ equals: Prisma.AnyNull }), at({ equals: "" }), at({ equals: [] }));
-  const c = cfCompilerOf(type, at);
+  const c = cfCompilerOf(type, at, env);
   return type === "CHECKBOX" ? c : { ...c, isEmpty };
 }
 
-function cfCompilerOf(type: CustomFieldType, at: (f: Omit<Prisma.JsonNullableFilter<"WorkItem">, "path">) => Where): FieldCompiler {
+function cfCompilerOf(
+  type: CustomFieldType,
+  at: (f: Omit<Prisma.JsonNullableFilter<"WorkItem">, "path">) => Where,
+  env: CompileEnv,
+): FieldCompiler {
   switch (type) {
     case "NUMBER":
       return {
@@ -748,7 +883,7 @@ function cfCompilerOf(type: CustomFieldType, at: (f: Omit<Prisma.JsonNullableFil
     case "CHECKBOX":
       return { match: (b) => or(...scalars(b).map((v) => at({ equals: v === true }))), isEmpty: null };
     case "USER":
-      return { match: (b) => or(...ids(b).map((id) => at({ equals: id }))), isEmpty: null };
+      return { match: (b) => or(...people(b, env).map((id) => at({ equals: id }))), isEmpty: null };
     case "TEXT":
     case "URL":
     case "EMAIL":
@@ -783,7 +918,8 @@ type HistoryPlan = { specs: HistorySpec[]; build(idsOf: (spec: HistorySpec) => s
 function historySet(values: CqlValue[], field: FieldRef, env: CompileEnv): HistoryValueSet {
   const b = bind(values, field, env);
   return {
-    values: [...ids(b), ...scalars(b).map(String)],
+    // Activity stores people as ids, so `membersOf()` here takes the people.
+    values: [...people(b, env), ...scalars(b).map(String)],
     ranges: b
       .filter((x): x is Extract<Bound, { k: "time" }> => x.k === "time")
       // A date value means its whole day, as `=` does.
@@ -854,7 +990,7 @@ function historyPlan(n: HistoryLeaf, env: CompileEnv): HistoryPlan {
   const p = n.preds ?? {};
   const win = historyWindow(p, env);
   const timed = !!(win.from || win.to);
-  const by = p.by ? ids(bind(predValues(p.by), HISTORY_BY_FIELD, env)) : undefined;
+  const by = p.by ? people(bind(predValues(p.by), HISTORY_BY_FIELD, env), env) : undefined;
   const window = { ...(win.from ? { gte: win.from } : {}), ...(win.to ? { lt: win.to } : {}) };
   const act = (w: ActivityWhere, opts: { by?: boolean; window?: boolean } = { by: true, window: true }): Where => ({
     activities: {
@@ -930,7 +1066,8 @@ export function historySpecs(where: CqlNode | null | undefined, env: CompileEnv)
       try {
         for (const spec of historyPlan(n, env).specs) out.set(historyKey(spec), spec);
       } catch (e) {
-        if (!(e instanceof Inert)) throw e;
+        // A clause left to the server needs no prefilter in a browser predicate.
+        if (!(e instanceof Inert) && !(e instanceof ServerOnly)) throw e;
       }
     }
   };
@@ -942,7 +1079,7 @@ function compilerFor(field: FieldRef, env: CompileEnv): FieldCompiler {
   if (field.kind === "sys") return sysCompiler(field.id, env);
   const type = env.customFields.get(field.key);
   if (!type) throw new Error(`Unknown custom field ${field.key}`);
-  return cfCompiler(field.key, type);
+  return cfCompiler(field.key, type, env);
 }
 
 function compileLeaf(n: LeafNode, env: CompileEnv): Where {
@@ -986,6 +1123,8 @@ function compileLeaf(n: LeafNode, env: CompileEnv): Where {
     }
   } catch (e) {
     if (e instanceof Inert) return TRUE;
+    // The whole clause, negation and all: NOT of an undecided is undecided.
+    if (e instanceof ServerOnly) return SERVER_ONLY;
     throw e;
   }
 }

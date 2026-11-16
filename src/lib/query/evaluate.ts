@@ -76,6 +76,14 @@ function evalField(key: string, f: unknown, item: Obj): Truth {
     if ("none" in f) return not(or(rows.map((r) => evalWhere(f.none, r))));
     return and(rows.map((r) => evalWhere(f.every, r)));
   }
+  // A to-one relation (`assignee: { is: … }`). Prisma renders `is` as FALSE
+  // where the relation is empty, not unknown. A board row doesn't carry the
+  // relation, so it is UNDECIDED there and the server's ids settle it.
+  if (isObj(f) && "is" in f) {
+    if (Object.keys(f).length !== 1 || !isObj(f.is)) return UNDECIDED;
+    if (value === null) return false;
+    return isObj(value) ? evalWhere(f.is, value) : UNDECIDED;
+  }
   if (!(key in item)) return UNDECIDED;
   if (isObj(f) && "path" in f) return evalJsonPath(f, value);
   return evalScalar(f, value);

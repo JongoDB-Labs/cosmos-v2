@@ -40,7 +40,8 @@ async function main() {
 
   const base = {
     orgId: org.id, projectId: project.id, workItemTypeId: type.id,
-    createdById: creator.userId, assigneeId: creator.id, intervalId: interval.id,
+    // A user id, not the membership's: work_items.assignee_id references users.
+    createdById: creator.userId, assigneeId: creator.userId, intervalId: interval.id,
   };
   const made: Record<string, string> = {};
   let n = 9100;

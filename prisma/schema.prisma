@@ -463,6 +463,7 @@ model User {
   accountDecisions            AccountRequest[]     @relation("AccountRequestDecider")
   ownedDeliverables           Deliverable[]        @relation("DeliverableOwner")
   workItemAssignments         WorkItemAssignee[]
+  primaryAssignedWorkItems    WorkItem[]           @relation("WorkItemPrimaryAssignee")
   workItemWatches             WorkItemWatcher[]
   savedViews                  SavedView[]
   savedViewFavorites          SavedViewFavorite[]
@@ -1083,6 +1084,9 @@ model ProjectMember {
   teamMembers TeamMember[]
 
   @@unique([projectId, orgMemberId])
+  // The hop from an org member to their project memberships (the team join in
+  // lib/query/compile.ts, onTeams): the unique above leads with project_id.
+  @@index([orgMemberId])
   @@map("project_members")
 }
 
@@ -1507,6 +1511,13 @@ model WorkItem {
   workItemType     WorkItemType       @relation(fields: [workItemTypeId], references: [id])
   interval         Interval?          @relation(fields: [intervalId], references: [id])
   team             Team?              @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  /// The primary assignee. A real foreign key since 2.563.0: its migration
+  /// cleared any assignee that named no user, and the next one validated it,
+  /// so every row is checked (a row imported with foreign-key checks off, as
+  /// the cutover does, is not). It exists so a query can join an item to its
+  /// assignee's teams (the `team` field in the query language) instead of
+  /// carrying every member's id. The full assignee set is `assignees`.
+  assignee         User?              @relation("WorkItemPrimaryAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   activities       Activity[]
   comments         Comment[]
   // Prod-parity back-relations (dependency links + attachments).

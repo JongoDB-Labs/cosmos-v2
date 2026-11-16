@@ -62,7 +62,11 @@ export function stableStringify(v: unknown): string {
 
 /** FNV-1a 64-bit as hex. A cache key, not a security boundary. */
 export function hashQuery(q: CqlQuery): string {
-  const s = stableStringify(normalize(q));
+  return hashText(stableStringify(normalize(q)));
+}
+
+/** FNV-1a 64-bit of any text, as hex (hashQuery's hash). A cache key, not a security boundary. */
+export function hashText(s: string): string {
   let h = 0xcbf29ce484222325n;
   for (let i = 0; i < s.length; i++) {
     h ^= BigInt(s.charCodeAt(i));

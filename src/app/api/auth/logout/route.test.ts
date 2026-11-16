@@ -10,6 +10,7 @@ import { NextRequest } from "next/server";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { SKIN_COOKIE } from "@/lib/theme/cookie";
 import { sessionRowId } from "@/lib/auth/session-id";
+import { RETURN_TO_COOKIE } from "@/lib/auth/return-to";
 
 const { prisma } = vi.hoisted(() => ({
   prisma: { session: { delete: vi.fn() } },
@@ -48,5 +49,14 @@ describe("logout — clears the skin cookie (device-level cache)", () => {
     expect(res.status).toBe(303);
     expect(res.cookies.get(SKIN_COOKIE)?.value).toBe("");
     expect(prisma.session.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe("logout — clears a sign-in's kept return address", () => {
+  it("so the next person to sign in on this browser doesn't land on it", async () => {
+    const res = await POST(reqWithCookies(`${SESSION_COOKIE}=sess-123; ${RETURN_TO_COOKIE}=%2Facme%2Fissues`));
+    expect(res.status).toBe(303);
+    expect(res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+    expect(res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
   });
 });

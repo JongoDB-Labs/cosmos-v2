@@ -12,6 +12,9 @@
 // USER ID; `User.email` is not unique, so an email assertion proves nothing.
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { getURLFromRedirectError } from "next/dist/client/components/redirect";
 import crypto from "node:crypto";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
@@ -19,6 +22,7 @@ import { sessionRowId } from "@/lib/auth/session-id";
 import { createTestSession } from "@/lib/testing/sessions";
 import { OAUTH_STATE_COOKIE, SESSION_COOKIE } from "@/lib/auth/client";
 import { CONNECT_COOKIE, connectCookieValue } from "@/lib/auth/connect-sign-in";
+import { RETURN_TO_COOKIE } from "@/lib/auth/return-to";
 
 const keys = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -106,10 +110,10 @@ async function signIn(identity: { sub: string; email: string; email_verified: bo
   const location = new URL(res.headers.get("location") ?? "/", "http://localhost");
   const error = location.searchParams.get("error");
   const sessionId = res.cookies.get(SESSION_COOKIE)?.value;
-  if (!sessionId) return { userId: null as string | null, error, authMethod: null as string | null, location };
+  if (!sessionId) return { userId: null as string | null, error, authMethod: null as string | null, location, res };
   const s = await prisma.session.findUnique({ where: { id: sessionRowId(sessionId) }, select: { userId: true, authMethod: true } });
   if (s) touched.push(s.userId);
-  return { userId: s?.userId ?? null, error, authMethod: s?.authMethod ?? null, location };
+  return { userId: s?.userId ?? null, error, authMethod: s?.authMethod ?? null, location, res };
 }
 
 async function mkUser(email: string, extra: Record<string, unknown> = {}) {
@@ -307,5 +311,80 @@ describe("Connect Google (Profile, Sign-in methods) binds the subject to the sig
     } finally {
       vi.stubEnv("INTERNAL_ADMINS", "");
     }
+  });
+});
+
+describe("Google sign-in lands on the page the sign-in started from", () => {
+  const prebound = () => ({ sub: SUB_PREBOUND, email: preboundEmail, email_verified: true });
+  const kept = (path: string) => `; ${RETURN_TO_COOKIE}=${encodeURIComponent(path)}`;
+
+  it("lands on the page kept at the start, and clears it", async () => {
+    const r = await signIn(prebound(), kept("/acme/issues?view=list"));
+    expect(r.userId).toBe(preboundId);
+    expect(`${r.location.pathname}${r.location.search}`).toBe("/acme/issues?view=list");
+    expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+  });
+
+  it("lands on / when what was kept is not a page on this site", async () => {
+    const r = await signIn(prebound(), kept("//elsewhere.example/acme"));
+    expect(r.userId).toBe(preboundId);
+    expect(r.location.href).toBe("http://localhost/");
+  });
+
+  it("sends a failure it didn't expect to the sign-in page, clears the cookie, and logs no address", async () => {
+    const write = vi
+      .spyOn(prisma.session, "create")
+      .mockRejectedValueOnce(Object.assign(new Error(`session write failed for ${preboundEmail}`), { code: "P1001" }));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await signIn(prebound(), kept("/acme/issues"));
+      // Positive control: the sign-in reached the session write, past every refusal.
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(r.userId).toBeNull();
+      expect(r.location.pathname).toBe("/login");
+      expect(r.error).toBe("auth_failed");
+      expect(r.location.searchParams.get("next")).toBe("/acme/issues");
+      expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+      expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
+      // The one-time state is spent too, as on the failures the handler catches.
+      expect(r.res.cookies.get(OAUTH_STATE_COOKIE)?.value).toBe("");
+      expect(r.res.cookies.get(OAUTH_STATE_COOKIE)?.expires).toEqual(new Date(0));
+      expect(logged).toHaveBeenCalledWith("[auth:google] sign-in failed", { name: "Error", code: "P1001" });
+      expect(JSON.stringify(logged.mock.calls)).not.toContain(preboundEmail);
+    } finally {
+      write.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
+  it("lets Next's own redirect through, rather than reporting it as a failure", async () => {
+    // The session write stands in for any step inside the handler.
+    const write = vi.spyOn(prisma.session, "create").mockImplementationOnce((() => redirect("/elsewhere")) as never);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const thrown = await signIn(prebound(), kept("/acme/issues")).then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(isRedirectError(thrown)).toBe(true);
+      expect(isRedirectError(thrown) && getURLFromRedirectError(thrown)).toBe("/elsewhere");
+      expect(logged).not.toHaveBeenCalledWith("[auth:google] sign-in failed", expect.anything());
+    } finally {
+      write.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
+  it("keeps the page on the sign-in page when the sign-in is refused, and clears the cookie", async () => {
+    // A second Google account for an address already bound to another is refused.
+    const r = await signIn({ sub: `sub-refused-${stamp}`, email: preboundEmail, email_verified: true }, kept("/acme/issues"));
+    expect(r.userId).toBeNull();
+    expect(r.location.pathname).toBe("/login");
+    expect(r.error).toBeTruthy();
+    expect(r.location.searchParams.get("next")).toBe("/acme/issues");
+    // The address travels in the link now; the cookie is spent either way.
+    expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+    expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
   });
 });

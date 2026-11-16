@@ -116,6 +116,18 @@ export function routeSetsOwnCsp(pathname: string): boolean {
 }
 
 /**
+ * On those paths a GET's X-Frame-Options is the route's to choose as well:
+ * the file viewer previews a PDF in a frame, which DENY blocks, so the proxy
+ * leaves it out and serveHeaders (src/lib/files/serve.ts) states it for every
+ * file it serves. This gives every other answer those routes make, a 404 or a
+ * refusal, the DENY every other response gets.
+ */
+export function denyFramingUnlessSet(res: Response): Response {
+  if (!res.headers.has("X-Frame-Options")) res.headers.set("X-Frame-Options", "DENY");
+  return res;
+}
+
+/**
  * Microsoft's hosts that frame Teams tabs: Teams and the new *.cloud.microsoft
  * Teams. Teams only, matching the sign-in, which takes tokens from the Teams
  * clients alone.

@@ -59,6 +59,29 @@ describe("serveHeaders", () => {
   it("ignores a charset the uploader appended", () => {
     expect(serveHeaders("text/html; charset=utf-8", "x.html").get("Content-Security-Policy")).toBe(SANDBOXED_FILE_CSP);
   });
+
+  // The file viewer shows a PDF in a frame on this site ("View original"). The
+  // proxy leaves a stored file's framing to the route, so the route must state
+  // it for every tier: only the PDF may be framed, and only by this site.
+  it("lets this site, and only this site, frame a PDF", () => {
+    for (const h of [serveHeaders("application/pdf", "a.pdf"), serveHeaders(null, "a.pdf")]) {
+      expect(h.get("X-Frame-Options")).toBe("SAMEORIGIN");
+      expect(h.get("Content-Security-Policy")).toBe("frame-ancestors 'self'");
+    }
+  });
+
+  it.each([
+    ["an image", "image/png", "a.png"],
+    ["a video", "video/mp4", "a.mp4"],
+    ["text", "text/csv", "a.csv"],
+    ["a sandboxed page", "text/html", "a.html"],
+    ["a download", "application/zip", "a.zip"],
+    ["something unrecognised", null, "README"],
+  ])("refuses every frame for %s", (_tier, ct, name) => {
+    const h = serveHeaders(ct, name);
+    expect(h.get("X-Frame-Options")).toBe("DENY");
+    expect(h.get("Content-Security-Policy") ?? "").not.toContain("frame-ancestors 'self'");
+  });
 });
 
 describe("renderModeFor", () => {

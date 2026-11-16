@@ -1,4 +1,5 @@
 import { serveHeaders } from "@/lib/files/serve";
+import { denyFramingUnlessSet } from "@/lib/security/headers";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
@@ -19,7 +20,7 @@ type RouteParams = {
  * outside a team-scoped project downloads for them on both. Anything it refuses
  * is the same 404 as a file that does not exist, here as on the org's download.
  */
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+async function serveOriginal(_req: NextRequest, { params }: RouteParams): Promise<Response> {
   try {
     const { orgId, projectId, docId } = await params;
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
@@ -44,4 +45,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (e instanceof ForbiddenError) return new Response("Not found", { status: 404 });
     return handleApiError(e);
   }
+}
+
+/** Framing is this route's to state (routeSetsOwnCsp): a refusal says DENY. */
+export async function GET(req: NextRequest, ctx: RouteParams) {
+  return denyFramingUnlessSet(await serveOriginal(req, ctx));
 }

@@ -12,10 +12,10 @@ import {
   connectCookieValue,
   connectOutcomeUrl,
   readConnectIntent,
-  safeReturnTo,
   sessionHash,
   type ConnectProvider,
 } from "@/lib/auth/connect-sign-in";
+import { safeReturnTo } from "@/lib/auth/return-to";
 import { connectFirstPartyIdentity, type FirstPartyIdentity } from "@/lib/auth/first-party-identity";
 
 const cookieOptions = (maxAge: number) => ({

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { unstable_rethrow } from "next/navigation";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/db/client";
 import { sessionRowId } from "@/lib/auth/session-id";
@@ -20,38 +21,41 @@ import {
 import { resolveFirstPartyUser } from "@/lib/auth/first-party-identity";
 import { getProviderConfig } from "@/lib/auth/provider-config";
 import { getPublicOrigin } from "@/lib/auth/public-url";
+import { unexpectedErrorKind } from "@/lib/auth/unexpected-error";
 import { connectIntent, finishConnect } from "@/lib/auth/connect-flow";
 import { connectOutcomeUrl, CONNECT_COOKIE } from "@/lib/auth/connect-sign-in";
 import { rateLimit, getRateLimitKey } from "@/lib/rate-limit/bucket";
 import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
+import { forgetReturnTo, landingUrl, loginUrl, rememberedReturnTo } from "@/lib/auth/return-to";
 
-function redirectToLogin(origin: string, error: string) {
-  return NextResponse.redirect(
-    new URL(`/login?error=${encodeURIComponent(error)}`, origin),
-  );
+/** Back to the sign-in page with the error, keeping where the sign-in was headed. */
+function redirectToLogin(origin: string, error: string, returnTo: string) {
+  return NextResponse.redirect(loginUrl(origin, { error, returnTo }));
 }
 
-export async function GET(request: NextRequest) {
+async function signInWithMicrosoft(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const origin = getPublicOrigin(request);
+  // The page the sign-in started from (kept by the start route), or "/".
+  const back = rememberedReturnTo(request);
 
   const cfg = await getProviderConfig("microsoft");
   if (!cfg || !cfg.enabled) {
-    return redirectToLogin(origin, "ms_not_configured");
+    return redirectToLogin(origin, "ms_not_configured", back);
   }
 
   const rl = rateLimit(getRateLimitKey(request, "auth.callback"), {
     capacity: 10,
     refillPerSecond: 1,
   });
-  if (!rl.allowed) return redirectToLogin(origin, "rate_limited");
+  if (!rl.allowed) return redirectToLogin(origin, "rate_limited", back);
 
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const cookieState = request.cookies.get(MS_STATE_COOKIE)?.value;
 
   if (!code || !state || !cookieState || state !== cookieState) {
-    const res = redirectToLogin(origin, "invalid_state");
+    const res = redirectToLogin(origin, "invalid_state", back);
     res.cookies.delete(MS_STATE_COOKIE);
     return res;
   }
@@ -68,7 +72,7 @@ export async function GET(request: NextRequest) {
     });
     if (!tokens.id_token) {
       console.error("[auth:microsoft] token exchange returned no id_token");
-      const res = redirectToLogin(origin, "auth_failed");
+      const res = redirectToLogin(origin, "auth_failed", back);
       res.cookies.delete(MS_STATE_COOKIE);
       return res;
     }
@@ -79,7 +83,7 @@ export async function GET(request: NextRequest) {
       "[auth:microsoft] token exchange / id_token check failed:",
       err instanceof Error ? err.message : String(err),
     );
-    const res = redirectToLogin(origin, "auth_failed");
+    const res = redirectToLogin(origin, "auth_failed", back);
     res.cookies.delete(MS_STATE_COOKIE);
     return res;
   }
@@ -92,7 +96,7 @@ export async function GET(request: NextRequest) {
     console.warn("[auth:microsoft] refused: token tenant is not the configured tenant");
     const res = connect
       ? NextResponse.redirect(connectOutcomeUrl(origin, connect.returnTo, { error: "ms_wrong_tenant" }))
-      : redirectToLogin(origin, "ms_wrong_tenant");
+      : redirectToLogin(origin, "ms_wrong_tenant", back);
     res.cookies.delete(MS_STATE_COOKIE);
     res.cookies.delete(CONNECT_COOKIE);
     return res;
@@ -128,7 +132,7 @@ export async function GET(request: NextRequest) {
   });
   if (!resolved.ok) {
     console.warn(`[auth:microsoft] sign-in refused: ${resolved.reason}`);
-    const res = redirectToLogin(origin, resolved.reason);
+    const res = redirectToLogin(origin, resolved.reason, back);
     res.cookies.delete(MS_STATE_COOKIE);
     return res;
   }
@@ -153,7 +157,7 @@ export async function GET(request: NextRequest) {
     data: { id: sessionRowId(token), userId: user.id, expiresAt, authMethod: "microsoft" },
   });
 
-  const response = NextResponse.redirect(new URL("/", origin));
+  const response = NextResponse.redirect(landingUrl(origin, back));
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -163,4 +167,26 @@ export async function GET(request: NextRequest) {
   });
   response.cookies.delete(MS_STATE_COOKIE);
   return response;
+}
+
+/**
+ * Whatever the outcome, the address kept for this sign-in is spent: clear it
+ * (forgetReturnTo). A failure the handler didn't catch goes to the sign-in page
+ * as auth_failed, like the failures it does catch, rather than a bare 500 that
+ * would leave the cookie behind. Next's own control flow (redirect(),
+ * notFound()) is thrown on to Next first (unstable_rethrow): it is not a
+ * failure. Nothing in the handler uses it today; a redirect() added there
+ * would skip this clear, so it must clear the cookie itself.
+ */
+export async function GET(request: NextRequest) {
+  let response: NextResponse;
+  try {
+    response = await signInWithMicrosoft(request);
+  } catch (err) {
+    unstable_rethrow(err);
+    console.error("[auth:microsoft] sign-in failed", unexpectedErrorKind(err));
+    response = redirectToLogin(getPublicOrigin(request), "auth_failed", rememberedReturnTo(request));
+    response.cookies.delete(MS_STATE_COOKIE);
+  }
+  return forgetReturnTo(response);
 }

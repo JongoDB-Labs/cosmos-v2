@@ -44,7 +44,8 @@ async function main() {
     workItemTypeId: type.id,
     createdById: creator.userId,
     columnKey: "backlog",
-    assigneeId: creator.id,
+    // A user id, not the membership's: work_items.assignee_id references users.
+    assigneeId: creator.userId,
   };
   const parent = await prisma.workItem.create({
     data: { ...base, ticketNumber: 9001, title: "PARENT epic in backlog" },
