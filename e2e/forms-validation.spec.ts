@@ -108,14 +108,21 @@ test.describe("forms — FormField validation contract", () => {
 
 /** Open the profile form, empty the required name and submit: returns the error line. */
 async function failSubmit(page: Page) {
-  await page.goto(`/${ORG}/settings/profile`, { waitUntil: "domcontentloaded" });
+  await page.goto(`/${ORG}/settings/profile`);
   await page.waitForSelector("main", { timeout: 20_000 });
   // One field, not the two the page transition briefly shows.
   const name = page.getByLabel(/^Display name/i);
   await expect(name).toHaveCount(1, { timeout: 15_000 });
-  await name.fill("");
-  await page.getByRole("button", { name: /save changes/i }).click();
-  await expect(name).toHaveAttribute("aria-invalid", "true");
+  // The form is server-rendered with the saved name, so it can be typed into
+  // before React hydrates it. Measured: an empty-and-submit in that window
+  // never showed the error, because React still held the saved name. Repeat
+  // until the field reports the failure; a submit that slips through only
+  // saves the name the field already had.
+  await expect(async () => {
+    await name.fill("");
+    await page.getByRole("button", { name: /save changes/i }).click();
+    await expect(name).toHaveAttribute("aria-invalid", "true", { timeout: 1_000 });
+  }).toPass({ timeout: 20_000 });
   const error = page.getByText("Display name is required");
   await expect(error).toBeVisible();
   return error;

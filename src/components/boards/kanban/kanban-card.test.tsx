@@ -194,7 +194,20 @@ describe("KanbanCard click routing (COSMOS-52)", () => {
 // rule "incomplete" for the old card and the new one alike. These tests state
 // the same containment directly, against the name testing-library computes.
 describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", () => {
+  // jsdom applies no Tailwind, so it treats every span as `display: inline`
+  // and joins their words with no space ("5points"). A browser puts a space
+  // around each child that is not inline: the flex rows, the inline-flex
+  // chips, and the sr-only spans, which are absolutely positioned and so
+  // compute to `display: block`. These rules give the test those values.
+  let style: HTMLStyleElement;
+  beforeEach(() => {
+    style = document.createElement("style");
+    style.textContent =
+      ".inline-flex { display: inline-flex; } .flex { display: flex; } .sr-only { position: absolute; display: block; }";
+    document.head.appendChild(style);
+  });
   afterEach(() => {
+    style.remove();
     cleanup();
   });
 
@@ -253,6 +266,9 @@ describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", ()
   it("says what the number and the avatar mean", () => {
     renderCard({ item: FULL, members: [ADA] });
     const { name } = nameAndText();
+    // Positive control: the browser's display values are in force here.
+    const srOnly = document.querySelector(".sr-only");
+    expect(srOnly && getComputedStyle(srOnly).display).toBe("block");
     expect(name).toMatch(/\b5 points\b/);
     expect(name).toMatch(/assigned to Ada Lovelace/);
     // The initial is a picture of the person, not a word to read out.

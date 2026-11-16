@@ -451,9 +451,9 @@
  *     runs, and by default the whole document is captured as `root`, with the
  *     browser's own 250 ms fade. Nothing here asked for that fade: the design
  *     is the `page` fade above. Uncaptured, the sidebar and top bar stay live.
- * The `page` region itself is still captured, so a click inside it in its
- * 180 ms fade is still lost. e2e/page-transition-clicks.spec.ts clicks in
- * that window. */
+ * The `page` region itself is still captured, so a click inside it during its
+ * 180 ms fade is still lost. e2e/page-transition-clicks.spec.ts clicks the
+ * sidebar while a transition runs. */
 :root {
   view-transition-name: none;
 }
