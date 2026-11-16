@@ -75,6 +75,17 @@ describe("TransitionMatrix", () => {
     expect(plain).toHaveAccessibleName("Edit transition Done");
   });
 
+  // A title becomes the description when an aria-label gives the name, so a
+  // title of "Start: has rules" made a screen reader say "has rules" twice.
+  it("says that a transition has rules once", () => {
+    setup();
+    const ruled = screen.getByRole("button", { name: /^Edit transition Start/ });
+    // Positive control: the tooltip is still there.
+    expect(ruled).toHaveAttribute("title");
+    expect(ruled).toHaveAccessibleName("Edit transition Start, has rules");
+    expect(ruled).toHaveAccessibleDescription("Start");
+  });
+
   it("is a table a screen reader can walk, and changes nothing read-only", () => {
     const { onChange } = setup(true);
     expect(screen.getByRole("table", { name: /Allowed moves/ })).toBeInTheDocument();

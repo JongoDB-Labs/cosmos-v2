@@ -226,10 +226,20 @@ describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", ()
   /** Letters and digits only, lowercased: spacing and punctuation don't count. */
   const squash = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
-  /** The card's text minus its aria-hidden parts: what its name is built from. */
+  /**
+   * The only parts of the card that may be hidden from its name, because words
+   * take their place: the avatar ("assigned to …") and the "+N" chip ("1 more
+   * assignee …"). Anything else hidden would drop text the card shows.
+   */
+  const mayHide = (n: Element) =>
+    n.matches('[data-slot="avatar"]') || /^\+\d+$/.test((n.textContent ?? "").trim());
+
+  /** The card's text minus the parts it may hide: what its name must contain. */
   const spokenText = (card: HTMLElement) => {
     const copy = card.cloneNode(true) as HTMLElement;
-    copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+    copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => {
+      if (mayHide(n)) n.remove();
+    });
     return copy.textContent ?? "";
   };
 
@@ -258,6 +268,22 @@ describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", ()
     // only the avatar, which the words "assigned to Ada Lovelace" replace.
     expect(squash(name)).toContain(squash(spoken));
     expect(spoken).toContain("Fix the login");
+    // And directly: the key and the type chip are in the name, not hidden.
+    expect(name).toContain("#42");
+    expect(name).toContain("Story");
+  });
+
+  it("hides nothing that shows text except the avatar and the +N chip", () => {
+    renderCard({
+      item: { ...FULL, assignees: [{ userId: "u-ada" }, { userId: "u-bob" }] } as WorkItem,
+      members: [ADA],
+    });
+    const { card } = nameAndText();
+    const hidden = [...card.querySelectorAll('[aria-hidden="true"]')].filter((n) => (n.textContent ?? "").trim());
+    // Positive control: both allowed parts are rendered and hidden.
+    expect(hidden.some((n) => n.matches('[data-slot="avatar"]'))).toBe(true);
+    expect(hidden.some((n) => (n.textContent ?? "").trim() === "+1")).toBe(true);
+    expect(hidden.filter((n) => !mayHide(n)).map((n) => n.textContent)).toEqual([]);
   });
 
   // The points chip shows a bare number and the avatar shows an initial, so
@@ -273,9 +299,9 @@ describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", ()
     expect(name).toMatch(/assigned to Ada Lovelace/);
     // The initial is a picture of the person, not a word to read out.
     expect(name).not.toMatch(/(^|\s)A(\s|$)/);
-    // The words follow the chips they explain, in reading order.
-    expect(name.indexOf("Story")).toBeLessThan(name.indexOf("5 points"));
-    expect(name.indexOf("5 points")).toBeLessThan(name.indexOf("assigned to"));
+    // The words follow the chips they explain, in reading order. A regex, not
+    // indexOf: indexOf is -1 for a missing word, which is "less than" anything.
+    expect(name).toMatch(/#42 .*Story .*5 points .*assigned to Ada Lovelace/);
   });
 
   it("says one point, not one points", () => {

@@ -519,14 +519,19 @@ function SupervisorCell({
 
   const selected = data?.supervisorIds ?? [];
   const requestedIds = data?.requestedIds ?? [];
+  // The supervisors load only once the row is opened (above), so until then
+  // the value is unknown. The button shows, and says, what it does instead of
+  // a guess: "— none —" here told people who have supervisors they had none.
   const label =
-    selected.length === 0
-      ? "— none —"
-      : selected.length === 1
-        ? nameFor(
-            data?.candidates.find((c) => c.employeeId === selected[0])?.userId ?? "",
-          ) || "1 supervisor"
-        : `${selected.length} supervisors`;
+    data === undefined
+      ? "Edit"
+      : selected.length === 0
+        ? "— none —"
+        : selected.length === 1
+          ? nameFor(
+              data.candidates.find((c) => c.employeeId === selected[0])?.userId ?? "",
+            ) || "1 supervisor"
+          : `${selected.length} supervisors`;
 
   function toggle(employeeId: string, on: boolean) {
     const next = on
@@ -541,9 +546,13 @@ function SupervisorCell({
         type="button"
         // Every row renders one of these, so the accessible name has to carry
         // WHOSE supervisors these are — "Supervisors" alone repeats N times.
-        // And what the button shows, too (WCAG 2.5.3 Label in Name): a name
-        // without the visible "— none —" can't be reached by saying it.
-        aria-label={`Supervisors for ${nameFor(employee.userId)}: ${label}`}
+        // And what the button shows, too (WCAG 2.5.3 Label in Name): "Edit"
+        // until the supervisors load, then who they are.
+        aria-label={
+          data === undefined
+            ? `Edit supervisors for ${nameFor(employee.userId)}`
+            : `Edit supervisors for ${nameFor(employee.userId)}: ${label}`
+        }
         className="h-8 rounded-md border bg-background px-2 text-xs"
         onClick={() => setOpen(true)}
       >

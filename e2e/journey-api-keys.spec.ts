@@ -80,14 +80,19 @@ test.describe("journey — API keys", () => {
       await expect(create).toBeVisible({ timeout: 2_000 });
     }).toPass({ timeout: 30_000 });
     await create.getByLabel("Name").fill(name);
-    // A form people fill in: no serious axe violations. Scanned BEFORE a scope
-    // is ticked, deliberately: a ticked scope's `code` label is 4.29:1 (#64748b
-    // on the ticked row's background, 10px) once its colour transition settles,
-    // below AA's 4.5:1, and is reported as a product defect. A scan right after
-    // ticking passes only because the background is still fading in. When the
-    // contrast is fixed, move this scan below the tick.
+    const read = create.getByRole("checkbox", { name: "Read read", exact: true });
+    await read.check();
+    // A form people fill in: no serious axe violations, with a scope ticked.
+    // A ticked scope's `code` label is the smallest muted text on the darkest
+    // ground in the dialog (10px, on the ticked row's tint). It was 4.29:1
+    // with #64748b; the default skin's muted text is darker now (#5B697E).
+    // The row fades its background in, so the scan waits for that transition
+    // to end: mid-fade, axe would measure a lighter ground and pass early.
+    const row = create.locator("label").filter({ has: read });
+    await expect.poll(() => row.evaluate((el) => el.getAnimations().length), { timeout: 5_000 }).toBe(0);
+    // Positive control: the row really is tinted, so the scan sees the ticked state.
+    expect(await row.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
     expect(blocking(await runAxe(page))).toEqual([]);
-    await create.getByRole("checkbox", { name: "Read read", exact: true }).check();
 
     const minted = page.waitForResponse(
       (r) => r.request().method() === "POST" && r.url().endsWith(`/api/v1/orgs/${id}/api-keys`),
