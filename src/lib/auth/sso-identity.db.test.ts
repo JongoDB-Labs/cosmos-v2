@@ -13,10 +13,10 @@
 // Runs completeSsoLogin and requireSystemAdmin against the real database. The
 // only stand-in is the request cookie store that getCurrentUser reads.
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import crypto from "node:crypto";
 import type { IdpConnection } from "@prisma/client";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 
 const h = vi.hoisted(() => ({ sessionId: null as string | null }));
 vi.mock("next/headers", () => ({
@@ -70,9 +70,7 @@ const isMember = async (orgId: string, userId: string) =>
   Boolean(await prisma.orgMember.findUnique({ where: { orgId_userId: { orgId, userId } }, select: { id: true } }));
 
 async function session(userId: string, extra: Record<string, unknown> = {}) {
-  const id = crypto.randomBytes(16).toString("hex");
-  await prisma.session.create({ data: { id, userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra } });
-  return id;
+  return createTestSession({ userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra });
 }
 
 beforeAll(async () => {
@@ -171,7 +169,7 @@ describe("an IdP links only to accounts its org already holds", () => {
     const r = await login(claims({ subject: `s-multi-${stamp}`, email, emailVerified: true }));
     expect(r.ok && r.userId).toBe(userId);
     if (!r.ok) return;
-    h.sessionId = r.sessionId;
+    h.sessionId = r.token;
     try {
       expect((await getAuthContext(orgA.slug))?.userId).toBe(userId);
       expect(await getAuthContext(orgB.slug)).toBeNull();

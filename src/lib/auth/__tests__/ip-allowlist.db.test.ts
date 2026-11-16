@@ -40,6 +40,7 @@ import path from "node:path";
 import ts from "typescript";
 import { NextRequest } from "next/server";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { getAuthContext } from "@/lib/auth/session";
 import { mintApiKey } from "@/lib/auth/api-key";
 import { securitySettingsFor } from "@/lib/auth/ip-allowlist";
@@ -67,8 +68,7 @@ beforeAll(async () => {
   await prisma.projectMember.create({ data: { projectId, orgMemberId: member.id } });
   await prisma.orgSecuritySettings.create({ data: { orgId: org.id, ipAllowlistEnabled: true } });
   await prisma.ipAllowlist.create({ data: { orgId: org.id, cidr: "198.51.100.0/24" } });
-  sessionId = randomBytes(32).toString("hex");
-  await prisma.session.create({ data: { id: sessionId, userId, expiresAt: new Date(Date.now() + 3_600_000) } });
+  sessionId = await createTestSession({ userId, expiresAt: new Date(Date.now() + 3_600_000) });
   key = (await mintApiKey({ orgId: org.id, name: "allowlist", scopes: ["read"], createdById: userId })).token;
 }, 60_000);
 
@@ -170,8 +170,7 @@ describe("an admin can't lock themselves out", () => {
     lockUser = (await prisma.user.create({ data: { email: `lock-${lockStamp}@allowlist.test`, displayName: "Lock owner" } })).id;
     await prisma.orgMember.create({ data: { orgId: lockOrg.id, userId: lockUser, role: "OWNER" } });
     await prisma.orgSecuritySettings.create({ data: { orgId: lockOrg.id, ipAllowlistEnabled: false } });
-    lockSession = randomBytes(32).toString("hex");
-    await prisma.session.create({ data: { id: lockSession, userId: lockUser, expiresAt: new Date(Date.now() + 3_600_000) } });
+    lockSession = await createTestSession({ userId: lockUser, expiresAt: new Date(Date.now() + 3_600_000) });
   });
   afterAll(async () => {
     await prisma.session.deleteMany({ where: { userId: lockUser } });

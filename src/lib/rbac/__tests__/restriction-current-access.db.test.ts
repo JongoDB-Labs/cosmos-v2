@@ -15,7 +15,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { ReactElement } from "react";
-import { randomBytes } from "node:crypto";
 
 // Vault key for sealing the reset token.
 process.env.SSO_VAULT_KEY = Buffer.alloc(32, 21).toString("base64");
@@ -45,6 +44,7 @@ vi.mock("@/app/(dashboard)/[orgSlug]/team/invite-member-button", () => ({ Invite
 vi.mock("@/app/(dashboard)/[orgSlug]/team/account-request-queue", () => ({ AccountRequestQueue: () => null }));
 
 import { prisma } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { hashPassword } from "@/lib/auth/password";
 import { Permission, maskToDb } from "@/lib/rbac/permissions";
 import { SESSION_COOKIE } from "@/lib/auth/client";
@@ -86,11 +86,8 @@ async function person(role: "OWNER" | "ADMIN" | "MEMBER" | "VIEWER", workRoleId?
 }
 
 async function sessionFor(userId: string) {
-  const id = randomBytes(24).toString("hex");
-  await prisma.session.create({
-    data: { id, userId, expiresAt: new Date(Date.now() + 60 * 60_000), authMethod: "password", mfaSatisfied: true },
-  });
-  return new Headers({ cookie: `${SESSION_COOKIE}=${id}` });
+  const token = await createTestSession({ userId, expiresAt: new Date(Date.now() + 60 * 60_000), authMethod: "password", mfaSatisfied: true });
+  return new Headers({ cookie: `${SESSION_COOKIE}=${token}` });
 }
 
 async function restrict(actions: string[]) {

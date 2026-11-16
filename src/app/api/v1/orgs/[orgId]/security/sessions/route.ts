@@ -6,6 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { HELD_WORK_ROLES, assertCanChangeCurrentAccess, heldBeyondRole } from "@/lib/rbac/grant-ceiling";
 import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { SESSION_COOKIE } from "@/lib/auth/client";
+import { sessionRowId } from "@/lib/auth/session-id";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { SessionStatus } from "@prisma/client";
@@ -34,20 +35,23 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // org-scoped SessionRecord is populated lazily here: record the caller's
     // current session on view so "Active Sessions" reflects reality instead of
     // showing empty while the user is plainly logged in. Idempotent upsert.
-    const currentToken = request.cookies.get(SESSION_COOKIE)?.value ?? null;
-    if (currentToken) {
+    // A record's `sessionToken` holds the Session's row id (`sessionRowId` of
+    // the cookie), never the cookie itself.
+    const cookie = request.cookies.get(SESSION_COOKIE)?.value;
+    const currentRowId = cookie ? sessionRowId(cookie) : null;
+    if (currentRowId) {
       const live = await prisma.session.findUnique({
-        where: { id: currentToken },
+        where: { id: currentRowId },
       });
       if (live && live.expiresAt > new Date()) {
         const ua = request.headers.get("user-agent");
         const ip = getIpAddress(request);
         await prisma.sessionRecord.upsert({
-          where: { sessionToken: currentToken },
+          where: { sessionToken: currentRowId },
           create: {
             orgId,
             userId: ctx.userId,
-            sessionToken: currentToken,
+            sessionToken: currentRowId,
             ipAddress: ip,
             userAgent: ua,
             expiresAt: live.expiresAt,
@@ -80,9 +84,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         expiresAt: true,
         revokedAt: true,
         createdAt: true,
-        // Read only to mark the caller's own row; never sent. It is the value
-        // of that person's sign-in cookie, so anyone who could read it could
-        // be them, in every org they belong to. Revoking takes the record id.
+        // Read only to mark the caller's own row; never sent. It is the
+        // Session's row id, a hash of that person's sign-in cookie: not usable
+        // as the cookie, but nothing a client needs either. Revoking takes the
+        // record id.
         sessionToken: true,
       },
       orderBy: { lastActiveAt: "desc" },
@@ -91,7 +96,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return success(
       sessions.map(({ sessionToken, ...s }) => ({
         ...s,
-        isCurrent: currentToken !== null && sessionToken === currentToken,
+        isCurrent: currentRowId !== null && sessionToken === currentRowId,
       })),
     );
   } catch (error) {
@@ -113,7 +118,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const data = revokeSessionsSchema.parse(body ?? {});
 
     const now = new Date();
-    const currentToken = request.cookies.get(SESSION_COOKIE)?.value ?? null;
+    const cookie = request.cookies.get(SESSION_COOKIE)?.value;
+    const currentRowId = cookie ? sessionRowId(cookie) : null;
 
     // Specific sessions when given; otherwise revoke the caller's OTHER
     // sessions (never this device — that's what Logout is for).
@@ -124,7 +130,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             orgId,
             status: "ACTIVE" as SessionStatus,
             userId: ctx.userId,
-            ...(currentToken ? { sessionToken: { not: currentToken } } : {}),
+            ...(currentRowId ? { sessionToken: { not: currentRowId } } : {}),
           };
 
     // Actually terminate the sessions: delete the global Session rows so the
@@ -155,9 +161,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // holds a role over them, so their session is only marked revoked here
     // (below). Without a membership they get no access here in any case.
     const membersHere = new Set([ctx.userId, ...members.map((m) => m.userId)]);
-    const tokens = targets.filter((t) => membersHere.has(t.userId)).map((t) => t.sessionToken);
-    if (tokens.length > 0) {
-      await prisma.session.deleteMany({ where: { id: { in: tokens } } });
+    // A record's sessionToken is its Session's row id.
+    const rowIds = targets.filter((t) => membersHere.has(t.userId)).map((t) => t.sessionToken);
+    if (rowIds.length > 0) {
+      await prisma.session.deleteMany({ where: { id: { in: rowIds } } });
     }
 
     const result = await prisma.sessionRecord.updateMany({

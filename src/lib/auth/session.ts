@@ -7,6 +7,7 @@ import { isSystemAdmin, type SystemAdminSubject } from "@/lib/internal/access";
 import { admitsAddress, allowlistState } from "@/lib/auth/ip-allowlist";
 import { trustedClientIp } from "@/lib/auth/client-ip";
 import { SESSION_COOKIE } from "./client";
+import { sessionRowId } from "./session-id";
 import { verifyApiKeyHeader } from "./api-key";
 import { classifyBearer } from "./bearer";
 import { orgSessionRefusal } from "./org-session-scope";
@@ -56,10 +57,12 @@ export type SessionUser = {
   idpConnId: string | null;
   amr: string[];
   mfaSatisfied: boolean;
-  /** The authenticating Session's id + sliding-window idle anchor, used by
-   * getAuthContext to enforce the org's session-timeout floor (read here as a
-   * pure value; the throttled write lives in getAuthContext where the policy
-   * is known, so an idle-expired request can't revive its own session). */
+  /** The authenticating Session's row id (`sessionRowId` of the cookie, never
+   * the cookie itself) + sliding-window idle anchor, used by getAuthContext to
+   * enforce the org's session-timeout floor (read here as a pure value; the
+   * throttled write lives in getAuthContext where the policy is known, so an
+   * idle-expired request can't revive its own session). Compare it with
+   * Session rows and delete rows by it; never set it as a cookie. */
   sessionId: string;
   lastActivityAt: Date;
   /** When the session was created, for the org's absolute session-age cap. */
@@ -83,17 +86,20 @@ export type SessionUser = {
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   if (classifyBearer((await headers()).get("authorization")) !== null) return null;
   const cookieStore = await cookies();
-  const sessionId = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!sessionId) return null;
-  return getSessionUser(sessionId);
+  const token = cookieStore.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  return getSessionUser(token);
 });
 
 /**
- * The live session `sessionId` names, as getCurrentUser reads it. For route
- * handlers that hold the cookie on the request (an OAuth callback that must
- * know who is signed in), so they read the same fields the same way.
+ * The live session a sign-in cookie's value (`token`) names, as getCurrentUser
+ * reads it. For route handlers that hold the cookie on the request (an OAuth
+ * callback that must know who is signed in), so they read the same fields the
+ * same way. The row is stored under `sessionRowId(token)`; a row id passed in
+ * here finds nothing.
  */
-export async function getSessionUser(sessionId: string): Promise<SessionUser | null> {
+export async function getSessionUser(token: string): Promise<SessionUser | null> {
+  const sessionId = sessionRowId(token);
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
     select: {
@@ -150,10 +156,11 @@ export async function getSessionUser(sessionId: string): Promise<SessionUser | n
  * (`orgSessionFloors`). The same checks `getAuthContext` makes. For a
  * long-lived connection, the org event stream, which authenticates once and
  * must not outlive its session. Reads only: holding a stream open is not
- * activity, so it never slides the idle window.
+ * activity, so it never slides the idle window. `token` is the session cookie
+ * the stream opened with.
  */
-export async function sessionStillValid(sessionId: string, orgId: string, clientIp: string | null): Promise<boolean> {
-  const user = await getSessionUser(sessionId);
+export async function sessionStillValid(token: string, orgId: string, clientIp: string | null): Promise<boolean> {
+  const user = await getSessionUser(token);
   if (!user) return false;
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true, tenantClass: true } });
   if (!org || (await orgSessionRefusal(user, org))) return false;

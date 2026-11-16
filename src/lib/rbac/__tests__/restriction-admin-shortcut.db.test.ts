@@ -15,6 +15,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { NextRequest } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { maskToDb } from "@/lib/rbac/permissions";
 
 // The request being answered. Each call below sets it first.
@@ -54,11 +55,8 @@ const userIds: string[] = [];
 const as: Record<"ownerSession" | "adminSession" | "ownerKey" | "adminKey", Headers> = {} as never;
 
 async function sessionFor(userId: string) {
-  const id = randomBytes(24).toString("hex");
-  await prisma.session.create({
-    data: { id, userId, expiresAt: new Date(Date.now() + 60 * 60_000), authMethod: "password", mfaSatisfied: true },
-  });
-  return new Headers({ cookie: `${SESSION_COOKIE}=${id}` });
+  const token = await createTestSession({ userId, expiresAt: new Date(Date.now() + 60 * 60_000), authMethod: "password", mfaSatisfied: true });
+  return new Headers({ cookie: `${SESSION_COOKIE}=${token}` });
 }
 
 async function keyFor(userId: string) {

@@ -15,6 +15,8 @@ import { NextRequest } from "next/server";
 import crypto from "node:crypto";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { sessionRowId } from "@/lib/auth/session-id";
+import { createTestSession } from "@/lib/testing/sessions";
 import { OAUTH_STATE_COOKIE, SESSION_COOKIE } from "@/lib/auth/client";
 import { CONNECT_COOKIE, connectCookieValue } from "@/lib/auth/connect-sign-in";
 
@@ -105,7 +107,7 @@ async function signIn(identity: { sub: string; email: string; email_verified: bo
   const error = location.searchParams.get("error");
   const sessionId = res.cookies.get(SESSION_COOKIE)?.value;
   if (!sessionId) return { userId: null as string | null, error, authMethod: null as string | null, location };
-  const s = await prisma.session.findUnique({ where: { id: sessionId }, select: { userId: true, authMethod: true } });
+  const s = await prisma.session.findUnique({ where: { id: sessionRowId(sessionId) }, select: { userId: true, authMethod: true } });
   if (s) touched.push(s.userId);
   return { userId: s?.userId ?? null, error, authMethod: s?.authMethod ?? null, location };
 }
@@ -117,9 +119,8 @@ async function mkUser(email: string, extra: Record<string, unknown> = {}) {
 }
 
 async function sessionFor(userId: string, extra: Record<string, unknown> = {}) {
-  const id = `g-test-${stamp}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({ data: { id, userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra } });
-  return id;
+  const token = `g-test-${stamp}-${Math.random().toString(36).slice(2)}`;
+  return createTestSession({ token, userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra });
 }
 
 const RETURN_TO = "/acme/settings/profile";
