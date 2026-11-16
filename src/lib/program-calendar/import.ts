@@ -97,10 +97,10 @@ const zoneKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 /**
  * Spellings a person writes in a spreadsheet, and the IANA zone each means.
  *
- * This is not politeness: `event-chip.tsx` passes the stored value straight to
- * `Intl.DateTimeFormat({ timeZone })`, which THROWS on an unknown zone. Storing
- * "Eastern (ET)" verbatim — which is what the real export carries — would take
- * the calendar down at render rather than show a wrong time.
+ * This is not politeness. The service refuses a zone `Intl` cannot build, and
+ * a stored one the grid and the chip do not know reads as UTC. Either way
+ * "Eastern (ET)" kept verbatim, which is what the real export carries, would
+ * cost the row or show it at the wrong hour.
  */
 const ZONE_ALIASES: Record<string, string> = {
   eastern: "America/New_York",

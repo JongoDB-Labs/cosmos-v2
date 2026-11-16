@@ -59,15 +59,23 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "Opening and saving a timed event now keeps its date and time in the event’s own time zone, as the form says. Before, the date could move by a day and the time could shift by your computer’s offset.",
+        text: "Opening and saving a timed event now keeps its date and time in the event\u2019s own time zone, as the form says. Before, the date could move by a day and the time could shift by your computer\u2019s offset.",
       },
       {
         kind: "fix",
-        text: "With a project picked, the category counts on the calendar now count that project’s events under the same filters as the calendar, not the whole organization’s.",
+        text: "With a project picked, the category counts on the calendar now count that project\u2019s events under the same filters as the calendar, not the whole organization\u2019s.",
       },
       {
         kind: "fix",
-        text: "If you can see a project but can’t add events to it, a new event now goes on the organization’s calendar and the form says so, instead of failing with an error when you save.",
+        text: "If you can see a project but can\u2019t add events to it, a new event now goes on the organization\u2019s calendar and the form says so, instead of failing with an error when you save.",
+      },
+      {
+        kind: "fix",
+        text: "Saving an event with a time zone the calendar doesn\u2019t recognize is now refused, and the message names the time zone. Before, it was saved, and one such event could stop the calendar from loading for everyone.",
+      },
+      {
+        kind: "fix",
+        text: "The program calendar now marks today, and opens on, your own date. Before, in the evening in a time zone west of UTC, it marked tomorrow, and on the last evening of a month it opened on the next month.",
       },
     ],
   },

@@ -5,7 +5,9 @@
 // silent when it fails. And the project tab, which passes no overlays, must
 // render the calendar it always did.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -564,5 +566,70 @@ describe("the Outlook overlay is the viewer's own calendar, and never silent", (
     await screen.findByText("Program review");
     fireEvent.click(toggle("Outlook"));
     expect(await screen.findByText(/Only the first 500 of your Outlook events in this period are shown/)).toBeTruthy();
+  });
+});
+
+describe("the calendar opens on the reader's today", () => {
+  // 20:00 on Monday 30 Nov in Los Angeles is 04:00 UTC on 1 Dec. Opened then,
+  // the calendar showed December, and "Today" went back to December.
+  const original = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = original;
+  });
+  const windowFrom = () => {
+    const url = vi.mocked(jsonFetch).mock.calls.map(([u]) => String(u)).filter((u) => u.includes("/program-events?")).at(-1)!;
+    return new URL(url, "http://x").searchParams.get("from");
+  };
+
+  it("in a Los Angeles evening on the last day of a month, that month, and Today returns to it", async () => {
+    process.env.TZ = "America/Los_Angeles";
+    expect(new Date(2026, 0, 1).toISOString()).not.toBe("2026-01-01T00:00:00.000Z");
+    vi.setSystemTime(new Date("2026-12-01T04:00:00.000Z"));
+    const user = userEvent.setup();
+    mount(overlays());
+    expect(await screen.findByText("November 2026")).toBeTruthy();
+    await waitFor(() => expect(windowFrom()).toBe("2026-11-01T00:00:00.000Z"));
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("December 2026")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Today" }));
+    expect(await screen.findByText("November 2026")).toBeTruthy();
+  });
+
+  it("the server's HTML does not depend on the server's zone, and hydrating it agrees", async () => {
+    // The server has no reader's date, so it renders the UTC one; the render
+    // that hydrates that HTML must match it, or React throws the HTML away.
+    // The reader's date takes over after.
+    process.env.TZ = "America/Los_Angeles";
+    vi.setSystemTime(new Date("2026-12-01T04:00:00.000Z"));
+    const tree = () => (
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ProgramCalendar orgId="o1" canCreate={false} owners={[]} deliverables={[]} overlays={overlays()} />
+      </QueryClientProvider>
+    );
+    const html = renderToString(tree());
+    expect(html).toContain("December 2026");
+
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    document.body.appendChild(host);
+    const mismatch = vi.fn();
+    const root = await act(async () => hydrateRoot(host, tree(), { onRecoverableError: mismatch }));
+    try {
+      await waitFor(() => expect(host.textContent).toContain("November 2026"));
+      expect(mismatch).not.toHaveBeenCalled();
+    } finally {
+      // Testing Library's cleanup does not know this root; left behind, its
+      // text would answer the next test's queries.
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("control: at the same instant in UTC, it is December", async () => {
+    process.env.TZ = "UTC";
+    vi.setSystemTime(new Date("2026-12-01T04:00:00.000Z"));
+    mount(overlays());
+    expect(await screen.findByText("December 2026")).toBeTruthy();
   });
 });

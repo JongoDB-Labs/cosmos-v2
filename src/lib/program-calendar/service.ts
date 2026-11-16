@@ -7,7 +7,7 @@ import { canManageProject } from "@/lib/rbac/scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { ProblemError } from "@/lib/openapi/problem";
 import { DEFAULT_CATEGORIES } from "./categories";
-import { DRAWN_PAD_MS, drawnRange, normalizeRange, overlaps } from "./time";
+import { DRAWN_PAD_MS, drawnRange, isIanaZone, normalizeRange, overlaps } from "./time";
 
 /**
  * Reading and writing the program calendar.
@@ -261,6 +261,13 @@ function oneOwner(input: EventInput): { ownerTeamId: string | null; ownerMemberI
  */
 async function assertReferencesInOrg(ctx: AuthContext, input: EventInput): Promise<void> {
   const bad = (what: string) => new ProblemError(400, "invalid_request", `Unknown ${what}`);
+
+  // A zone `Intl` cannot build is not a time zone. Stored, it reads as UTC on
+  // the grid and the chip, so the event would show at the wrong hour for
+  // everyone; refused here, the caller is told which value it sent.
+  if (input.timeZone !== undefined && !isIanaZone(input.timeZone)) {
+    throw bad(`time zone ${JSON.stringify(input.timeZone)}`);
+  }
 
   const category = await prisma.eventCategory.findFirst({
     where: { id: input.categoryId, orgId: ctx.orgId, archivedAt: null },

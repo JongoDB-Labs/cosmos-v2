@@ -23,6 +23,16 @@
  *  a single comparison with no off-by-one at the boundary. */
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Today on the READER's calendar, as that date's UTC midnight: the grid's clock
+ * of UTC dates, read off the reader's own wall clock. At 20:00 in Los Angeles
+ * the UTC date is already tomorrow, and an event is drawn on the date it is
+ * held (`drawnRange`), so "today" is the reader's date too.
+ */
+export function localToday(now: Date = new Date()): Date {
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
 /** UTC midnight of the day `d` falls on, read in UTC. */
 export function utcMidnight(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));

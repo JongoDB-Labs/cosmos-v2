@@ -22,3 +22,23 @@ describe("a chip with a spoken kind", () => {
     expect(chip.className.split(/\s+/)).toContain("relative");
   });
 });
+
+describe("a stored time zone Intl does not know", () => {
+  // The routes took any string as a zone, and the chip passed it straight to
+  // Intl, which throws: one such row took the calendar down for every viewer.
+  const at = new Date("2027-01-12T03:00:00.000Z");
+
+  it("reads as UTC, as the grid reads it, instead of throwing", () => {
+    const { container } = render(
+      <EventChip title="Bad zone review" category={CATEGORY} startsAt={at} allDay={false} timeZone="Mars/Olympus_Mons" />,
+    );
+    expect(container.querySelector(".pc-chip")?.textContent).toContain("03:00");
+  });
+
+  it("control: a real zone shows the time on that zone's clock", () => {
+    const { container } = render(
+      <EventChip title="West coast review" category={CATEGORY} startsAt={at} allDay={false} timeZone="America/Los_Angeles" />,
+    );
+    expect(container.querySelector(".pc-chip")?.textContent).toContain("19:00");
+  });
+});

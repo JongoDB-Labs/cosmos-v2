@@ -118,3 +118,41 @@ describe("the hour grid puts a timed event on the day it is held", () => {
     expect(drawnAt("UTC standup")).toEqual({ column: "5", top: `${9.5 * 48}px` });
   });
 });
+
+describe("today is the reader's date, not UTC's", () => {
+  // 20:00 on Monday 16 Nov in Los Angeles is 04:00 UTC on Tuesday the 17th.
+  // Events are drawn on the date they are held, so the today tint must sit on
+  // the reader's 16th, not on UTC's 17th. CI runs in UTC, so the zone is forced.
+  const original = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = original;
+    vi.useRealTimers();
+  });
+  const DAYS = Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(2026, 10, 15 + i)));
+  const LA_EVENING = new Date("2026-11-17T04:00:00.000Z");
+  const todayMark = () => document.querySelector('[aria-current="date"]')?.textContent?.trim();
+
+  it("in a Los Angeles evening, the week and month grids mark the 16th", () => {
+    process.env.TZ = "America/Los_Angeles";
+    expect(new Date(2026, 0, 1).toISOString()).not.toBe("2026-01-01T00:00:00.000Z");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(LA_EVENING);
+
+    render(<TimeGrid days={DAYS} events={[]} />);
+    expect(todayMark()).toMatch(/16$/);
+    cleanup();
+
+    render(
+      <MonthGrid from={new Date(Date.UTC(2026, 10, 1))} to={new Date(Date.UTC(2026, 11, 6))} month={10} events={[]} />,
+    );
+    expect(todayMark()).toBe("16");
+  });
+
+  it("control: at the same instant in UTC, it is already the 17th", () => {
+    process.env.TZ = "UTC";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(LA_EVENING);
+    render(<TimeGrid days={DAYS} events={[]} />);
+    expect(todayMark()).toMatch(/17$/);
+  });
+});

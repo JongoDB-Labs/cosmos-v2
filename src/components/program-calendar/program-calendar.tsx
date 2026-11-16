@@ -12,6 +12,7 @@ import { TimeGrid } from "./time-grid";
 import { EventDialog, type EventDraft } from "./event-dialog";
 import type { ChipCategory } from "./event-chip";
 import { OverlayLegend, OverlayToggles, useOverlayToggles, type OverlayToggleSpec } from "./overlay-toggles";
+import { useToday } from "./use-today";
 import {
   monthGridWindow,
   weekWindow,
@@ -149,7 +150,18 @@ export function ProgramCalendar({
   overlays?: CalendarOverlays;
 }) {
   const [view, setView] = useState<CalendarViewMode>("month");
-  const [anchor, setAnchor] = useState(() => utcMidnight(new Date()));
+  // The day the calendar is on. `null` follows the reader's today, which only
+  // their browser knows (`useToday`): in a Los Angeles evening the UTC date is
+  // already tomorrow, and on a month's last evening the calendar opened on the
+  // next month. The server, and the render that hydrates its HTML, have no
+  // reader's date and use the UTC one, so the two agree; the reader's date
+  // takes over straight after.
+  const [picked, setAnchor] = useState<Date | null>(null);
+  const today = useToday();
+  const anchor = useMemo(
+    () => picked ?? (today === null ? utcMidnight(new Date()) : new Date(today)),
+    [picked, today],
+  );
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedOwners, setSelectedOwners] = useState<string[]>([]);
   const [sort, setSort] = useState<SortKey>("start");
@@ -406,10 +418,11 @@ export function ProgramCalendar({
   });
 
   const step = (dir: 1 | -1) => {
-    setAnchor((a) => {
-      if (view === "month") return new Date(Date.UTC(a.getUTCFullYear(), a.getUTCMonth() + dir, 1));
-      return new Date(a.getTime() + dir * (view === "week" ? 7 : 1) * DAY_MS);
-    });
+    setAnchor(
+      view === "month"
+        ? new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + dir, 1))
+        : new Date(anchor.getTime() + dir * (view === "week" ? 7 : 1) * DAY_MS),
+    );
   };
 
   const label = useMemo(() => {
@@ -484,7 +497,7 @@ export function ProgramCalendar({
         onView={setView}
         onPrev={() => step(-1)}
         onNext={() => step(1)}
-        onToday={() => setAnchor(utcMidnight(new Date()))}
+        onToday={() => setAnchor(null)}
         categories={categories}
         categoryCounts={categoryCounts}
         selectedCategories={selectedCategories}

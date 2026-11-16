@@ -6,7 +6,7 @@ import { EventChip } from "./event-chip";
 import type { CalendarEvent } from "./month-grid";
 import { packWeek } from "@/lib/program-calendar/layout";
 import { DAY_MS, drawnRange, utcMidnight } from "@/lib/program-calendar/time";
-import { useUtcToday } from "./use-utc-today";
+import { useToday } from "./use-today";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -43,7 +43,7 @@ export function TimeGrid({
   // cap here dropped the fourth all-day item on a day without a trace -- and
   // the month view's "+N more" opens THIS view, which then did not show them.
   const band = useMemo(() => packWeek(allDay, from, Number.POSITIVE_INFINITY), [allDay, from]);
-  const today = useUtcToday();
+  const today = useToday();
 
   // Open on the working day, not on midnight.
   //
