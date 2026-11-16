@@ -22,7 +22,7 @@ import { PATCH } from "./[eventId]/route";
 import { createProgramEvent, listCategories } from "@/lib/program-calendar/service";
 
 const stamp = Math.random().toString(36).slice(2, 8);
-let orgId = "", userId = "", catId = "", eventId = "";
+let orgId = "", userId = "", memberId = "", catId = "", eventId = "";
 
 const BOGUS = "Mars/Olympus_Mons";
 const body = (title: string, timeZone: string) => ({
@@ -33,15 +33,16 @@ const post = (data: unknown) =>
   POST(new NextRequest("http://localhost/x", { method: "POST", body: JSON.stringify(data) }), {
     params: Promise.resolve({ orgId }),
   });
-const patch = (data: unknown) =>
+const patchEvent = (id: string, data: unknown) =>
   PATCH(new NextRequest("http://localhost/x", { method: "PATCH", body: JSON.stringify(data) }), {
-    params: Promise.resolve({ orgId, eventId }),
+    params: Promise.resolve({ orgId, eventId: id }),
   });
+const patch = (data: unknown) => patchEvent(eventId, data);
 
 beforeAll(async () => {
   orgId = (await prisma.organization.create({ data: { name: `pctz ${stamp}`, slug: `pctz-${stamp}` } })).id;
   userId = (await prisma.user.create({ data: { email: `pctz-${stamp}@pc.test`, displayName: "Planner" } })).id;
-  await prisma.orgMember.create({ data: { orgId, userId, role: "ADMIN", permissions: "0" } });
+  memberId = (await prisma.orgMember.create({ data: { orgId, userId, role: "ADMIN", permissions: "0" } })).id;
   h.ctx = { userId, orgId, orgRole: "ADMIN", abacRules: [], permissions: -1n, basePermissions: -1n } satisfies AuthContext;
   catId = (await listCategories(orgId))[0].id;
   eventId = (await createProgramEvent(h.ctx as AuthContext, userId, {
@@ -81,5 +82,66 @@ describe("a time zone Intl cannot build is refused, and the refusal names it", (
     expect((await patch(body("Existing review", "Europe/Berlin"))).status).toBe(200);
     const row = await prisma.programEvent.findUniqueOrThrow({ where: { id: eventId }, select: { timeZone: true } });
     expect(row.timeZone).toBe("Europe/Berlin");
+  });
+});
+
+describe("an update leaves alone what it does not send", () => {
+  // PATCH wrote a default for every optional field it was not sent, so a
+  // title change moved the event to New York, cleared its location, owner and
+  // notes, and turned an all-day event into a timed one. Only create defaults.
+  const FULL = {
+    allDay: false, timeZone: "Asia/Kolkata", location: "Room 4", attendees: "Planning team",
+    recurrence: "WEEKLY", customerAttending: true, description: "Agenda", showOnDashboard: true,
+  } as const;
+  const range = { startsAt: "2027-02-12T04:30:00.000Z", endsAt: "2027-02-12T05:30:00.000Z" };
+  let id = "";
+  const stored = () =>
+    prisma.programEvent.findUniqueOrThrow({
+      where: { id },
+      select: {
+        title: true, allDay: true, timeZone: true, location: true, attendees: true, recurrence: true,
+        customerAttending: true, description: true, showOnDashboard: true, ownerMemberId: true,
+      },
+    });
+
+  beforeAll(async () => {
+    id = (await createProgramEvent(h.ctx as AuthContext, userId, {
+      title: "Kolkata standup", categoryId: catId, ...FULL, ownerMemberId: memberId,
+      startsAt: new Date(range.startsAt), endsAt: new Date(range.endsAt),
+    })).id;
+  });
+
+  it("a title change keeps the zone, and every other field it did not send", async () => {
+    const res = await patchEvent(id, { title: "Kolkata standup, renamed", categoryId: catId, allDay: false, ...range });
+    expect(res.status).toBe(200);
+    expect(await stored()).toEqual({ ...FULL, title: "Kolkata standup, renamed", ownerMemberId: memberId });
+  });
+
+  it("an all-day event stays all-day when the update does not say", async () => {
+    const day = (await createProgramEvent(h.ctx as AuthContext, userId, {
+      title: "Offsite", categoryId: catId, allDay: true,
+      startsAt: new Date("2027-02-15T00:00:00.000Z"), endsAt: new Date("2027-02-15T00:00:00.000Z"),
+    })).id;
+    const res = await patchEvent(day, {
+      title: "Offsite, moved", categoryId: catId,
+      startsAt: "2027-02-16T00:00:00.000Z", endsAt: "2027-02-16T00:00:00.000Z",
+    });
+    expect(res.status).toBe(200);
+    const row = await prisma.programEvent.findUniqueOrThrow({ where: { id: day }, select: { allDay: true, startsAt: true, endsAt: true } });
+    expect(row).toEqual({
+      allDay: true, startsAt: new Date("2027-02-16T00:00:00.000Z"), endsAt: new Date("2027-02-17T00:00:00.000Z"),
+    });
+  });
+
+  it("control: what the update does send still changes, null included", async () => {
+    const res = await patchEvent(id, {
+      title: "Kolkata standup, renamed", categoryId: catId, ...range,
+      allDay: false, timeZone: "Europe/Berlin", location: null, ownerMemberId: null, recurrence: "NONE",
+    });
+    expect(res.status).toBe(200);
+    // Only what was sent: whether the rest stayed is the first test's question.
+    expect(await stored()).toMatchObject({
+      timeZone: "Europe/Berlin", location: null, ownerMemberId: null, recurrence: "NONE",
+    });
   });
 });

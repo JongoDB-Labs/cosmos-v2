@@ -235,6 +235,14 @@ export interface EventInput {
   externalId?: string | null;
 }
 
+/**
+ * An update. As `EventInput`, except that `allDay` may be left out too, and
+ * every optional field left out keeps its stored value. Only create fills in
+ * defaults: an update that wrote them moved a renamed event to New York and
+ * cleared its location, owner and notes.
+ */
+export type EventUpdate = Omit<EventInput, "allDay"> & { allDay?: boolean };
+
 /** An event is owned by a team OR a person, never both — two owners means two
  *  lanes and the swimlane view would have to pick one arbitrarily. */
 function oneOwner(input: EventInput): { ownerTeamId: string | null; ownerMemberId: string | null } {
@@ -368,9 +376,11 @@ export async function visibleEvent(ctx: AuthContext, eventId: string) {
   });
 }
 
-export async function updateProgramEvent(ctx: AuthContext, eventId: string, input: EventInput) {
+export async function updateProgramEvent(ctx: AuthContext, eventId: string, update: EventUpdate) {
   const current = await visibleEvent(ctx, eventId);
   if (!current) return null;
+  // Left out, it is what it was: the range below is read the way it is stored.
+  const input: EventInput = { ...update, allDay: update.allDay ?? current.allDay };
 
   // `undefined` means "leave the project alone"; `null` means "move it to
   // org-level". See EventInput.projectId.
@@ -404,15 +414,19 @@ export async function updateProgramEvent(ctx: AuthContext, eventId: string, inpu
       categoryId: input.categoryId,
       ...range,
       allDay: input.allDay,
-      timeZone: input.timeZone ?? "America/New_York",
-      location: input.location ?? null,
-      ...oneOwner(input),
-      attendees: input.attendees ?? "",
-      recurrence: input.recurrence ?? "NONE",
-      deliverableId: input.deliverableId ?? null,
-      customerAttending: input.customerAttending ?? false,
-      description: input.description ?? "",
-      showOnDashboard: input.showOnDashboard ?? false,
+      // A field left out is `undefined`, which Prisma leaves as stored; `null`
+      // still clears a nullable one. No defaults here: those are create's.
+      timeZone: input.timeZone,
+      location: input.location,
+      // The owner is one choice across two columns: sending either side is a
+      // new choice, sending neither keeps the one stored.
+      ...(input.ownerTeamId === undefined && input.ownerMemberId === undefined ? {} : oneOwner(input)),
+      attendees: input.attendees,
+      recurrence: input.recurrence,
+      deliverableId: input.deliverableId,
+      customerAttending: input.customerAttending,
+      description: input.description,
+      showOnDashboard: input.showOnDashboard,
       projectId: nextProjectId,
     },
     select: eventSelect,
