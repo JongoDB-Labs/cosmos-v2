@@ -9,6 +9,7 @@ import fc from "fast-check";
 import { prisma } from "@/lib/db/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { withCqlEnabled } from "../flag";
+import { idsCql } from "../execute.server";
 import { seedWorld, type World } from "./cql-fixture";
 
 const { getAuthContext, limiter } = vi.hoisted(() => ({ getAuthContext: vi.fn(), limiter: { on: false } }));
@@ -119,13 +120,21 @@ describe("CQL routes (e2e DB)", () => {
       await prisma.workItem.deleteMany({ where: { projectId: w.P3.id, ticketNumber: { gte: 30_000 } } });
     }
 
-    // At most 5,000 asked about: more is a 400 that says so. Exactly 5,000 is fine.
+    // At most 5,000 asked about: more is refused as the body is read (the
+    // `among` issue, not the query's), and says so. Exactly 5,000 is fine.
     const uuids = (n: number) => Array.from({ length: n }, () => crypto.randomUUID());
     expect((await ask({ cql: "priority = CRITICAL", among: uuids(5_000) })).status).toBe(200);
     const over = await ask({ cql: "priority = CRITICAL", among: uuids(5_001) });
     expect(over.status).toBe(400);
-    expect(over.text).toContain("CQL_LIMIT");
+    const refused = JSON.parse(over.text) as { code?: string; issues?: { path: unknown[] }[] };
+    expect(refused.code).toBe("invalid_request");
+    expect(refused.issues?.[0]?.path).toEqual(["among"]);
     expect(over.text).toContain("5,000");
+    // idsCql holds the same cap for any caller that skips the route.
+    await expect(idsCql(w.ctx(), { cql: "priority = CRITICAL" }, { among: uuids(5_001) })).rejects.toMatchObject({
+      status: 400,
+      diagnostics: [expect.objectContaining({ code: "CQL_LIMIT" })],
+    });
 
     // Nothing asked about: nothing back. `among` is for the ids-only answer,
     // and holds item ids.

@@ -4,6 +4,7 @@ import { success, readJsonBody } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { executeCql, idsCql } from "@/lib/query/execute.server";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
+import { IDS_ONLY_MAX } from "@/lib/query/ids-limit";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "@/lib/work-items/query/filter";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -24,9 +25,13 @@ const bodySchema = z
     idsOnly: z.boolean().optional(),
     /**
      * With `idsOnly`: only these items are asked about (a board's undecided
-     * rows), at most 5,000 (idsCql refuses more, saying so).
+     * rows), at most 5,000, refused here past that; the board doesn't ask past
+     * it (use-board-query), and idsCql holds the same cap for other callers.
      */
-    among: z.array(z.string().uuid()).optional(),
+    among: z
+      .array(z.string().uuid())
+      .max(IDS_ONLY_MAX, `At most ${IDS_ONLY_MAX.toLocaleString("en-US")} items can be asked about at once.`)
+      .optional(),
   })
   .refine((b) => !b.among || b.idsOnly, { message: "`among` goes with `idsOnly`.", path: ["among"] });
 
@@ -41,7 +46,7 @@ const bodySchema = z
  * `idsOnly: true` → { ids } (at most 5,000; more is a 422 CQL_TOO_BROAD), for a
  * board whose rows can't decide the query themselves (lib/query/evaluate.ts).
  * A board sends `among`, the rows it couldn't decide (at most 5,000; more is a
- * 400 CQL_LIMIT), and gets back the ones that match.
+ * 400), and gets back the ones that match.
  *
  * Invalid CQL → 400 { error: { code: "CQL_INVALID", diagnostics } } with exact
  * positions; a query over budget → 422 CQL_TIMEOUT.

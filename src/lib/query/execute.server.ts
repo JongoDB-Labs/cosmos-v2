@@ -29,6 +29,7 @@ import type { CompileEnv } from "./env";
 import { printCql } from "./print";
 import { CqlError, diag, hasErrors, tooBroad, type CqlDiagnostic, type Span } from "./errors";
 import { isValidTimeZone } from "./dates";
+import { IDS_ONLY_MAX, amongLimitMessage } from "@/lib/query/ids-limit";
 
 export interface CqlInput {
   /** CQL text. Exactly one of `cql` / `query`. */
@@ -345,8 +346,7 @@ export function portableWhere(where: unknown): unknown {
   return JSON.parse(JSON.stringify(where, (_k, v) => (nulls.has(v) ? { $null: nulls.get(v) } : v)));
 }
 
-/** A board's fallback (query design §12.1): ids only, at most this many. */
-export const IDS_ONLY_MAX = 5_000;
+export { IDS_ONLY_MAX };
 
 /**
  * Just the ids a query matches, for a board whose rows can't decide the
@@ -366,11 +366,7 @@ export async function idsCql(
 ): Promise<{ ids: string[] }> {
   const among = opts.among ? [...new Set(opts.among)] : null;
   if (among && among.length > IDS_ONLY_MAX) {
-    const n = (x: number) => x.toLocaleString("en-US");
-    throw new CqlError(
-      [diag("", "CQL_LIMIT", `This board needs the server to check ${n(among.length)} of its items, and it checks at most ${n(IDS_ONLY_MAX)} at a time. Narrow the filter.`)],
-      400,
-    );
+    throw new CqlError([diag("", "CQL_LIMIT", amongLimitMessage(among.length))], 400);
   }
   const prepared = await prepareCql(ctx, input, opts);
   if (prepared.readable.length === 0 || among?.length === 0) return { ids: [] };

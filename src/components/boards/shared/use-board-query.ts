@@ -31,6 +31,7 @@ import { isProgramIncrement } from "@/lib/intervals/pi-lifecycle";
 import type { CqlDiagnostic } from "@/lib/query/errors";
 import type { WorkItemFilter } from "@/lib/work-items/query/filter";
 import { useCqlSchema, useCqlUrlState, useCqlValidate, viewerTimeZone, type CqlClientSchema, type QueryMode } from "@/components/work-items/cql/use-cql";
+import { IDS_ONLY_MAX, amongLimitMessage } from "@/lib/query/ids-limit";
 
 const ref = (field: "project" | "sprint" | "pi", entity: "project" | "interval", id: string, label?: string): CqlNode => ({
   op: "cmp",
@@ -183,6 +184,9 @@ export function useBoardQuery(opts: {
     [undecidedRows],
   );
   const undecided = among.length > 0;
+  // More than the server checks at once: the board says so rather than ask
+  // (the server would refuse it), and leaves those rows out, never a guess.
+  const overCap = among.length > IDS_ONLY_MAX;
 
   const idsQuery = useOrgQueryKey("board-ids", projectId, hash);
   const ids = useQuery({
@@ -192,7 +196,7 @@ export function useBoardQuery(opts: {
         method: "POST",
         body: JSON.stringify({ query: effective, idsOnly: true, among, tz: viewerTimeZone(), contextProjectId: projectId }),
       }),
-    enabled: enabled && undecided,
+    enabled: enabled && undecided && !overCap,
     staleTime: 30_000,
     retry: false,
     // Asked again about the same query (its rows changed), the board keeps
@@ -208,8 +212,8 @@ export function useBoardQuery(opts: {
   // guess.
   const validated = validation.data?.diagnostics;
   const diagnostics = useMemo(
-    () => [...(validated ?? []), ...idsProblem(ids.error)],
-    [validated, ids.error],
+    () => [...(validated ?? []), ...(overCap ? [limitDiagnostic(amongLimitMessage(among.length))] : idsProblem(ids.error))],
+    [validated, ids.error, overCap, among.length],
   );
 
   // The rows on the board, decided once per change of rows, predicate or ids.
@@ -269,15 +273,10 @@ function idsProblem(error: unknown): CqlDiagnostic[] {
   if (Array.isArray(sent) && sent.length > 0) {
     return (sent as CqlDiagnostic[]).map((d) => (d.code === "CQL_TIMEOUT" ? { ...d, message: BOARD_TIMEOUT } : d));
   }
-  return [
-    {
-      code: "CQL_LIMIT",
-      severity: "error",
-      message: "This board couldn't finish filtering: some items need the server, and it didn't answer. Try again.",
-      from: 0,
-      to: 0,
-      line: 1,
-      column: 1,
-    },
-  ];
+  return [limitDiagnostic("This board couldn't finish filtering: some items need the server, and it didn't answer. Try again.")];
+}
+
+/** A board-wide CQL_LIMIT diagnostic, positioned at the start of the bar. */
+function limitDiagnostic(message: string): CqlDiagnostic {
+  return { code: "CQL_LIMIT", severity: "error", message, from: 0, to: 0, line: 1, column: 1 };
 }

@@ -304,6 +304,31 @@ describe("useBoardQuery", () => {
     expect(result.current.keep(ROWS[1])).toBe(false);
   });
 
+  it("with more rows to check than the server takes at once, it says so without asking", async () => {
+    serve();
+    params = new URLSearchParams("cql=watcher%20%3D%20me");
+    predicate = { watchers: { some: { userId: "me" } } };
+    const many = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `r${i}`, orgId: "o1", projectId: "p1", priority: "LOW", archivedAt: null }));
+    const over = renderHook(() => useBoardQuery({ orgId: "o1", projectId: "p1", rows: many(5_001) }), { wrapper });
+    await waitFor(() =>
+      expect(over.result.current.diagnostics).toEqual([
+        {
+          code: "CQL_LIMIT", severity: "error", from: 0, to: 0, line: 1, column: 1,
+          message: "This board needs the server to check 5,001 of its items, and it checks at most 5,000 at a time. Narrow the filter.",
+        },
+      ]),
+    );
+    expect(over.result.current.pending).toBe(false);
+    expect(over.result.current.keep({ id: "r0" })).toBe(false);
+    expect(calls("/work-items/query")).toHaveLength(0);
+    over.unmount();
+    // Positive control: at the cap it asks, once, about all of them.
+    const at = renderHook(() => useBoardQuery({ orgId: "o1", projectId: "p1", rows: many(5_000) }), { wrapper });
+    await waitFor(() => expect(calls("/work-items/query")).toHaveLength(1));
+    expect(JSON.parse(String((calls("/work-items/query")[0][1] as RequestInit).body)).among).toHaveLength(5_000);
+    expect(at.result.current.diagnostics).toEqual([]);
+  });
+
   it("a failure with no reason still says the board couldn't finish, never silently fewer rows", async () => {
     serve();
     const base = vi.mocked(jsonFetch).getMockImplementation()!;
