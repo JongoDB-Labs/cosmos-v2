@@ -7,19 +7,24 @@ import {
 } from "@/lib/auth/provider-config";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { readJsonBody } from "@/lib/api-helpers";
+import { microsoftTrustedDomains, normalizeTrustedDomain } from "@/lib/auth/microsoft";
 
 const PROVIDERS: AuthProvider[] = ["microsoft", "google"];
 
 export async function GET() {
   const me = await requireSystemAdmin();
   if (!me) return new Response("Forbidden", { status: 403 });
-  // Includes the NON-SECRET clientId/tenant so the admin form can prefill; the
-  // sealed clientSecret is never returned. Admin-gated by requireSystemAdmin above.
+  // Includes the NON-SECRET clientId/tenant/trusted domains so the admin form
+  // can prefill; the sealed clientSecret is never returned. Admin-gated by
+  // requireSystemAdmin above.
   const providers: Record<
     string,
-    { configured: boolean; enabled: boolean; clientId: string | null; tenant: string | null }
+    Awaited<ReturnType<typeof getProviderStatus>> & { envTrustedDomains?: string[] }
   > = {};
   for (const p of PROVIDERS) providers[p] = await getProviderStatus(p);
+  // The domains the server's environment adds (MICROSOFT_TRUSTED_DOMAINS), shown
+  // apart because the form can't change them.
+  providers.microsoft.envTrustedDomains = microsoftTrustedDomains();
   return NextResponse.json({ providers });
 }
 
@@ -32,6 +37,8 @@ const putSchema = z
     clientSecret: z.string().max(500).optional(),
     tenant: z.string().max(200).nullable().optional(),
     enabled: z.boolean().optional(),
+    // Microsoft only. Omitted keeps the stored list; [] clears it.
+    trustedDomains: z.array(z.string().max(253)).max(50).optional(),
   })
   // Microsoft REQUIRES a tenant. A blank one falls back to the /common endpoint
   // (see microsoftTenant in lib/auth/microsoft), which single-tenant app
@@ -60,10 +67,24 @@ export async function PUT(request: NextRequest) {
     );
   }
   const { provider, clientId, clientSecret, tenant, enabled } = parsed.data;
+  let trustedDomains: string[] | undefined;
+  if (provider === "microsoft" && parsed.data.trustedDomains) {
+    trustedDomains = [];
+    for (const raw of parsed.data.trustedDomains) {
+      const domain = normalizeTrustedDomain(raw);
+      if (!domain) {
+        return NextResponse.json(
+          { error: `"${raw}" isn't a domain. Enter domains like example.com, without wildcards or addresses.` },
+          { status: 400 },
+        );
+      }
+      if (!trustedDomains.includes(domain)) trustedDomains.push(domain);
+    }
+  }
   try {
     await setProviderConfig(
       provider,
-      { clientId, clientSecret, tenant, enabled },
+      { clientId, clientSecret, tenant, enabled, ...(trustedDomains && { trustedDomains }) },
       me.id,
     );
   } catch (e) {

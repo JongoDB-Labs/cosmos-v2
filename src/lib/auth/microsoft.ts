@@ -208,14 +208,23 @@ const looksLikeAddress = (v: string | null): v is string =>
 
 /**
  * Domains whose Microsoft member accounts the operator trusts for their sign-in
- * name (`preferred_username`): `MICROSOFT_TRUSTED_DOMAINS`, comma-separated.
- * Empty by default, so nothing is trusted that way until the operator says so.
+ * name (`preferred_username`): the list an instance admin keeps in Admin →
+ * Sign-in providers (`configured`), plus `MICROSOFT_TRUSTED_DOMAINS`,
+ * comma-separated. Empty by default, so nothing is trusted that way until the
+ * operator says so in either place.
  */
-export function microsoftTrustedDomains(): string[] {
-  return (process.env.MICROSOFT_TRUSTED_DOMAINS ?? "")
-    .split(",")
-    .map(normalizeDomain)
-    .filter(Boolean);
+export function microsoftTrustedDomains(configured?: readonly string[] | null): string[] {
+  const fromEnv = (process.env.MICROSOFT_TRUSTED_DOMAINS ?? "").split(",");
+  return [...new Set([...(configured ?? []), ...fromEnv].map(normalizeDomain).filter(Boolean))];
+}
+
+/**
+ * A domain an admin may trust, lowercased and without a leading @, or null when
+ * it isn't a plain domain name (a wildcard, an address, a URL, a single label).
+ */
+export function normalizeTrustedDomain(d: string): string | null {
+  const n = normalizeDomain(d);
+  return /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/.test(n) ? n : null;
 }
 
 /**
@@ -227,8 +236,8 @@ export function microsoftTrustedDomains(): string[] {
  *    tenant admin can set to any address, pinned tenant or not.
  *  - `preferred_username` (the sign-in name), only for a member account (not a
  *    guest: `acct` 0 or absent, and no `#EXT#` in the name), not a personal
- *    Microsoft account, and on a domain the operator lists in
- *    MICROSOFT_TRUSTED_DOMAINS. A tenant can only give its members sign-in names
+ *    Microsoft account, and on a domain the operator trusts
+ *    (`microsoftTrustedDomains`). A tenant can only give its members sign-in names
  *    on domains it has verified.
  *  - Graph's `mail`: never.
  * `setupIncomplete` is true when nothing could count because the deployment has
