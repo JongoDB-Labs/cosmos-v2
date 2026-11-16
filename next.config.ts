@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import os from "node:os";
 import bundleAnalyzer from "@next/bundle-analyzer";
 import { legacyRedirectRules } from "./src/lib/nav/legacy-redirects";
 
@@ -18,6 +19,13 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_PRODUCT: process.env.PRODUCT ?? "cosmos",
   },
   cacheComponents: true,
+  // Workers for "Collecting page data" and static generation, each loading the
+  // whole server bundle. Next's default is one per CPU less one, counted on the
+  // host rather than on the build's own share of it, so a large CI host ran 39.
+  // Measured on this app: 39 peaked at 9.7 GB, 8 at 4.0 GB, and 8 were no
+  // slower. Beside the CI job's type check, 39 crossed the job's memory limit
+  // and the type check was killed. See src/lib/__tests__/build-workers.test.ts.
+  experimental: { cpus: Math.max(1, Math.min(8, os.cpus().length - 1)) },
   // Calendar feed URLs carry their secret token in the path (COSMOS-202); keep
   // them out of the dev request log. Dev-only: production builds log no requests.
   logging: { incomingRequests: { ignore: [/\/api\/v1\/calendar\/feeds\//] } },
