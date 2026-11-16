@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.562.4",
+    date: "2026-11-16",
+    title: "Table board item count",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A Table board’s item count now counts the rows it shows. On a board scoped by a query or a saved filter, it counted every item in the project instead, and it now reads, for example, “12 of 140 items”.",
+      },
+    ],
+  },
+  {
     version: "2.562.3",
     date: "2026-11-16",
     title: "Sign-in sessions are stored hashed",
