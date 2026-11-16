@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { NOT_VOIDED } from "@/lib/time/not-voided";
 import { z } from "zod";
@@ -57,7 +57,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const data = billedSchema.parse(await request.json());
+    const data = billedSchema.parse(await readJsonBody(request));
 
     const updated = await prisma.timeEntry.update({
       where: { id: entryId },

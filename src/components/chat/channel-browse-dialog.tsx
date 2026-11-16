@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { LoadError } from "@/components/ui/load-error";
 import { Hash } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 type BrowseChannel = {
   id: string;
@@ -35,7 +36,7 @@ export function ChannelBrowseDialog({ orgId }: { orgId: string }) {
     enabled: open,
     queryFn: async () => {
       const r = await fetch(`/api/v1/orgs/${orgId}/chat/channels/browse`);
-      if (!r.ok) throw new Error("Failed to load");
+      if (!r.ok) throw await fetchErrorOf(r, "Failed to load");
       const j = await r.json();
       return (j.channels ?? []) as BrowseChannel[];
     },
@@ -47,7 +48,7 @@ export function ChannelBrowseDialog({ orgId }: { orgId: string }) {
         `/api/v1/orgs/${orgId}/chat/channels/${channelId}/join`,
         { method: "POST" },
       );
-      if (!r.ok) throw new Error("Couldn't join the channel.");
+      if (!r.ok) throw await fetchErrorOf(r);
       await qc.invalidateQueries({ queryKey: channelsKey });
       await qc.invalidateQueries({ queryKey: browseKey });
     } catch (err) {

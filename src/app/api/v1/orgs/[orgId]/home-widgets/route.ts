@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { isHomeWidgetType } from "@/lib/home/widgets";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_READ);
 
-    const data = createSchema.parse(await request.json());
+    const data = createSchema.parse(await readJsonBody(request));
 
     // Append to the end of the user's current widget list.
     const count = await prisma.homeWidget.count({

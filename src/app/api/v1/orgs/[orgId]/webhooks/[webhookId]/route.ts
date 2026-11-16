@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { refuseProjectScopedKey } from "@/lib/auth/key-gate";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { auditableUrl, webhookUrlSchema } from "@/lib/security/webhook-url";
@@ -99,7 +99,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateWebhookSchema.parse(body);
     const edit = applyEdit(existing, data, ctx.userId);
 
@@ -144,7 +144,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateWebhookSchema.partial().parse(body);
     const edit = applyEdit(existing, data, ctx.userId);
 

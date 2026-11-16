@@ -5,7 +5,7 @@ import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { requireBoardRead } from "@/lib/rbac/board-access";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { canManageProject } from "@/lib/rbac/scope";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // widgets to. Same NotFound for hidden as for missing.
     await requireBoardRead(ctx, projectId, board);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createWidgetSchema.parse(body);
 
     // The same link rule the Link List draws with, so a direct API write cannot

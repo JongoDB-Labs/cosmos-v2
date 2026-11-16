@@ -4,7 +4,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { orgContext } from "@/lib/openapi/org-context";
 import { listProgramEvents as listContract, createProgramEvent as createContract } from "./route.contract";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { EventRecurrence } from "@prisma/client";
 import { listProgramEvents, createProgramEvent, type EventFilters } from "@/lib/program-calendar/service";
 
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext(orgId, createContract);
     requirePermission(ctx, Permission.BOARD_UPDATE);
 
-    const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+    const parsed = bodySchema.safeParse(await readJsonBody(request, { orElse: null }));
     if (!parsed.success) return new Response("Bad request", { status: 400 });
 
     const created = await createProgramEvent(ctx, ctx.userId, {

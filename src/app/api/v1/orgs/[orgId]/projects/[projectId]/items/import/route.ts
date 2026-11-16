@@ -5,7 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { itemImportSchema, ingestItems } from "@/lib/ingest/items";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.ITEM_CREATE);
 
-    const body = itemImportSchema.parse(await request.json());
+    const body = itemImportSchema.parse(await readJsonBody(request));
     const report = await ingestItems({
       orgId,
       projectId,

@@ -29,6 +29,9 @@ export interface Problem {
 
 export const PROBLEM_CONTENT_TYPE = "application/problem+json";
 
+/** The 400's `detail` for a request body that isn't JSON (readJsonBody, parseRequest). */
+export const INVALID_JSON_BODY = "The request body isn't valid JSON.";
+
 export function problemBody(
   status: number,
   code: ProblemCode,

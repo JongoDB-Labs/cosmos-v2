@@ -7,7 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { ingestDocument } from "@/lib/files/ingest";
 import { withUploaders } from "@/lib/files/uploader";
 import { withManageFlags, documentVisibilityWhere } from "@/lib/files/access";
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     let title: string | undefined;
 
     if (req.headers.get("content-type")?.includes("application/json")) {
-      const body = jsonUploadSchema.parse(await req.json());
+      const body = jsonUploadSchema.parse(await readJsonBody(req));
       filename = body.filename;
       contentType = body.contentType;
       // Reject before decoding so we never allocate a huge buffer: ~33.5 MB of

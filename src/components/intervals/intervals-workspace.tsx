@@ -51,6 +51,7 @@ import { nextPlannedSprint } from "@/lib/intervals/carry-forward-target";
 import { formatDateMediumStable } from "@/lib/format/stable-date";
 import { defaultCarryForwardTarget } from "@/lib/intervals/carry-forward-target";
 import { userMaySetStatus } from "@/lib/intervals/pi-lifecycle";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface IntervalReport {
   velocity?: number;
@@ -244,7 +245,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
     setReview(null);
     try {
       const res = await fetch(`${basePath}/intervals/${interval.id}`);
-      if (!res.ok) throw new Error("Failed to load sprint review");
+      if (!res.ok) throw await fetchErrorOf(res);
       const detail = await res.json();
       setReview(
         computeSprintReview({
@@ -271,7 +272,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
     setError(false);
     try {
       const res = await fetch(`${basePath}/intervals`);
-      if (!res.ok) throw new Error("Failed to load intervals");
+      if (!res.ok) throw await fetchErrorOf(res);
       setIntervals(await res.json());
     } catch (err) {
       notifyError(err, "Couldn't load intervals.");
@@ -345,7 +346,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
               intervalKind: kind,
             }),
           });
-      if (!res.ok) throw new Error("Failed to save interval");
+      if (!res.ok) throw await fetchErrorOf(res);
       setOpen(false);
       resetForm();
       await fetchIntervals();
@@ -366,13 +367,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
       });
       // The server names what is actually blocking; do not replace it with a
       // fixed string that outlived the rule it described.
-      if (!res.ok) {
-        const reason = await res
-          .json()
-          .then((b: { error?: string }) => b?.error)
-          .catch(() => undefined);
-        throw new Error(reason ?? "Failed to start interval");
-      }
+      if (!res.ok) throw await fetchErrorOf(res, "Failed to start interval");
       await fetchIntervals();
     } catch (err) {
       notifyError(
@@ -394,7 +389,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ parentId }),
       });
-      if (!res.ok) throw new Error("Failed to update the Program Increment");
+      if (!res.ok) throw await fetchErrorOf(res);
       await fetchIntervals();
     } catch (err) {
       notifyError(err, "Couldn't move the sprint to that Program Increment.");
@@ -426,7 +421,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
             parentId: nextSprintParentId,
           }),
         });
-        if (!createRes.ok) throw new Error("Failed to create the next sprint");
+        if (!createRes.ok) throw await fetchErrorOf(createRes);
         targetId = (await createRes.json()).id as string;
       }
 
@@ -436,7 +431,8 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
         body: JSON.stringify({ status: "ACTIVE" }),
       });
       if (!actRes.ok)
-        throw new Error(
+        throw await fetchErrorOf(
+          actRes,
           nextSprintExistingId
             ? "Couldn't start that sprint — activate it manually."
             : "Created the sprint, but couldn't start it — activate it manually.",
@@ -461,7 +457,7 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ moveIncompleteToIntervalId }),
       });
-      if (!res.ok) throw new Error("Failed to complete interval");
+      if (!res.ok) throw await fetchErrorOf(res);
       setCompleteTarget(null);
       setReview(null);
       await fetchIntervals();
@@ -507,8 +503,8 @@ export function IntervalsWorkspace({ orgId, projectId, projectKey, defaultKind =
     try {
       const res = await fetch(`${basePath}/intervals/${id}`, { method: "DELETE" });
       if (res.status === 409)
-        throw new Error("Active intervals can't be deleted — complete it first.");
-      if (!res.ok) throw new Error("Failed to delete interval");
+        throw await fetchErrorOf(res, "Active intervals can't be deleted — complete it first.");
+      if (!res.ok) throw await fetchErrorOf(res, "Failed to delete interval");
       setDeleteTarget(null);
       await fetchIntervals();
     } catch (err) {

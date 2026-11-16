@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { z } from "zod";
 import { requireAccess } from "@/lib/abac/require-access";
 import { logAudit } from "@/lib/audit";
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireAccess(ctx, "FINANCE_MANAGE");
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createBankAccountSchema.parse(body);
 
     const account = await prisma.bankAccount.create({

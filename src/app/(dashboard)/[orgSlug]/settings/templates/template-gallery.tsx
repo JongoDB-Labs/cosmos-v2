@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Loader2, Trash2, Pencil, Copy, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { Button } from "@/components/ui/button";
@@ -168,7 +168,7 @@ function DeleteDialog({
       );
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(
+        throw new FetchError(res.status, body, 
           (body as { error?: string } | null)?.error ?? "Failed to delete template"
         );
       }

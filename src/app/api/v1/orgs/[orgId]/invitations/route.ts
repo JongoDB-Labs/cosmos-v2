@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, isPermissionSubset, maskFromDb } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { SIGN_IN_METHODS } from "@/lib/auth/invite-credentials";
 import { emailDomainAllowed } from "@/lib/auth/allowed-domains";
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_MEMBERS);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = inviteSchema.parse(body);
     const email = data.email.toLowerCase();
 

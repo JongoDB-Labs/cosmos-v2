@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requireKeyScopes } from "@/lib/auth/key-gate";
 import { requirePermission } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { cqlEmailTitles, cqlEnabled } from "@/lib/query/flag";
 import { patchCqlSettings } from "@/lib/query/route.server";
@@ -55,7 +55,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const body = z
       .strictObject({ enabled: z.boolean().optional(), emailTitles: z.boolean().optional() })
       .refine((b) => b.enabled !== undefined || b.emailTitles !== undefined, "Send enabled or emailTitles")
-      .parse(await request.json());
+      .parse(await readJsonBody(request));
     const patch: Record<string, boolean> = {};
     if (body.enabled !== undefined) patch.enabled = body.enabled;
     if (body.emailTitles !== undefined) patch.emailTitles = body.emailTitles;

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
-import { success, noContent, handleApiError } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { z } from "zod";
 
 const updateNotificationSchema = z.object({
@@ -32,7 +32,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // requirePermission until a policy exists.
     await requireAccess(ctx, "NOTIFICATION_READ", { ownerId: existing.userId });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateNotificationSchema.parse(body);
 
     const updated = await prisma.notification.update({

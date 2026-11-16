@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { MAX_MARKUP_PCT } from "@/lib/finance/markup";
 import { inVisibleProject } from "@/lib/rbac/require-project-read";
 import { assertBillLinks } from "@/lib/payables/links.server";
@@ -51,7 +51,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return new Response("Not found", { status: 404 });
     }
 
-    const patch = patchSchema.parse(await request.json());
+    const patch = patchSchema.parse(await readJsonBody(request));
     await assertBillLinks(ctx, orgId, patch);
     const updated = await updateBill(orgId, billId, patch);
     if (!updated) return new Response("Not found", { status: 404 });

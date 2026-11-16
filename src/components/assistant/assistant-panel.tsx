@@ -47,6 +47,7 @@ import {
   ExternalLink,
   ArrowUpRight,
 } from "lucide-react";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 // =============================================================================
 // Types
@@ -343,7 +344,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ provider: next }),
         });
-        if (!res.ok) throw new Error("Failed to switch provider");
+        if (!res.ok) throw await fetchErrorOf(res);
         setProvider((prev) => (prev ? { ...prev, provider: next } : prev));
       } catch (err) {
         notifyError(err, "Couldn't switch the AI provider.");
@@ -451,7 +452,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
           body: JSON.stringify({ title: "New conversation" }),
         }
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await fetchErrorOf(res);
       const convo = await res.json();
       setConversations((prev) => [convo, ...prev]);
       setActiveId(convo.id);
@@ -474,7 +475,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
             body: JSON.stringify({ archived: true }),
           }
         );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw await fetchErrorOf(res);
         setConversations((prev) => prev.filter((c) => c.id !== id));
         if (activeId === id) {
           setActiveId(null);
@@ -496,7 +497,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
           `/api/v1/orgs/${orgId}/assistant/conversations/${id}`,
           { method: "DELETE" }
         );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw await fetchErrorOf(res);
         setConversations((prev) => prev.filter((c) => c.id !== id));
         if (activeId === id) {
           setActiveId(null);
@@ -606,7 +607,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
           // Don't silently swallow — the input is preserved, but tell the user
           // why nothing happened so they can retry.
           notifyError(
-            new Error(`HTTP ${res.status}`),
+            await fetchErrorOf(res),
             "Couldn't start a conversation. Please try again.",
           );
           return;
@@ -687,7 +688,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
 
       if (!res.ok) {
         // Let the catch below remove the pending bubble and toast the error.
-        throw new Error(`HTTP ${res.status}`);
+        throw await fetchErrorOf(res);
       }
       if (!res.body) {
         // OK but non-streaming: use the JSON payload directly.

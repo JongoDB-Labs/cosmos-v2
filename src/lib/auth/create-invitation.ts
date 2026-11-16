@@ -10,6 +10,7 @@ import {
 import { provisionEmailPasswordInvite, type SignInMethod } from "@/lib/auth/invite-credentials";
 import type { Invitation, OrgRole } from "@prisma/client";
 import { escapeLike } from "@/lib/query/like";
+import { retainedGrantsFor } from "@/lib/members/add-member.server";
 
 export const ALREADY_A_MEMBER = "User is already a member";
 
@@ -86,9 +87,14 @@ export async function createOrgInvitation(
   // The same rule (grant-ceiling.ts) guards the members routes. It lives here,
   // not in a route, so both the invitations endpoint and account-request
   // approval are covered by one copy.
+  //
+  // Inviting back someone who was removed reinstates their membership when
+  // they accept, with its stored override and work roles, so those count as
+  // granted too, as when an admin re-adds them from the members list.
   assertCanGrantOrgRole(
     { orgRole: p.actorOrgRole, basePermissions: p.actorBasePermissions },
     p.role,
+    await retainedGrantsFor(p.orgId, email),
   );
 
   // The org's email-domain restriction, enforced for EVERY way an account is

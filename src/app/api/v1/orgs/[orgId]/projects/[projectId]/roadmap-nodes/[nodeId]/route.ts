@@ -6,7 +6,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; nodeId: string }>;
@@ -64,7 +64,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const existing = await loadNode(orgId, projectId, nodeId);
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const data = updateSchema.parse(await request.json());
+    const data = updateSchema.parse(await readJsonBody(request));
     const updated = await prisma.roadmapNode.update({
       where: { id: existing.id },
       data: {

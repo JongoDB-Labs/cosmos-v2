@@ -11,6 +11,7 @@ import {
   created,
   handleApiError,
   getIpAddress,
+  readJsonBody,
 } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!conversation) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = sendMessageSchema.parse(body);
 
     // Resolve the model: honor the per-request value when it's in our

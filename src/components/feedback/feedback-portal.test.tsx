@@ -51,6 +51,7 @@ vi.mock("@/lib/query/json-fetcher", () => ({
 
 import { FeedbackPortal } from "./feedback-portal";
 import { PermissionsProvider } from "@/components/providers/permissions-provider";
+import { RolePermissions, permissionNames } from "@/lib/rbac/permissions";
 
 const FR = {
   id: "fr-1",
@@ -353,13 +354,15 @@ describe("FeedbackPortal — edit/delete permissions (COSMOS-49)", () => {
   });
 
   // Render the portal with the current user in a given org role. A real
-  // PermissionsProvider (role → bitfield) drives `can(ORG_UPDATE)`; the pathname
+  // PermissionsProvider (the role's keys → bitfield) drives `can(ORG_UPDATE)`; the pathname
   // slug "test-org" is already mocked above so the provider resolves the org.
   const renderWithRole = (role: string, items: unknown[]) => {
     vi.stubGlobal("fetch", stubFetch(items));
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
-      <PermissionsProvider orgs={[{ id: "org-1", slug: "test-org", role }]}>
+      <PermissionsProvider
+        orgs={[{ id: "org-1", slug: "test-org", role, permissions: permissionNames(RolePermissions[role as keyof typeof RolePermissions]) }]}
+      >
         <QueryClientProvider client={qc}>
           <FeedbackPortal orgId="org-1" />
         </QueryClientProvider>

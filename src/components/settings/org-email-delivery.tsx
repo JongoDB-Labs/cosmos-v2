@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { notifyError } from "@/lib/errors/notify";
+import { FetchError } from "@/lib/query/json-fetcher";
 
 /**
  * Org-settings control for per-org transactional email (Resend) delivery.
@@ -111,7 +112,7 @@ export function OrgEmailDelivery({
           error?: string;
           issues?: Array<{ message?: string }>;
         };
-        throw new Error(j.issues?.[0]?.message ?? j.error ?? "Couldn't save email settings.");
+        throw new FetchError(res.status, j, j.issues?.[0]?.message ?? j.error ?? "Couldn't save email settings.");
       }
       toast.success("Email delivery settings saved.");
       setApiKey(""); // never keep the secret in state after a successful save
@@ -132,7 +133,7 @@ export function OrgEmailDelivery({
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't send the test email.");
+        throw new FetchError(res.status, j, j.error ?? "Couldn't send the test email.");
       }
       const body = (await res.json()) as { ok: boolean; error?: string };
       setTestResult(body);

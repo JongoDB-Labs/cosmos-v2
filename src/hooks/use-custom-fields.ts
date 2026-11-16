@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import type { CustomField } from "@/types/models";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 /**
  * Load the custom-field DEFINITIONS that apply to a given project.
@@ -23,7 +24,7 @@ export function useCustomFields(orgId: string, projectId: string | undefined) {
     queryKey: key,
     queryFn: async (): Promise<CustomField[]> => {
       const res = await fetch(`/api/v1/orgs/${orgId}/custom-fields`);
-      if (!res.ok) throw new Error("Failed to load custom fields");
+      if (!res.ok) throw await fetchErrorOf(res, "Failed to load custom fields");
       const json = await res.json();
       const list: CustomField[] = Array.isArray(json) ? json : json.data ?? [];
       return list;

@@ -7,7 +7,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 import { approvalAuthority } from "@/lib/time/approval";
 import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { safeAutoPost, postExpenseToLedger } from "@/lib/ledger/auto-post";
 import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.EXPENSE_APPROVE);
 
-    const { expenseIds } = bulkSchema.parse(await request.json());
+    const { expenseIds } = bulkSchema.parse(await readJsonBody(request));
     // An expense of a project the approver can't see is skipped, like a missing id.
     const visible = await visibleProjectRecordsWhere(ctx);
 

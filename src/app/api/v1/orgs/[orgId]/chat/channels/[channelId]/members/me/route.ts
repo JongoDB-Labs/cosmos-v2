@@ -2,7 +2,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { z } from "zod";
 
 type RouteParams = { params: Promise<{ orgId: string; channelId: string }> };
@@ -25,7 +25,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const parsed = schema.safeParse(await req.json().catch(() => null));
+    const parsed = schema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     // Ensure the channel belongs to the right org before letting the user mutate their membership.

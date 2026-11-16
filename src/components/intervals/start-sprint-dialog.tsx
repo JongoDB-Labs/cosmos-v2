@@ -25,6 +25,7 @@ import {
   unitNoun,
   isOverCommitted,
 } from "@/lib/intervals/sprint-planning";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface PlanningData {
   unit: CapacityUnit;
@@ -84,7 +85,7 @@ export function StartSprintDialog({
     setLoading(true);
     try {
       const res = await fetch(`${basePath}/planning`);
-      if (!res.ok) throw new Error("Failed to load planning data");
+      if (!res.ok) throw await fetchErrorOf(res);
       const data: PlanningData = await res.json();
       setPlan(data);
       setGoal((g) => g || data.goal);
@@ -151,7 +152,7 @@ export function StartSprintDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entries }),
       });
-      if (!capRes.ok) throw new Error("Failed to save capacity");
+      if (!capRes.ok) throw await fetchErrorOf(capRes, "Failed to save capacity");
 
       // 2. Persist the goal (if changed) and activate the sprint in one PUT.
       const goalChanged = goal.trim() !== (interval.goal ?? "").trim();
@@ -167,13 +168,7 @@ export function StartSprintDialog({
       // sprint, or the fact that a Program Increment is never started by hand —
       // and a fixed string here would replace that with something less useful
       // and, since the PI rule changed, sometimes simply wrong.
-      if (!res.ok) {
-        const reason = await res
-          .json()
-          .then((b: { error?: string }) => b?.error)
-          .catch(() => undefined);
-        throw new Error(reason ?? "Failed to start sprint");
-      }
+      if (!res.ok) throw await fetchErrorOf(res, "Failed to start sprint");
 
       onStarted();
     } catch (err) {

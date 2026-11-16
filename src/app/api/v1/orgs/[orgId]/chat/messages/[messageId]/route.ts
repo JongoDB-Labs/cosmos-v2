@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, noContent, handleApiError } from "@/lib/api-helpers";
-import { canDeleteMessageGiven, loadChannelAndMembership } from "@/lib/chat/access";
+import { success, noContent, handleApiError, readJsonBody } from "@/lib/api-helpers";
+import { canDeleteMessageGiven, channelProjectVisible, loadChannelAndMembership } from "@/lib/chat/access";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
@@ -34,16 +34,18 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         channelId: true,
         authorId: true,
         deletedAt: true,
-        channel: { select: { orgId: true } },
+        channel: { select: { orgId: true, projectId: true } },
       },
     });
-    if (!message || message.channel.orgId !== orgId) {
+    // A channel under a project the caller can't see is missing to them, so an
+    // author who has lost the project can't edit what they wrote there either.
+    if (!message || message.channel.orgId !== orgId || !(await channelProjectVisible(ctx, message.channel.projectId))) {
       return new Response("Not found", { status: 404 });
     }
     if (message.deletedAt) return new Response("Gone", { status: 410 });
     if (message.authorId !== ctx.userId) return new Response("Forbidden", { status: 403 });
 
-    const parsed = editSchema.safeParse(await req.json().catch(() => null));
+    const parsed = editSchema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     const now = new Date();
@@ -94,12 +96,13 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     }
     if (message.deletedAt) return noContent();
 
-    const { channel, member } = await loadChannelAndMembership(message.channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, message.channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (
       !canDeleteMessageGiven({
         authorId: message.authorId,
         viewerId: ctx.userId,
+        channel,
         channelMember: member,
         orgRole: ctx.orgRole,
         roleCounts: roleCountsFor(ctx, Permission.CHAT_USE),

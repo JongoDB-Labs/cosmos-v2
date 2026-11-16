@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { updateTaxRate, deleteTaxRate } from "@/lib/tax/service";
 import { taxRateUpdateSchema } from "@/lib/tax/validation";
 import { logAudit } from "@/lib/audit";
@@ -24,7 +24,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const { orgId, taxRateId } = await params;
     const ctx = await gate(orgId);
     if (ctx instanceof Response) return ctx;
-    const input = taxRateUpdateSchema.parse(await request.json());
+    const input = taxRateUpdateSchema.parse(await readJsonBody(request));
     const rate = await updateTaxRate(orgId, taxRateId, input);
     await logAudit({
       orgId,

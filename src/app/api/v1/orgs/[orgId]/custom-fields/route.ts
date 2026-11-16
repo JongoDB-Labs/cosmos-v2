@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { FieldType } from "@prisma/client";
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.CUSTOM_FIELD_MANAGE);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createFieldSchema.parse(body);
     // A project's field is part of that project.
     await requireProjectVisibleIf(ctx, data.projectId);

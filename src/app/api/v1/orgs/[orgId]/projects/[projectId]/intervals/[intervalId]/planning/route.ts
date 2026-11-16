@@ -60,7 +60,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       const team = await prisma.team.findFirst({
         where: { id: teamId, projectId },
         select: {
+          // Current members only: a removed person is on no team (the team
+          // rule, lib/teams/item-team.server.ts), and a nested relation load
+          // does not pass through the removed-member extension.
           members: {
+            where: { projectMember: { orgMember: { removedAt: null } } },
             select: {
               projectMember: { select: { orgMember: { select: { userId: true } } } },
             },

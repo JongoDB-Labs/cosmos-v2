@@ -10,7 +10,7 @@ import {
   maskFromDb,
 } from "@/lib/rbac/permissions";
 import { currentWorkRoleRefusal } from "@/lib/rbac/grant-ceiling";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { toWorkRoleDto, workRoleUpdateSchema } from "@/lib/rbac/work-role";
 import { Prisma } from "@prisma/client";
@@ -27,7 +27,8 @@ const OVER_CEILING = () =>
 async function load(orgId: string, roleId: string) {
   return prisma.workRole.findFirst({
     where: { id: roleId, orgId },
-    include: { _count: { select: { members: true } } },
+    // Current holders only; a relation count bypasses the removed-member extension.
+    include: { _count: { select: { members: { where: { orgMember: { removedAt: null } } } } } },
   });
 }
 
@@ -76,7 +77,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // Counted without the org's restrictions; new grants below stay strict.
     if (currentWorkRoleRefusal(ctx, maskFromDb(existing.grants))) return OVER_CEILING();
 
-    const data = workRoleUpdateSchema.parse(await request.json());
+    const data = workRoleUpdateSchema.parse(await readJsonBody(request));
 
     if (data.name !== undefined) {
       // Same case-insensitive uniqueness POST enforces on create — a rename

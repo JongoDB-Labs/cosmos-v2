@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { approvalAuthority } from "@/lib/time/approval";
 import { isManagerOf, hasManager } from "@/lib/time/timesheet-actions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { totalHours } from "@/lib/time/time-off";
 import { roleCountsFor } from "@/lib/rbac/key-role";
@@ -60,7 +60,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // key needs TIME_CREATE (time:write), so time:read stays read-only.
     requireKeyMay(ctx, "TIME_CREATE", "TIME_READ");
 
-    const body = patchSchema.parse(await req.json());
+    const body = patchSchema.parse(await readJsonBody(req));
 
     const existing = await prisma.timeOffRequest.findFirst({
       where: { id: requestId, orgId },

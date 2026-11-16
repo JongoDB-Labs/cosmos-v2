@@ -7,7 +7,7 @@ import { Users, Plus, X, Trash2, Loader2, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf, FetchError } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import {
@@ -101,7 +101,7 @@ export function ProjectTeamsSection({
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         // 409 carries a real message ("a team with that name already exists");
         // surfacing it beats a generic failure the user cannot act on.
-        throw new Error(j.error ?? "Couldn't create the team.");
+        throw new FetchError(res.status, j, j.error ?? "Couldn't create the team.");
       }
       setNewName("");
       await refetchTeams();
@@ -123,7 +123,7 @@ export function ProjectTeamsSection({
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't add them to the team.");
+        throw new FetchError(res.status, j, j.error ?? "Couldn't add them to the team.");
       }
       setAddingTo(null);
       await refetchTeams();
@@ -141,7 +141,7 @@ export function ProjectTeamsSection({
         `${base}/${teamId}?projectMemberId=${encodeURIComponent(projectMemberId)}`,
         { method: "DELETE" },
       );
-      if (!res.ok) throw new Error("Couldn't remove them from the team.");
+      if (!res.ok) throw await fetchErrorOf(res);
       await refetchTeams();
     } catch (err) {
       notifyError(err, "Couldn't remove them from the team.");
@@ -154,7 +154,7 @@ export function ProjectTeamsSection({
     setBusy(true);
     try {
       const res = await fetch(`${base}/${teamId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Couldn't delete the team.");
+      if (!res.ok) throw await fetchErrorOf(res);
       await refetchTeams();
       toast.success(`Deleted ${name}.`);
     } catch (err) {

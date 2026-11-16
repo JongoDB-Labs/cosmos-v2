@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { handleApiError } from "@/lib/api-helpers";
+import { handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { checkForUpdates, resolveUpdateConfig } from "@/lib/updates/check";
 import { listTags, resolveDigest } from "@/lib/updates/registry";
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     const user = await requireSystemAdmin();
     if (!user) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+    const parsed = bodySchema.safeParse(await readJsonBody(request, { orElse: null }));
     if (!parsed.success) {
       return NextResponse.json({ error: "A release version is required, as MAJOR.MINOR.PATCH." }, { status: 400 });
     }

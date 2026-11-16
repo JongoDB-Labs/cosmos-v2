@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { seedSectorFields } from "@/lib/custom-fields/seed-sector-fields";
 import { SECTOR_FIELD_SECTORS } from "@/lib/custom-fields/sector-field-templates";
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.CUSTOM_FIELD_MANAGE);
 
-    const { sector } = bodySchema.parse(await request.json());
+    const { sector } = bodySchema.parse(await readJsonBody(request));
     const result = await seedSectorFields(orgId, sector);
 
     await logAudit({

@@ -6,7 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { hasPermission } from "@/lib/rbac/permissions";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
 import { visibleProjectRecordsWhere } from "@/lib/rbac/project-access";
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const data = createSchema.parse(await request.json());
+    const data = createSchema.parse(await readJsonBody(request));
 
     // A provided projectId must belong to THIS org and be a live (non-archived)
     // project — cross-org / archived / bogus ids are a 400, not a silent drop.

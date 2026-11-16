@@ -1,7 +1,7 @@
 /**
  * What a committed work-item change sets off: re-embedding, the audit line,
- * the live-update event, the linked feedback's status, the new assignee's
- * notification and the Teams "completed" message.
+ * the live-update event, the linked feedback's status, the new assignees'
+ * notifications and the Teams "completed" message.
  *
  * These used to run inline in the PUT route only, so a bulk move or an
  * assistant edit skipped most of them. `applyWorkItemChange` now describes each
@@ -28,8 +28,10 @@ const TEAMS_LISTED = 10;
 export interface ChangedItem {
   id: string;
   ticketNumber: number;
-  before: { title: string; columnKey: string; assigneeId: string | null; completedAt: Date | null };
+  before: { title: string; columnKey: string; completedAt: Date | null };
   after: { title: string; description: string; columnKey: string; completedAt: Date | null };
+  /** People the change put on the item who weren't assigned to it before, in set order. */
+  assigned: string[];
 }
 
 export interface AfterCommitEffects {
@@ -43,8 +45,6 @@ export interface AfterCommitEffects {
   textChanged: boolean;
   /** The change named a status (moved or not). */
   columnTouched: boolean;
-  /** The single assignee the change named, if it named one. */
-  assigneeId: string | null | undefined;
   items: ChangedItem[];
   /** Refusals the workflow went past: forced by an override, or only recorded in shadow mode. */
   workflow?: { forced: Denial[]; shadow: Denial[] };
@@ -154,31 +154,29 @@ export async function runAfterCommit(
     if (moved.length > 0) await syncFeedbackForWorkItems(moved);
   }
 
-  // Notify the new assignee, unless they assigned themselves.
-  const assigneeId = effects.assigneeId;
-  if (assigneeId && assigneeId !== actorId) {
-    const notified = items.filter((i) => i.before.assigneeId !== assigneeId);
-    if (notified.length > 0) {
-      const [actor, org] = await Promise.all([
-        prisma.user.findUnique({ where: { id: actorId }, select: { displayName: true, email: true } }).catch(() => null),
-        prisma.organization.findUnique({ where: { id: orgId }, select: { slug: true } }).catch(() => null),
-      ]);
-      const actorName = actor?.displayName || actor?.email || "Someone";
-      for (const item of notified) {
-        const itemLabel = item.ticketNumber ? `#${item.ticketNumber} ${item.before.title}` : item.before.title;
-        await createNotification({
-          orgId,
-          userId: assigneeId,
-          type: "work_item.assigned",
-          title: `Assigned: ${itemLabel}`,
-          message: `${actorName} assigned you a work item`,
-          relatedType: "work_item",
-          relatedId: item.id,
-          url: `/${org?.slug ?? ""}/work-items?item=${item.id}`,
-        }).catch(() => {
-          /* notification is convenience, not load-bearing */
-        });
-      }
+  // Tell everyone the change newly assigned (one assignee or a whole set, on
+  // each item), unless they assigned themselves.
+  const notices = items.flatMap((item) => item.assigned.filter((userId) => userId !== actorId).map((userId) => ({ item, userId })));
+  if (notices.length > 0) {
+    const [actor, org] = await Promise.all([
+      prisma.user.findUnique({ where: { id: actorId }, select: { displayName: true, email: true } }).catch(() => null),
+      prisma.organization.findUnique({ where: { id: orgId }, select: { slug: true } }).catch(() => null),
+    ]);
+    const actorName = actor?.displayName || actor?.email || "Someone";
+    for (const { item, userId } of notices) {
+      const itemLabel = item.ticketNumber ? `#${item.ticketNumber} ${item.before.title}` : item.before.title;
+      await createNotification({
+        orgId,
+        userId,
+        type: "work_item.assigned",
+        title: `Assigned: ${itemLabel}`,
+        message: `${actorName} assigned you a work item`,
+        relatedType: "work_item",
+        relatedId: item.id,
+        url: `/${org?.slug ?? ""}/work-items?item=${item.id}`,
+      }).catch(() => {
+        /* notification is convenience, not load-bearing */
+      });
     }
   }
 

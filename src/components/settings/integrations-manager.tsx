@@ -49,7 +49,7 @@ import {
 } from "@/lib/integrations/registry";
 import { filterProviders, groupByCategory } from "@/lib/integrations/filter";
 import { useOrgQueryKey } from "@/lib/query/keys";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface AvailableProvider {
   slug: string;
@@ -211,7 +211,7 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
           config: formConfig,
         }),
       });
-      if (!res.ok) throw new Error("Couldn't install the integration.");
+      if (!res.ok) throw await fetchErrorOf(res);
       setInstallDialogOpen(false);
       refresh();
     } catch (err) {
@@ -233,7 +233,7 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
           config: formConfig,
         }),
       });
-      if (!res.ok) throw new Error("Couldn't save the configuration.");
+      if (!res.ok) throw await fetchErrorOf(res);
       setConfigDialogOpen(false);
       refresh();
     } catch (err) {
@@ -251,7 +251,7 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
-      if (!res.ok) throw new Error("Couldn't change the integration status.");
+      if (!res.ok) throw await fetchErrorOf(res);
       refresh();
     } catch (err) {
       notifyError(err, "Couldn't change the integration status.");
@@ -265,7 +265,7 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
       const res = await fetch(`${apiBase}/${selectedIntegration.id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Couldn't uninstall the integration.");
+      if (!res.ok) throw await fetchErrorOf(res);
       setUninstallDialogOpen(false);
       setSelectedIntegration(null);
       refresh();
@@ -305,7 +305,7 @@ export function IntegrationsManager({ orgId }: IntegrationsManagerProps) {
         // PUT replaces config — send the merged object so other keys survive.
         body: JSON.stringify({ config: { ...notifyFor.config, notify: notifyDraft } }),
       });
-      if (!res.ok) throw new Error("Couldn't save notification settings.");
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success("Teams notifications saved");
       setNotifyFor(null);
       refresh();

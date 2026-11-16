@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { readableContractsWhere } from "@/lib/crm/contract-scope";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { moneyGate, projectMoney, projectMoneyEach } from "@/lib/rbac/money-fields";
 import { z } from "zod";
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.CRM_CREATE);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createContractSchema.parse(body);
     // The foreign keys are single-column: without this a contract could link
     // another org's partner or product and the response would carry it back.

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { hashPassword, verifyPassword, passwordPolicyError } from "@/lib/auth/password";
-import { getIpAddress } from "@/lib/api-helpers";
+import { getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import {
   auditCredentialChange,
   endOtherSessions,
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   const me = await getCurrentUser();
   if (!me) return new Response("Unauthorized", { status: 401 });
 
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const parsed = schema.safeParse(await readJsonBody(request, { orElse: null }));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }

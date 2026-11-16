@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isSystemAdmin } from "@/lib/internal/access";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
 // The billing PLAN is a PLATFORM-OWNER decision: only an internal admin
@@ -57,7 +57,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
     if (!org) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const { plan } = patchSchema.parse(await request.json());
+    const { plan } = patchSchema.parse(await readJsonBody(request));
     const prior = org.plan;
 
     await prisma.organization.update({ where: { id: orgId }, data: { plan } });

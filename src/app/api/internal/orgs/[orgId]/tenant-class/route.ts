@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isSystemAdmin } from "@/lib/internal/access";
 import { applyGovGuardrails } from "@/lib/runtime-config/guardrails";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { sweepMarkedComments } from "@/lib/feedback/comments.server";
 
@@ -58,7 +58,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
     if (!org) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const { tenantClass } = patchSchema.parse(await request.json());
+    const { tenantClass } = patchSchema.parse(await readJsonBody(request));
     const prior = org.tenantClass;
 
     // Set the class AND (on a flip to GOV) apply the gov guardrails in ONE transaction so the

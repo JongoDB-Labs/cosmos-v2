@@ -7,7 +7,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError } from "@/lib/api-helpers";
+import { success, created, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { resolveLinkSubject } from "@/lib/pm/subjects";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await requireProjectVisible(ctx, projectId);
     await requireProjectManage(ctx, projectId, Permission.PROJECT_UPDATE);
 
-    const data = createSchema.parse(await request.json());
+    const data = createSchema.parse(await readJsonBody(request));
 
     // A self-link is meaningless; reject it.
     if (data.fromType === data.toType && data.fromId === data.toId)

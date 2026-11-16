@@ -8,7 +8,7 @@ import {
   deleteProgramEvent as deleteContract,
 } from "./route.contract";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { EventRecurrence } from "@prisma/client";
 import { updateProgramEvent, deleteProgramEvent, visibleEvent } from "@/lib/program-calendar/service";
 
@@ -57,7 +57,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext(orgId, updateContract);
     requirePermission(ctx, Permission.BOARD_UPDATE);
 
-    const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+    const parsed = bodySchema.safeParse(await readJsonBody(request, { orElse: null }));
     if (!parsed.success) return new Response("Bad request", { status: 400 });
 
     const updated = await updateProgramEvent(ctx, eventId, {

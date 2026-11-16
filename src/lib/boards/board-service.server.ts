@@ -31,7 +31,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { canManageBoardsInProject } from "@/lib/rbac/project-role";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { canAdministerProject, requireProjectManage } from "@/lib/rbac/require-project-manage";
-import { requireBoardRead } from "@/lib/rbac/board-access";
+import { narrowBoards, requireBoardRead } from "@/lib/rbac/board-access";
 import { isProjectVisible } from "@/lib/rbac/project-access";
 import {
   canManageOwnBoard,
@@ -144,8 +144,49 @@ export const replaceColumnsSchema = z.object({
  */
 const SEEDED_FROM_PROJECT = new Set<BoardType>([BoardType.KANBAN, BoardType.SCRUM]);
 
+/**
+ * The project half of reaching a board by id. A board in a project the caller
+ * cannot see (team scoping, or outside an API key's or an assistant's project
+ * ceiling) is a board that is not there: the same 404 as a missing project or a
+ * missing board, as `requireBoardRead` answers for a board on another team.
+ * Asked first, so no permission or manager gate can answer before it with a 403.
+ *
+ * A project's own collection (`listBoards`, `createBoard`) is addressed to the
+ * project, not to a board, and refuses as every write under a project path does
+ * (`requireProjectVisible`): with a 403, for a hidden project and a missing one
+ * alike.
+ */
+async function requireBoardProject(ctx: AuthContext, projectId: string): Promise<void> {
+  if (!(await isProjectVisible(ctx, projectId))) throw new NotFoundError("Board not found");
+}
+
+/**
+ * A project's boards, as `GET .../boards` answers it and the assistant's
+ * `list_boards` reads it: the boards this caller may see (the team axis,
+ * `narrowBoards`), with their columns and counts, each through `boardForReader`.
+ * One list for both doors, so a rule added here reaches both.
+ */
+export async function listBoards(ctx: AuthContext, projectId: string) {
+  await requireProjectRead(ctx, projectId, "BOARD_READ");
+  const boards = await prisma.board.findMany({
+    where: { projectId, orgId: ctx.orgId },
+    include: {
+      columns: { orderBy: { sortOrder: "asc" } },
+      _count: true,
+    },
+    orderBy: { sortOrder: "asc" },
+  });
+  // The TEAM axis. `requireProjectRead` above answers "may they open this
+  // project"; this answers "which of its boards are theirs to see". Without it
+  // the list returned every board while the sidebar hid the ones assigned to
+  // another team: the same question, two different answers.
+  const rows = await withStatusCategories(prisma, projectId, await narrowBoards(ctx, projectId, boards));
+  return rows.map((b) => boardForReader(b, ctx.userId));
+}
+
 /** One board, as `GET .../boards/:boardId` answers it. Hidden and missing are the same 404. */
 export async function getBoard(ctx: AuthContext, projectId: string, boardId: string) {
+  await requireBoardProject(ctx, projectId);
   await requireProjectRead(ctx, projectId, "BOARD_READ");
   const board = await prisma.board.findFirst({
     where: { id: boardId, projectId, orgId: ctx.orgId },
@@ -245,12 +286,13 @@ export async function updateBoard(
 ) {
   const orgId = ctx.orgId;
   // Visible first: an org-wide BOARD_UPDATE holder kept out of a team-scoped
-  // project must not change its boards. Then the authority: org-wide
-  // BOARD_UPDATE or a MANAGER of the project that owns this board, through
-  // `canAdministerProject`, which also holds an API key (or an assistant
-  // limited to some projects) to its projects. The routes used to inline
-  // `hasPermission || canManageProject`, whose first branch checked neither.
-  await requireProjectVisible(ctx, projectId);
+  // project must not change its boards, and is told the board is not there.
+  // Then the authority: org-wide BOARD_UPDATE or a MANAGER of the project that
+  // owns this board, through `canAdministerProject`, which also holds an API
+  // key (or an assistant limited to some projects) to its projects. The routes
+  // used to inline `hasPermission || canManageProject`, whose first branch
+  // checked neither.
+  await requireBoardProject(ctx, projectId);
   const managesBoards = await canAdministerProject(ctx, projectId, Permission.BOARD_UPDATE);
 
   const existing = await prisma.board.findFirst({ where: { id: boardId, projectId, orgId } });
@@ -333,9 +375,10 @@ export async function updateBoard(
 /** Delete a board: `DELETE .../boards/:boardId`. Its work items are untouched. */
 export async function deleteBoard(ctx: AuthContext, projectId: string, boardId: string, meta: BoardWriteMeta = {}) {
   const orgId = ctx.orgId;
-  // As updateBoard: visible, then org-wide BOARD_DELETE or project MANAGER, or
-  // the board's own creator, with the same 403 for missing and not-theirs.
-  await requireProjectVisible(ctx, projectId);
+  // As updateBoard: visible (or a 404), then org-wide BOARD_DELETE or project
+  // MANAGER, or the board's own creator, with the same 403 for missing and
+  // not-theirs.
+  await requireBoardProject(ctx, projectId);
   const managesBoards = await canAdministerProject(ctx, projectId, Permission.BOARD_DELETE);
 
   const existing = await prisma.board.findFirst({ where: { id: boardId, projectId, orgId } });
@@ -382,7 +425,7 @@ export async function replaceBoardColumns(
   // A project the caller cannot see first, whatever bit they hold: an org-wide
   // holder passes the gate below for every project. Its boards are not there,
   // with the same NotFound as a missing board.
-  if (!(await isProjectVisible(ctx, projectId))) throw new NotFoundError("Board not found");
+  await requireBoardProject(ctx, projectId);
   // Org-wide BOARD_UPDATE or project MANAGER, inside a key's project ceiling.
   await requireProjectManage(ctx, projectId, Permission.BOARD_UPDATE);
 

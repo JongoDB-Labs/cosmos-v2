@@ -15,6 +15,9 @@
  *     instance environment variable, never an org setting: a self-hosted model
  *     or Jira on a private network is a real deployment, and only whoever runs
  *     the instance can say which of its networks a tenant may reach.
+ *     An org's SSO identity provider has a list of its own,
+ *     SSO_ALLOW_PRIVATE_CIDRS, so listing an IdP's range never opens it to an
+ *     org admin's endpoints, nor an org admin's range to SSO.
  */
 import { BlockList, isIP } from "node:net";
 
@@ -87,41 +90,59 @@ function isV4InV6(ip: string): boolean {
   return familyOf(ip) === "ipv6" && v4InV6.check(ip, "ipv6");
 }
 
-let cachedSpec: string | undefined;
-let cachedList: BlockList | null = null;
+/**
+ * The instance environment variables an operator lists private ranges in:
+ * OUTBOUND_ALLOW_PRIVATE_CIDRS for the endpoints org admins configure, and
+ * SSO_ALLOW_PRIVATE_CIDRS for SSO identity providers. A closed set, so a
+ * caller can't point the guard at any other variable.
+ */
+export type OperatorRangeList = "OUTBOUND_ALLOW_PRIVATE_CIDRS" | "SSO_ALLOW_PRIVATE_CIDRS";
+
+/** The last list parsed for each variable, with the text it came from. */
+const parsed = new Map<OperatorRangeList, { text: string; list: BlockList }>();
 
 /**
- * The operator's private ranges, from OUTBOUND_ALLOW_PRIVATE_CIDRS
- * (comma-separated, e.g. "10.20.0.0/16,fd12:3456::/48"), or null when unset.
- * An entry that doesn't parse throws, so a typo is loud rather than quietly
- * allowing nothing, or everything.
+ * The operator's private ranges from `spec` (comma-separated, e.g.
+ * "10.20.0.0/16,fd12:3456::/48"; by default OUTBOUND_ALLOW_PRIVATE_CIDRS), or
+ * null when empty. An entry that doesn't parse throws, naming `name`, so a typo
+ * is loud rather than quietly allowing nothing, or everything.
  */
-export function operatorPrivateRanges(spec = process.env.OUTBOUND_ALLOW_PRIVATE_CIDRS): BlockList | null {
+export function operatorPrivateRanges(
+  spec = process.env.OUTBOUND_ALLOW_PRIVATE_CIDRS,
+  name: OperatorRangeList = "OUTBOUND_ALLOW_PRIVATE_CIDRS",
+): BlockList | null {
   const text = (spec ?? "").trim();
   if (!text) return null;
-  if (text === cachedSpec) return cachedList;
+  const cached = parsed.get(name);
+  if (cached?.text === text) return cached.list;
   const list = new BlockList();
   for (const raw of text.split(",").map((s) => s.trim()).filter(Boolean)) {
     const m = /^([^/\s]+)\/(\d{1,3})$/.exec(raw);
     const family = m ? familyOf(m[1]) : null;
     const prefix = m ? Number(m[2]) : NaN;
     if (!m || !family || prefix > (family === "ipv4" ? 32 : 128)) {
-      throw new Error(`OUTBOUND_ALLOW_PRIVATE_CIDRS: "${raw}" is not a CIDR range like 10.0.0.0/8`);
+      throw new Error(`${name}: "${raw}" is not a CIDR range like 10.0.0.0/8`);
     }
     list.addSubnet(m[1], prefix, family);
   }
-  cachedSpec = text;
-  cachedList = list;
+  parsed.set(name, { text, list });
   return list;
 }
 
 export interface OutboundAddressPolicy {
   /**
-   * The URL is an endpoint an org admin configured (Jira, a model endpoint, an
-   * MCP server): a private address inside the operator's
-   * OUTBOUND_ALLOW_PRIVATE_CIDRS is allowed. Never for webhooks or fetch_url.
+   * The URL is an endpoint the operator's list may open: one an org admin
+   * configured (Jira, a model endpoint, an MCP server), or an SSO identity
+   * provider. A private address inside that list is allowed. Never for
+   * webhooks or fetch_url.
    */
   allowOperatorPrivate?: boolean;
+  /**
+   * Which list `allowOperatorPrivate` reads: OUTBOUND_ALLOW_PRIVATE_CIDRS (the
+   * default, for org-admin endpoints) or SSO_ALLOW_PRIVATE_CIDRS (for SSO).
+   * Only that one: the other list never opens anything for this request.
+   */
+  operatorRanges?: OperatorRangeList;
 }
 
 /** May Cosmos connect to `ip` under `policy`? */
@@ -130,7 +151,8 @@ export function isAllowedOutboundAddress(ip: string, policy: OutboundAddressPoli
   if (!family || isNeverAllowedAddress(ip) || isV4InV6(ip)) return false;
   if (isPublicAddress(ip)) return true;
   if (!policy.allowOperatorPrivate) return false;
-  return operatorPrivateRanges()?.check(ip, family) ?? false;
+  const name = policy.operatorRanges ?? "OUTBOUND_ALLOW_PRIVATE_CIDRS";
+  return operatorPrivateRanges(process.env[name], name)?.check(ip, family) ?? false;
 }
 
 /** A URL's hostname as an address (an IPv6 literal without its brackets), or null for a name. */

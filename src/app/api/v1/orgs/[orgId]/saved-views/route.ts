@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, created } from "@/lib/api-helpers";
+import { success, created, readJsonBody } from "@/lib/api-helpers";
 import { createSavedView, listSavedViews } from "@/lib/query/saved-view-service.server";
 import { savedViewErrorResponse } from "@/lib/query/saved-view-response.server";
 
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const ctx = await getAuthContext(org.slug);
     if (!ctx) return new Response("Unauthorized", { status: 401 });
 
-    return created(await createSavedView(ctx, org, () => request.json()));
+    return created(await createSavedView(ctx, org, () => readJsonBody(request)));
   } catch (error) {
     return savedViewErrorResponse(error);
   }

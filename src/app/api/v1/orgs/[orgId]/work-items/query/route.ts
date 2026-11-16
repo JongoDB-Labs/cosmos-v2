@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { success } from "@/lib/api-helpers";
+import { success, readJsonBody } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { executeCql, idsCql } from "@/lib/query/execute.server";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const limited = checkRateLimit(request, "cql.query", gate.ctx.userId, { capacity: 30, refillPerSecond: 3 });
     if (limited) return limited;
 
-    const body = bodySchema.parse(await request.json().catch(() => ({})));
+    const body = bodySchema.parse(await readJsonBody(request, { orElse: {} }));
     if (body.idsOnly) {
       return success(
         await idsCql(gate.ctx, { cql: body.cql, query: body.query }, { tz: body.tz, vars: body.vars, contextProjectId: body.contextProjectId }),

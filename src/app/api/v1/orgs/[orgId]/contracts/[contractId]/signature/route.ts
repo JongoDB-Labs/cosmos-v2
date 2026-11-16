@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { createEnvelope } from "@/lib/integrations/docusign";
 import { mayReadContract } from "@/lib/crm/contract-scope";
 import { moneyGate, projectMoney } from "@/lib/rbac/money-fields";
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!contract || !(await mayReadContract(ctx, contract.projectId))) return new Response("Contract not found", { status: 404 });
 
-    const body = schema.parse(await request.json());
+    const body = schema.parse(await readJsonBody(request));
     let envelopeId: string;
     try {
       envelopeId = await createEnvelope({

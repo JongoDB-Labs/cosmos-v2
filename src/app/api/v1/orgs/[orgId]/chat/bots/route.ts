@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { mayUseChat } from "@/lib/chat/access";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { ensureOrgBots } from "@/lib/chat/ensure-bots";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { z } from "zod";
@@ -78,7 +78,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const parsed = patchSchema.safeParse(await req.json());
+    const parsed = patchSchema.safeParse(await readJsonBody(req));
     if (!parsed.success) return new Response("Bad request", { status: 400 });
 
     // Ensure the built-ins exist (idempotent), then update the addressed one.

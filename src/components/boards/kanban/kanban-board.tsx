@@ -73,7 +73,7 @@ import { usePermissions, Permission } from "@/components/providers/permissions-p
 import { useWorkItemRealtime } from "@/hooks/use-work-item-realtime";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOrgSlug } from "@/lib/query/keys";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { sendItemChange, TransitionBackedOut, useTransitionPrompt } from "@/components/work-items/use-transition-prompt";
 import { useWorkflowMoves } from "@/hooks/use-workflow-moves";
@@ -937,9 +937,8 @@ function KanbanBoardInner({
           }
           // Only once the move stuck do the cards around it take their new order.
           const results = await Promise.all(siblings.map((u) => put(u.id, u.body)));
-          if (results.some((r) => !r.ok)) {
-            throw new Error("Failed to persist the new order");
-          }
+          const failed = results.find((r) => !r.ok);
+          if (failed) throw await fetchErrorOf(failed);
           // Did the server stamp an actual date on this move? Compare the echoed
           // item against the pre-drag snapshot: a field that was empty and now
           // holds a value was auto-captured, and "now" is only right if the board
@@ -1438,7 +1437,7 @@ function KanbanBoardInner({
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(changes),
               });
-              if (!res.ok) throw new Error("Failed to save the dates");
+              if (!res.ok) throw await fetchErrorOf(res);
             } catch (err) {
               notifyError(err, "Couldn't save the dates — the card kept what it had.");
             }

@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { requireInvoiceVisible } from "@/lib/invoicing/visibility.server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { recordPayment } from "@/lib/invoicing/service";
 import { paymentInputSchema } from "@/lib/invoicing/validation";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await requireAccess(ctx, "FINANCE_MANAGE");
     await requireInvoiceVisible(ctx, orgId, invoiceId);
 
-    const input = paymentInputSchema.parse(await request.json());
+    const input = paymentInputSchema.parse(await readJsonBody(request));
     const payment = await recordPayment(orgId, invoiceId, ctx.userId, input);
     await logAudit({
       orgId,

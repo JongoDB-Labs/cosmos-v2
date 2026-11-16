@@ -2,7 +2,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { canSeeChannelGiven, loadChannelAndMembership } from "@/lib/chat/access";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const parsed = schema.safeParse(await req.json().catch(() => null));
+    const parsed = schema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     const message = await prisma.chatMessage.findUnique({
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
     if (message.deletedAt) return new Response("Gone", { status: 410 });
 
-    const { channel, member } = await loadChannelAndMembership(message.channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, message.channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (!canSeeChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       return new Response("Forbidden", { status: 403 });

@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import type { ProjectMemberRow } from "@/lib/intervals/allocatable-members";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 /**
  * The people ON a project, for surfaces that plan human work.
@@ -27,7 +28,7 @@ export function useProjectMembers(orgId: string, projectId: string) {
     queryKey: key,
     queryFn: async (): Promise<ProjectMemberRow[]> => {
       const r = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/members`);
-      if (!r.ok) throw new Error("Failed to load project members");
+      if (!r.ok) throw await fetchErrorOf(r, "Failed to load project members");
       const body = await r.json();
       const raw: unknown = Array.isArray(body) ? body : (body?.data ?? body?.members ?? []);
       if (!Array.isArray(raw)) return [];

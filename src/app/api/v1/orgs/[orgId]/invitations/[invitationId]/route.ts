@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
-import { requirePermission } from "@/lib/rbac/check";
+import { ConflictError, requirePermission } from "@/lib/rbac/check";
 import { Permission, maskFromDb } from "@/lib/rbac/permissions";
 import { assertCanChangeCurrentAccess, assertCanGrantOrgRole } from "@/lib/rbac/grant-ceiling";
 import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
@@ -9,6 +9,12 @@ import { logAudit } from "@/lib/audit";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { sendInvitationEmail } from "@/lib/integrations/invitation-email";
 import { revokeProvisionedAccount } from "@/lib/auth/revoke-invitation";
+import {
+  ISSUED_BEFORE_REMOVAL_MESSAGE,
+  issuedBeforeRemoval,
+  removedMembershipsFor,
+  retainedGrantsFor,
+} from "@/lib/members/add-member.server";
 
 /**
  * Revoke (DELETE) or resend (POST) a pending invitation — the lifecycle the
@@ -105,14 +111,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
+    // An invitation sent before its person was removed can't bring them back
+    // (acceptance deletes it), and resending changes only its expiry, so it
+    // would still be one from before the removal. The admin sends a new one.
+    const removed = await removedMembershipsFor(orgId, existing.email);
+    if (removed.some((m) => issuedBeforeRemoval(existing.createdAt, m))) {
+      throw new ConflictError(ISSUED_BEFORE_REMOVAL_MESSAGE);
+    }
+
     // Resending extends the invitation's life, including one that had expired,
     // so it is a grant like creating one: the same ceiling applies to the role
-    // and work roles it carries. Otherwise an admin could revive an owner's
-    // lapsed OWNER invitation.
+    // and work roles it carries, and to what accepting it would reinstate for
+    // someone removed (createOrgInvitation counts that too). Otherwise an admin
+    // could revive an owner's lapsed OWNER invitation.
     assertCanGrantOrgRole(
       ctx,
       existing.role,
-      await invitedWorkRoleGrants(orgId, existing.workRoleIds),
+      (await invitedWorkRoleGrants(orgId, existing.workRoleIds)) |
+        (await retainedGrantsFor(orgId, existing.email)),
     );
 
     // Resend = refresh the 7-day window + re-send the email (same token).

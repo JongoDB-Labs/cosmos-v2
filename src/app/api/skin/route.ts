@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { SKIN_COOKIE, isValidSkinId } from "@/lib/theme/cookie";
 import { getCurrentUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/db/client";
+import { readJsonBody } from "@/lib/api-helpers";
 
 /**
  * Skin is a USER-scoped preference (UserPreferences.skinId), not a device
@@ -18,7 +19,7 @@ import { prisma } from "@/lib/db/client";
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const body = (await request.json().catch(() => ({}))) as { skin?: unknown };
+  const body = (await readJsonBody(request, { orElse: {} })) as { skin?: unknown };
   const skin = body.skin;
 
   if (skin === null || skin === undefined) {

@@ -18,6 +18,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { notifyError } from "@/lib/errors/notify";
+import { FetchError } from "@/lib/query/json-fetcher";
 
 export interface PickerOrg {
   id: string;
@@ -66,7 +67,7 @@ export function OrgPickerGrid({ orgs }: { orgs: PickerOrg[] }) {
       if (!res.ok) {
         // noContent() returns 204 (still res.ok); only real errors land here.
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't delete the organization.");
+        throw new FetchError(res.status, j, j.error ?? "Couldn't delete the organization.");
       }
       setTarget(null);
       setConfirm("");

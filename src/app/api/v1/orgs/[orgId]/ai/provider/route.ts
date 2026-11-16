@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import {
   getAiProviderStatus,
   setActiveProvider,
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_SETTINGS);
 
-    const { provider } = bodySchema.parse(await request.json());
+    const { provider } = bodySchema.parse(await readJsonBody(request));
     await setActiveProvider(orgId, provider as AiProvider, ctx.userId);
 
     return success({ provider });

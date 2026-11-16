@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.CRM_CREATE);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createContactSchema.parse(body);
     // The owner is a current member of this org (the column takes any user).
     await assertRefsInScope({ orgId }, { member: data.ownerId });

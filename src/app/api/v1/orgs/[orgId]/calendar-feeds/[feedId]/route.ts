@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { refuseApiKey } from "@/lib/auth/key-gate";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { feedOptionsSchema, readFeedOptions } from "@/lib/calendar/feed-settings";
 
@@ -35,7 +35,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // unauthenticated link exposes. Revoking (DELETE) stays open to a key.
     const r = await ownFeed(orgId, feedId, { refuseKeys: "Calendar feed links can only be changed from the browser." });
     if (!r) return new Response("Not found", { status: 404 });
-    const { options } = patchSchema.parse(await request.json());
+    const { options } = patchSchema.parse(await readJsonBody(request));
     const feed = await prisma.calendarFeed.update({
       where: { id: r.feed.id },
       data: { options },

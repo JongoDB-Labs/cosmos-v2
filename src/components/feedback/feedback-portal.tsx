@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
-import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
+import { jsonFetch, FetchError, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useRealtimeEvents } from "@/hooks/use-realtime-events";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -205,7 +205,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     setError(false);
     try {
       const res = await fetch(basePath);
-      if (!res.ok) throw new Error("Failed to load feedback");
+      if (!res.ok) throw await fetchErrorOf(res);
       const list: FeedbackItem[] = await res.json();
       // The list is the top 200. An item opened from a deep link can sit
       // outside it, and a refetch (any realtime event) would otherwise drop it
@@ -310,7 +310,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
           projectId: newProjectId,
         }),
       });
-      if (!res.ok) throw new Error("Failed to submit");
+      if (!res.ok) throw await fetchErrorOf(res);
       setOpen(false);
       setType("FEATURE");
       setNewProjectId(null);
@@ -331,7 +331,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
       const res = await fetch(`${basePath}/${item.id}/vote`, {
         method: item.hasVoted ? "DELETE" : "POST",
       });
-      if (!res.ok) throw new Error("Failed to vote");
+      if (!res.ok) throw await fetchErrorOf(res);
       const { voteCount, hasVoted } = await res.json();
       setItems((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, voteCount, hasVoted } : i)),
@@ -351,7 +351,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      if (!res.ok) throw new Error("Failed to update status");
+      if (!res.ok) throw await fetchErrorOf(res);
       setItems((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, status } : i)),
       );
@@ -391,7 +391,7 @@ export function FeedbackPortal({ orgId }: { orgId: string }) {
     setBusyId(item.id);
     try {
       const res = await fetch(`${basePath}/${item.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete");
+      if (!res.ok) throw await fetchErrorOf(res);
       setItems((prev) => prev.filter((i) => i.id !== item.id));
       setDetailId(null);
       setConfirmDeleteId(null);

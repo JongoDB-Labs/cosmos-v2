@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { meetingReader } from "@/lib/meetings/meeting-reader";
 import { TEAMS_REFUSED } from "@/lib/meetings/teams-messages";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { TeamsRefused, setMeetingTeams, teamsPreview, type TeamsPreview } from "@/lib/integrations/microsoft/calendar-sync.server";
 
 type RouteParams = { params: Promise<{ orgId: string; meetingId: string }> };
@@ -45,7 +45,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!r) return new Response("Not found", { status: 404 });
     // The Teams meeting is made in a person's own mailbox: never on an API key.
     if (r.ctx.isApiKey) return new Response("Forbidden", { status: 403 });
-    const { enabled } = body.parse(await request.json());
+    const { enabled } = body.parse(await readJsonBody(request));
     try {
       await setMeetingTeams(orgId, meetingId, r.ctx.userId, enabled);
     } catch (e) {

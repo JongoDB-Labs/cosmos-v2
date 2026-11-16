@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { canManageProject } from "@/lib/rbac/scope";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { Permission } from "@/lib/rbac/permissions";
 import { resolvePmSubject } from "@/lib/pm/subjects";
 
@@ -41,7 +41,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!existing) return new Response("Not found", { status: 404 });
     if (existing.authorId !== ctx.userId) return new Response("Forbidden", { status: 403 }); // edit = author only
 
-    const data = updateSchema.parse(await request.json());
+    const data = updateSchema.parse(await readJsonBody(request));
     const updated = await prisma.comment.update({
       where: { id: commentId },
       data: { content: data.content },

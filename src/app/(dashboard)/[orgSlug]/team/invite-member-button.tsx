@@ -43,6 +43,15 @@ const inviteSchema = z.object({
 });
 type InviteValues = z.infer<typeof inviteSchema>;
 
+/** Every role an invitation may carry, in the order the dialog lists them. */
+const INVITE_ROLES: { value: InviteValues["role"]; label: string }[] = [
+  { value: "GUEST", label: "Guest — comment on items only" },
+  { value: "VIEWER", label: "Viewer — read-only access" },
+  { value: "MEMBER", label: "Member — standard access" },
+  { value: "BILLING_ADMIN", label: "Billing admin — finance & billing" },
+  { value: "ADMIN", label: "Admin — manage the whole org" },
+];
+
 type WorkRoleOption = { id: string; name: string; grants: string[] };
 
 type InviteResponse = {
@@ -57,8 +66,20 @@ type InviteResponse = {
   existingAccount?: boolean;
 };
 
-export function InviteMemberButton({ orgId }: { orgId: string }) {
+export function InviteMemberButton({
+  orgId,
+  grantableRoles,
+}: {
+  orgId: string;
+  /** The org roles the inviter may give (`grantableOrgRoles`, from the server).
+   *  Only these are offered: the server refuses an invitation at any other. */
+  grantableRoles: readonly string[];
+}) {
   const router = useRouter();
+  const offeredRoles = INVITE_ROLES.filter((r) => grantableRoles.includes(r.value));
+  // Member when it may be given; otherwise the most an inviter may give.
+  const defaultRole =
+    offeredRoles.find((r) => r.value === "MEMBER")?.value ?? offeredRoles.at(-1)?.value ?? "MEMBER";
   const [open, setOpen] = useState(false);
   const [result, setResult] = useState<InviteResponse | null>(null);
   const [copied, setCopied] = useState(false);
@@ -74,7 +95,7 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
     resolver: zodResolver(inviteSchema),
     defaultValues: {
       email: "",
-      role: "MEMBER",
+      role: defaultRole,
       workRoleIds: [],
       signInMethod: "oauth",
       mfaRequired: false,
@@ -284,11 +305,11 @@ export function InviteMemberButton({ orgId }: { orgId: string }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="GUEST">Guest — comment on items only</SelectItem>
-                  <SelectItem value="VIEWER">Viewer — read-only access</SelectItem>
-                  <SelectItem value="MEMBER">Member — standard access</SelectItem>
-                  <SelectItem value="BILLING_ADMIN">Billing admin — finance & billing</SelectItem>
-                  <SelectItem value="ADMIN">Admin — manage the whole org</SelectItem>
+                  {offeredRoles.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

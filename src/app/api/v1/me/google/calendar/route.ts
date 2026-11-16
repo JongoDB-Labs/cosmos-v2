@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCalendarClient } from "@/lib/integrations/google";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 
 // cacheComponents enabled: `runtime` segment config not supported (Node is default).
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       attendees?: { email: string }[];
       location?: string;
     };
-    const body = (await request.json()) as EventBody;
+    const body = (await readJsonBody(request)) as EventBody;
 
     try {
       const cal = await getCalendarClient(user.id);

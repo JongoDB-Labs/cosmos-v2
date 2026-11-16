@@ -21,11 +21,13 @@ const ROOT = "src";
 const ALLOWED: Record<string, string> = {
   "src/lib/db/client.ts": "Defines and exports it.",
 
-  "src/app/api/v1/orgs/[orgId]/members/route.ts":
-    "MEMBERSHIP LIFECYCLE. Re-adding someone who was removed has to find their " +
-    "retained row: `@@unique([orgId, userId])` makes a second row impossible, so " +
-    "the filtered client would report them absent and send the request straight " +
-    "into a constraint violation. It reinstates that row instead.",
+  "src/lib/members/add-member.server.ts":
+    "MEMBERSHIP LIFECYCLE. Letting someone back in, from the members list or by " +
+    "an invitation they accept, has to find their retained row: " +
+    "`@@unique([orgId, userId])` makes a second row impossible, so the filtered " +
+    "client would report them absent and send the write straight into a " +
+    "constraint violation. It reinstates that row instead, and counts what the " +
+    "row still holds for the grant ceiling.",
 
   "src/lib/auth/sso.ts":
     "MEMBERSHIP LIFECYCLE. The upsert must land on the retained row and clear " +

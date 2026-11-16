@@ -9,7 +9,7 @@ import { kindLabel } from "@/lib/notifications/kind";
 import { NotificationPreview } from "./notification-preview";
 import { announceNotificationsChanged, onNotificationsChanged } from "@/lib/notifications/changed";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -81,7 +81,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "read-all", ...(only ? { type: only } : {}) }),
       });
-      if (!res.ok) throw new Error((await res.text()) || "Could not mark those read");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not mark those read");
       return res.json();
     },
     onSuccess: () => {
@@ -99,7 +99,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ read }),
       });
-      if (!res.ok) throw new Error("Could not update that notification");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not update that notification");
     },
     onSuccess: () => {
       announceNotificationsChanged("inbox");
@@ -109,7 +109,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
   const dismiss = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/v1/orgs/${orgId}/notifications/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Could not clear that notification");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not clear that notification");
     },
     onSuccess: () => {
       announceNotificationsChanged("inbox");
@@ -126,7 +126,7 @@ export function InboxWorkspace({ orgId }: { orgId: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "clear", unreadOnly, ...(type ? { type } : {}) }),
       });
-      if (!res.ok) throw new Error((await res.text()) || "Could not clear those");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not clear those");
       return res.json();
     },
     onSuccess: () => {

@@ -341,6 +341,10 @@ export async function assertAssigneesInOrg(
  * in the one writer every edit goes through (the PUT route, bulk edit, the
  * assistant, automations), because the foreign keys are single-column and
  * accept another tenant's ids.
+ *
+ * The type stays in although applyWorkItemChange drops it for the request's
+ * own patch (the workflow gate already holds that one to the org, with a 404):
+ * checkTransitionPatch reads this too, for whatever a transition adds.
  */
 function patchRefs(p: WorkItemPatch): Refs {
   return { workItem: p.parentId, interval: p.intervalId, team: p.teamId, workItemType: p.workItemTypeId };
@@ -427,6 +431,28 @@ async function syncAssigneeSets(tx: Prisma.TransactionClient, ids: string[], pat
   }
 }
 
+/** Each item's assignee set, in order. */
+async function assigneeSets(tx: Prisma.TransactionClient, ids: string[]): Promise<Map<string, string[]>> {
+  const rows = await tx.workItemAssignee.findMany({
+    where: { workItemId: { in: ids } },
+    orderBy: { sortOrder: "asc" },
+    select: { workItemId: true, userId: true },
+  });
+  const sets = new Map<string, string[]>();
+  for (const r of rows) sets.set(r.workItemId, [...(sets.get(r.workItemId) ?? []), r.userId]);
+  return sets;
+}
+
+/**
+ * Who a change put on an item: in its assignee set after, and neither in the
+ * set before nor the item's single assignee (an item assigned before sets
+ * existed has that and no set row). Moving someone to the front adds no one.
+ */
+function newlyAssigned(item: WorkItem, before: Map<string, string[]>, after: Map<string, string[]>): string[] {
+  const had = new Set([...(before.get(item.id) ?? []), ...(item.assigneeId ? [item.assigneeId] : [])]);
+  return (after.get(item.id) ?? []).filter((userId) => !had.has(userId));
+}
+
 export async function applyWorkItemChange(
   tx: Prisma.TransactionClient,
   input: ApplyChangeInput,
@@ -492,7 +518,6 @@ export async function applyWorkItemChange(
     patchGroups.set(key, group);
   }
   const groupPatches = [...patchGroups.values()].map((g) => g.patch);
-  const effectivePatch = groupPatches.length === 1 ? groupPatches[0] : patch;
 
   const effects: AfterCommitEffects = {
     orgId,
@@ -502,11 +527,16 @@ export async function applyWorkItemChange(
     fields: [...new Set(groupPatches.length > 0 ? groupPatches.flatMap((p) => Object.keys(p)) : Object.keys(patch))],
     textChanged: groupPatches.some((p) => p.title !== undefined || p.description !== undefined),
     columnTouched: patch.columnKey !== undefined,
-    assigneeId: effectivePatch.assigneeId,
     items: [],
     workflow: { forced: gate.forced, shadow: gate.shadow },
   };
   if (allowed.length === 0) return { itemIds: [], scheduleCascade: [], effects, denied: gate.denials };
+
+  // Who is newly assigned, from the assignee sets either side of the write:
+  // one assignee, a whole set and a transition's assign action all land in
+  // them, so whoever is told is worked out once, the same way, for every door.
+  const namesAssignees = groupPatches.some((p) => p.assigneeId !== undefined || p.assigneeIds !== undefined);
+  const assigneesBefore = namesAssignees ? await assigneeSets(tx, ids) : null;
 
   const changes: { existing: WorkItem; updateData: Prisma.WorkItemUncheckedUpdateManyInput; trackFields: TrackedField[] }[] = [];
   for (const group of patchGroups.values()) {
@@ -527,6 +557,7 @@ export async function applyWorkItemChange(
     }
     await syncAssigneeSets(tx, groupIds, group.patch);
   }
+  const assigneesAfter = assigneesBefore ? await assigneeSets(tx, ids) : null;
 
   // Items whose rows take identical values are written together: a bulk move
   // is one statement per distinct outcome, not one per item.
@@ -611,7 +642,6 @@ export async function applyWorkItemChange(
       before: {
         title: existing.title,
         columnKey: existing.columnKey,
-        assigneeId: existing.assigneeId,
         completedAt: existing.completedAt,
       },
       after: {
@@ -620,6 +650,7 @@ export async function applyWorkItemChange(
         columnKey: after("columnKey"),
         completedAt: after("completedAt"),
       },
+      assigned: assigneesBefore && assigneesAfter ? newlyAssigned(existing, assigneesBefore, assigneesAfter) : [],
     };
   });
 

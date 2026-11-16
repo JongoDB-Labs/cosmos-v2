@@ -44,7 +44,7 @@ import { ActionMenu, type ActionMenuGroup } from "@/components/ui/action-menu";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { notifyError } from "@/lib/errors/notify";
 import type { SyncMeeting } from "@/types/models";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf, FetchError } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey, useOrgSlug } from "@/lib/query/keys";
 import { cn } from "@/lib/utils";
 import { TeamsJoinLink } from "./teams-meeting";
@@ -241,7 +241,7 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ label }),
       });
-      if (!res.ok) throw new Error("Couldn't add the type.");
+      if (!res.ok) throw await fetchErrorOf(res);
       const json = await res.json();
       const row = (json.data ?? json) as CustomMeetingType;
       setCustomTypes((prev) =>
@@ -269,7 +269,7 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
       if (filterStatus !== "ALL") params.set("status", filterStatus);
       const qs = params.toString() ? `?${params}` : "";
       const res = await fetch(`/api/v1/orgs/${orgId}/meetings${qs}`);
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw await fetchErrorOf(res);
       const data = await res.json();
       if (reqRef.current !== token) return;
       setMeetings(Array.isArray(data) ? data : data.meetings || []);
@@ -311,7 +311,7 @@ export function MeetingsList({ orgId, onOpenMeeting }: MeetingsListProps) {
           setCreateError(refused.error);
           return;
         }
-        throw new Error("Failed to create meeting");
+        throw new FetchError(res.status, refused, refused?.error ?? "");
       }
       setDialogOpen(false);
       setForm(emptyForm);
@@ -699,7 +699,7 @@ function MeetingCard({
       const res = await fetch(`/api/v1/orgs/${orgId}/meetings/${meeting.id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Failed to delete meeting");
+      if (!res.ok) throw await fetchErrorOf(res);
       setConfirmDelete(false);
       onDelete();
     } catch (err) {

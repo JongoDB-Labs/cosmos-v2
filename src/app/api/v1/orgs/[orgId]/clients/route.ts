@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 
 /**
  * Clients the practice delivers for.
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // cannot be permitted to create a client you are not permitted to list.
     requirePermission(ctx, Permission.CRM_CREATE);
 
-    const data = createSchema.parse(await request.json());
+    const data = createSchema.parse(await readJsonBody(request));
     const name = data.name.replace(/\s+/g, " ").trim();
 
     try {

@@ -33,6 +33,7 @@ import type { CustomField, CustomFieldType } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
 import { LoadError } from "@/components/ui/load-error";
 import { SectorFieldSets } from "./sector-field-sets";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 const fieldTypeOptions: { value: CustomFieldType; label: string }[] = [
   { value: "TEXT", label: "Text" },
@@ -82,7 +83,7 @@ export function CustomFieldsManager({ orgId }: CustomFieldsManagerProps) {
     setLoadError(false);
     try {
       const res = await fetch(apiBase);
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw await fetchErrorOf(res);
       const json = await res.json();
       setFields(Array.isArray(json) ? json : json.data ?? []);
     } catch {
@@ -154,14 +155,14 @@ export function CustomFieldsManager({ orgId }: CustomFieldsManagerProps) {
             required: payload.required,
           }),
         });
-        if (!res.ok) throw new Error("Couldn't update the custom field.");
+        if (!res.ok) throw await fetchErrorOf(res);
       } else {
         const res = await fetch(apiBase, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error("Couldn't create the custom field.");
+        if (!res.ok) throw await fetchErrorOf(res);
       }
 
       setDialogOpen(false);

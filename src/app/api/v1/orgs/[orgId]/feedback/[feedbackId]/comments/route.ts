@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { publishToOrg } from "@/lib/realtime/broker";
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (limited) return limited;
 
-    const data = createSchema.parse(await request.json());
+    const data = createSchema.parse(await readJsonBody(request));
     const parent = data.parentId
       ? await resolveReplyParent(orgId, feedbackId, data.parentId, viewer)
       : null;

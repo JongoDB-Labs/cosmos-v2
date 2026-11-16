@@ -43,6 +43,7 @@ import {
   Legend,
   ReferenceLine,
 } from "@/components/charts/lazy-recharts";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface SprintAnalytics {
   sprintId: string;
@@ -201,7 +202,7 @@ function FeedbackTab({ orgId }: { orgId: string }) {
     setLoadError(false);
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/analytics/feedback`);
-      if (!res.ok) throw new Error("failed");
+      if (!res.ok) throw await fetchErrorOf(res, "failed");
       // Normalize on ingest: a partial/malformed 200 (stale cache, shape drift)
       // that omits `trend`/`recent` would otherwise crash render with
       // "Cannot read properties of undefined (reading 'length')". Coerce the
@@ -379,7 +380,7 @@ function PortfolioTab({ orgId }: { orgId: string }) {
     setLoadError(false);
     try {
       const res = await fetch(`/api/v1/orgs/${orgId}/analytics/portfolio`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await fetchErrorOf(res, `HTTP ${res.status}`);
       const data = await res.json();
       setProjects(Array.isArray(data) ? data : data.projects || []);
     } catch {
@@ -570,7 +571,7 @@ function SprintVelocityTab({ orgId }: { orgId: string }) {
       const res = await fetch(
         `/api/v1/orgs/${orgId}/analytics/sprints?projectId=${selectedProjectId}`
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await fetchErrorOf(res, `HTTP ${res.status}`);
       const data = await res.json();
       setSprints(Array.isArray(data) ? data : data.sprints || []);
     } catch {
@@ -761,7 +762,7 @@ function ProjectDetailTab({ orgId }: { orgId: string }) {
       const res = await fetch(
         `/api/v1/orgs/${orgId}/analytics/projects/${selectedProjectId}`
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await fetchErrorOf(res, `HTTP ${res.status}`);
       // Normalize on ingest: guard every array the charts read `.length`/`.map`
       // on. A partial/malformed 200 that omits one of these fields would
       // otherwise crash render with "Cannot read properties of undefined

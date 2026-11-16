@@ -105,9 +105,10 @@ describe("theme route — brand updates (with THEME_MANAGE)", () => {
     expect(revalidateOrg).toHaveBeenCalledWith({ id: ORG_ID, slug: "acme" });
   });
 
-  it("an UNKNOWN defaultSkinId ⇒ 400, no DB write", async () => {
+  it("an UNKNOWN defaultSkinId ⇒ 400 naming the field, no DB write", async () => {
     const res = await PATCH(patch({ defaultSkinId: "not_a_skin" }), { params });
     expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("defaultSkinId: Unknown skin preset");
     expect(prisma.organization.update).not.toHaveBeenCalled();
   });
 

@@ -5,7 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { orgContext } from "@/lib/openapi/org-context";
 import { listEventCategories as listContract, createEventCategory as createContract } from "./route.contract";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { listCategories, categoryCounts } from "@/lib/program-calendar/service";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext(orgId, createContract);
     requirePermission(ctx, Permission.ORG_MANAGE_SETTINGS);
 
-    const parsed = createSchema.safeParse(await request.json().catch(() => null));
+    const parsed = createSchema.safeParse(await readJsonBody(request, { orElse: null }));
     if (!parsed.success) return new Response("Bad request", { status: 400 });
 
     const last = await prisma.eventCategory.findFirst({

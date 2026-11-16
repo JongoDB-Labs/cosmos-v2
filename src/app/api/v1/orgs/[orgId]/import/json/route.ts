@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { ForbiddenError, requirePermission, type AuthContext } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { logAudit } from "@/lib/audit";
@@ -186,7 +186,7 @@ export async function POST(
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_IMPORT);
 
-    const body = schema.parse(await request.json());
+    const body = schema.parse(await readJsonBody(request));
     const present = ENTITIES.filter((e) => body[e]?.length);
     // Checked for every entity BEFORE anything is written, so a refused import
     // creates nothing rather than half of what it was given.

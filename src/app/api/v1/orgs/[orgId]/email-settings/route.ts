@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { sealSecret } from "@/lib/crypto/vault";
 import { hasSealedApiKey } from "@/lib/integrations/org-email-config";
 import { logAudit } from "@/lib/audit";
@@ -108,7 +108,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!gate.ok) return gate.response;
     const { ctx } = gate;
 
-    const body = putSchema.parse(await request.json());
+    const body = putSchema.parse(await readJsonBody(request));
 
     // A bare inferred object (NOT Prisma.OrgEmailSettingsUpdateInput) spreads
     // cleanly into both upsert branches with the sealed { sealed } Json literal —

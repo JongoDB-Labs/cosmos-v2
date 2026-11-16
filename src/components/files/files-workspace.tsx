@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { FileText, Upload, Search, Trash2, FileSearch, Loader2, ExternalLink, Plus, Link2, Sparkles, X, Check, Rows3, ChevronDown, Flag, Target, Goal, Repeat, Map as MapIcon, type LucideIcon } from "lucide-react";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useOrgMutation } from "@/lib/query/use-org-mutation";
 import { milestoneInvalidations } from "@/lib/query/milestone-keys";
@@ -224,7 +224,7 @@ export function FilesWorkspace({ orgId, projectId, orgSlug, projectKey }: Props)
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch(`${apiBase}/documents`, { method: "POST", body: fd });
-      if (!res.ok) throw new Error(`Upload failed (HTTP ${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res, `Upload failed (HTTP ${res.status})`);
       return res.json();
     },
     invalidate: [["documents", projectId]],

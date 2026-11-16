@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Download, FileSpreadsheet } from "lucide-react";
 import { downloadBlob } from "@/lib/export/download";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 /**
  * Export dialog for the PM dashboard. Lets the user pick which of the eight
@@ -98,7 +99,7 @@ export function ExportDialog({
           body: JSON.stringify({ trackers, mode }),
         },
       );
-      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      if (!res.ok) throw await fetchErrorOf(res);
 
       const blob = await res.blob();
       const filename = filenameFromDisposition(res.headers.get("Content-Disposition"))

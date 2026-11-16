@@ -9,7 +9,7 @@ import {
   isPermissionSubset,
   maskToDb,
 } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { toWorkRoleDto, workRoleCreateSchema } from "@/lib/rbac/work-role";
 import { BUILTIN_KEY_PREFIX } from "@/lib/rbac/builtin-work-roles";
@@ -30,7 +30,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const roles = await prisma.workRole.findMany({
       where: { orgId },
       orderBy: { createdAt: "asc" },
-      include: { _count: { select: { members: true } } },
+      // Current holders only; a relation count bypasses the removed-member extension.
+      include: { _count: { select: { members: { where: { orgMember: { removedAt: null } } } } } },
     });
 
     return success(roles.map(toWorkRoleDto));
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_MANAGE_MEMBERS);
 
-    const body: unknown = await request.json();
+    const body: unknown = await readJsonBody(request);
 
     // Reserved key prefix: checked on the RAW body, not `data.key` post-parse.
     // The key-format regex below (lowercase letters/digits/underscores only)
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           grants: maskToDb(mask),
           policies: (data.policies ?? []) as Prisma.InputJsonValue,
         },
-        include: { _count: { select: { members: true } } },
+        include: { _count: { select: { members: { where: { orgMember: { removedAt: null } } } } } },
       });
       await logAudit({
         orgId,

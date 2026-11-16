@@ -28,6 +28,8 @@ const { getAuthContext, prisma, logAudit, publishToOrg } = vi.hoisted(() => {
     apiKey: { findMany: vi.fn(async () => [] as { id: string; prefix: string }[]), deleteMany: vi.fn() },
     // ...and revokes their calendar links in it (lifecycle.db.test.ts drives that for real).
     calendarFeed: { findMany: vi.fn(async () => [] as { id: string }[]), updateMany: vi.fn() },
+    // ...and ends their invitations to the org (consume-invitations.db.test.ts drives that for real).
+    invitation: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     $queryRaw: vi.fn(async () => []),
     // The role change runs in a transaction; the mock runs it on this same client.
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
@@ -204,6 +206,7 @@ describe("DELETE /members/[memberId]: Teams chat forgotten", () => {
     getAuthContext.mockResolvedValue(ctxWith({ permissions: manageMembers(), orgRole: OrgRole.ADMIN }));
     prisma.orgMember.findUnique.mockResolvedValue({
       id: MEMBER_ID, orgId: ORG_ID, userId: TARGET_USER_ID, role: "MEMBER", permissions: "0", workRoles: [],
+      user: { email: "Target_Person@example.test" },
     });
     prisma.orgMember.update.mockResolvedValue({});
     prisma.teamsConversation.deleteMany.mockResolvedValue({ count: 1 });
@@ -220,5 +223,9 @@ describe("DELETE /members/[memberId]: Teams chat forgotten", () => {
     expect(prisma.calendarFeed.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { orgId: ORG_ID, userId: TARGET_USER_ID, revokedAt: null } }),
     );
+    // And their invitations to this org: the exact address, ignoring case.
+    expect(prisma.invitation.deleteMany).toHaveBeenCalledWith({
+      where: { orgId: ORG_ID, email: { equals: "Target\\_Person@example.test", mode: "insensitive" } },
+    });
   });
 });

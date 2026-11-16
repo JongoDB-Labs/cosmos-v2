@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { notifyError } from "@/lib/errors/notify";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 type Prefs = {
   dndEnabled: boolean;
@@ -67,7 +68,7 @@ export function DndSettings({ orgId }: { orgId: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(next),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw await fetchErrorOf(res);
     } catch (err) {
       console.error("Failed to save DND settings:", err);
       setPrefs(prev);

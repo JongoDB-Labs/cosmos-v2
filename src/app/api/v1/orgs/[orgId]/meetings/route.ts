@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { canReadMeeting, readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { pullSoonIfStale, syncMeetingSoon, teamsRefusalForNew } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { TEAMS_REFUSED } from "@/lib/meetings/teams-messages";
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.MEETING_CREATE);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createMeetingSchema.parse(body);
     // Filing it under a project is writing to that project.
     await requireProjectVisibleIf(ctx, data.projectId);

@@ -13,6 +13,7 @@ import {
   TENANT_CLASSES_BY_PROTECTIVENESS,
   isAtLeastAsProtective,
 } from "@/lib/org/tenant-class";
+import { FetchError } from "@/lib/query/json-fetcher";
 
 interface OrgTenantClassProps {
   orgId: string;
@@ -61,7 +62,7 @@ export function OrgTenantClass({ orgId, current, isOwner }: OrgTenantClassProps)
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't update the tenant class.");
+        throw new FetchError(res.status, j, j.error ?? "Couldn't update the tenant class.");
       }
       toast.success(`Tenant class increased to ${selected}.`);
       router.refresh();

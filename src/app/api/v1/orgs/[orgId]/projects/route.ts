@@ -57,7 +57,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const fetched = await prisma.project.findMany({
       where: { AND: [{ orgId: p.orgId, archived, id: { in: [...visible] } }, page.where] },
       include: {
-        _count: { select: { boards: true, intervals: true, members: true } },
+        // Current members only; a relation count bypasses the removed-member
+        // extension in src/lib/db/client.ts.
+        _count: { select: { boards: true, intervals: true, members: { where: { orgMember: { removedAt: null } } } } },
         // The template's sector scopes the New-issue Type picker to the types
         // belonging to this project, rather than every type in the org.
         projectTemplate: { select: { sector: true } },
@@ -237,7 +239,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         where: { id: proj.id },
         include: {
           boards: { include: { columns: { orderBy: { sortOrder: "asc" } } } },
-          _count: { select: { boards: true, intervals: true, members: true } },
+          _count: { select: { boards: true, intervals: true, members: { where: { orgMember: { removedAt: null } } } } },
         },
       });
     });

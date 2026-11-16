@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getIpAddress } from "@/lib/api-helpers";
+import { getIpAddress, readJsonBody } from "@/lib/api-helpers";
 
 const errorSchema = z.object({
   message: z.string().max(2000),
@@ -23,7 +23,7 @@ const errorSchema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => null);
+    const body = await readJsonBody(request, { orElse: null });
     const parsed = errorSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ ok: false }, { status: 400 });

@@ -8,6 +8,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { reportError } from "@/lib/telemetry/error-report";
 import { usePermissions } from "@/components/providers/permissions-provider";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export default function OrgError({
   error,
@@ -53,7 +54,7 @@ export default function OrgError({
           digest: error.digest,
         }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw await fetchErrorOf(res);
       setReportState("sent");
     } catch {
       setReportState("failed");

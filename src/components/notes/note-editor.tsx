@@ -28,6 +28,7 @@ import {
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { notifyError } from "@/lib/errors/notify";
 import type { Note } from "@/types/models";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface NoteEditorProps {
   note: Note | null;
@@ -110,7 +111,7 @@ export function NoteEditor({
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to save note");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       const saved: Note = await res.json();
       onSave(saved);
@@ -130,7 +131,7 @@ export function NoteEditor({
         method: "DELETE",
       });
 
-      if (!res.ok) throw new Error("Failed to delete note");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       onDelete(note.id);
     } catch (err) {

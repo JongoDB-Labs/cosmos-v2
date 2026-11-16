@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 
 type RouteParams = {
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!milestone) return new Response("Not found", { status: 404 });
 
-    const data = createSchema.parse(await request.json());
+    const data = createSchema.parse(await readJsonBody(request));
 
     // The work item must belong to the same org+project.
     const workItem = await prisma.workItem.findFirst({

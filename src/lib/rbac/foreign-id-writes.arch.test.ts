@@ -186,6 +186,9 @@ const INLINE: Record<string, Record<string, string>> = {
   },
   [`${API}invoices/[invoiceId]/route.ts`]: { billId: INVOICE_TAG, expenseId: INVOICE_TAG },
   [`${API}invoices/route.ts`]: { billId: INVOICE_TAG, expenseId: INVOICE_TAG },
+  [`${API}members/route.ts`]: {
+    userId: "the person being let in, not a row of this org: membershipRow (lib/members/add-member.server.ts) reads their membership, removed or not, and an id that names no user fails the foreign key",
+  },
   [`${API}preferences/route.ts`]: {
     skinId: "a skin preset's key, checked against the preset registry, not a row",
   },

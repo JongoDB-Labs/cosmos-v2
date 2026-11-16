@@ -21,7 +21,7 @@ import {
   notifyTimesheetSubmitted,
   notifyTimesheetDecision,
 } from "@/lib/time/notify";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { roleCountsFor } from "@/lib/rbac/key-role";
 import { requireKeyMay } from "@/lib/rbac/key-role";
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!sheet) return new Response("Not found", { status: 404 });
 
-    const body = actionSchema.parse(await request.json());
+    const body = actionSchema.parse(await readJsonBody(request));
     const isOwner = sheet.userId === ctx.userId;
 
     // ── Submit: the worker's own action, and only theirs ────────────────────

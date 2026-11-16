@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { canSeeProjectMoney, projectMoney } from "@/lib/rbac/money-fields";
@@ -47,7 +47,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const existing = await prisma.changeRequest.findFirst({ where: { id: changeId, orgId, projectId } });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const data = updateSchema.parse(await request.json());
+    const data = updateSchema.parse(await readJsonBody(request));
 
     const updated = await prisma.changeRequest.update({
       where: { id: changeId },

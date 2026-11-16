@@ -2,8 +2,14 @@ import { prisma } from "@/lib/db/client";
 import { z } from "zod";
 import { BoardType, ColumnCategory } from "@prisma/client";
 import { Permission } from "@/lib/rbac/permissions";
-import { narrowBoards } from "@/lib/rbac/board-access";
-import { createBoard, deleteBoard, getBoard, replaceBoardColumns, updateBoard } from "@/lib/boards/board-service.server";
+import {
+  createBoard,
+  deleteBoard,
+  getBoard,
+  listBoards as listProjectBoards,
+  replaceBoardColumns,
+  updateBoard,
+} from "@/lib/boards/board-service.server";
 import { boardConfigFromQuery } from "@/lib/boards/board-query";
 import { BOARD_TYPE_REGISTRY, savableFromViewTypes } from "@/lib/boards/board-types";
 import { prepareCql } from "@/lib/query/execute.server";
@@ -27,9 +33,10 @@ import { cqlOrg, diagnosticsForModel } from "./cql";
  * (GET, POST), `.../boards/[boardId]` (GET, PUT, DELETE) and
  * `.../boards/[boardId]/columns` (PUT).
  *
- * The writes call the SAME board service those routes call
- * (`board-service.server.ts`), so the gate, the board-type allow-list, column
- * seeding and the audit row cannot drift from what the app does. That includes
+ * The list, the read and the writes call the SAME board service those routes
+ * call (`board-service.server.ts`), so the gate, the team axis, the board-type
+ * allow-list, column seeding and the audit row cannot drift from what the app
+ * does. That includes
  * who may change a board: a manager of the project's boards, or the person who
  * made it (a dashboard's creator renames it and deletes it without managing the
  * project). What a tool adds in front is only what a conversation needs: the
@@ -55,34 +62,33 @@ export async function listBoards(input: Record<string, unknown>, ctx: ToolContex
 
   const outOfScope = await assertProjectRead(ctx, projectId, "BOARD_READ");
   if (outOfScope) return outOfScope;
-
-  const boards = await prisma.board.findMany({
-    where: { orgId: ctx.orgId, projectId },
-    orderBy: { sortOrder: "asc" },
-    select: {
-      id: true,
-      projectId: true,
-      type: true,
-      sortOrder: true,
-      name: true,
-      createdAt: true,
-      // Selected for the gate below, then dropped from the reply: which team
-      // owns a board is not something the assistant needs to say out loud.
-      teamId: true,
-    },
-  });
-
-  // The TEAM axis, which `assertProjectRead` does not cover — it answers only
-  // "may they open this project". Without this the assistant listed boards the
-  // sidebar hides: the same second-surface gap as 2.265.3, one axis further in.
   const auth = await loadAuthContext(ctx);
   if (!auth) return { error: "Not a member of this organization" };
-  const visible = await narrowBoards(auth, projectId, boards);
 
-  return {
-    count: visible.length,
-    boards: visible.map(({ teamId: _teamId, ...rest }) => rest),
-  };
+  try {
+    // The app's own list (`GET .../boards`), so the team axis and who made each
+    // board come from the same place for both doors.
+    const visible = await listProjectBoards(auth, projectId);
+    return {
+      count: visible.length,
+      // Only what a conversation needs: not the columns, and not the team a
+      // board belongs to, which the assistant has no need to say out loud. Who
+      // made it reaches the caller only as `ownedByMe`, as in the app.
+      boards: visible.map((b) => ({
+        id: b.id,
+        projectId: b.projectId,
+        type: b.type,
+        sortOrder: b.sortOrder,
+        name: b.name,
+        createdAt: b.createdAt,
+        ownedByMe: b.ownedByMe,
+      })),
+    };
+  } catch (e) {
+    const refusal = serviceRefusal(e);
+    if (refusal) return refusal;
+    throw e;
+  }
 }
 
 // ── shared ──────────────────────────────────────────────────────────────────
@@ -169,6 +175,9 @@ export async function getBoardTool(input: Record<string, unknown>, ctx: ToolCont
         name: board.name,
         sortOrder: board.sortOrder,
         createdAt: board.createdAt,
+        // Whether the caller made it, as the app says it (`boardForReader`);
+        // never who did.
+        ownedByMe: board.ownedByMe,
       },
       ...(await boardLink(ctx.orgId, projectId, board)),
       baseline: baseline ? { cql: baseline.cql, partiallyRestricted: baseline.partiallyRestricted, ...(baseline.broken ? { broken: baseline.broken } : {}) } : null,

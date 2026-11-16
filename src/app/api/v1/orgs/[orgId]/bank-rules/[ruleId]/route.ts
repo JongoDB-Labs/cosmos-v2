@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { requireAccess } from "@/lib/abac/require-access";
 
@@ -35,7 +35,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (gate instanceof Response) return gate;
     const { ctx } = gate;
 
-    const input = patchSchema.parse(await request.json());
+    const input = patchSchema.parse(await readJsonBody(request));
     // Scope the update to the org so a rule from another tenant can't be touched.
     const updated = await prisma.bankRule.updateMany({
       where: { id: ruleId, orgId },

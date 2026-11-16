@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { partnerSelect, mapVendorContract } from "@/lib/pm/vendor";
 import { logPmFieldChanges } from "@/lib/pm/activity-log";
@@ -52,7 +52,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing) return new Response("Not found", { status: 404 });
 
-    const data = updateSchema.parse(await request.json());
+    const data = updateSchema.parse(await readJsonBody(request));
     // The partner named must be one of this org's: the foreign key alone would
     // accept another tenant's, then edit it and read it back.
     await assertRefsInScope({ orgId }, { partner: data.partnerId });

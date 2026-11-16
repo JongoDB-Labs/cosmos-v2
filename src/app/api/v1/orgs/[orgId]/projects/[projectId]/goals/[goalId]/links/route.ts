@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!goal) return new Response("Not found", { status: 404 });
 
-    const data = createLinkSchema.parse(await request.json());
+    const data = createLinkSchema.parse(await readJsonBody(request));
     // What a goal counts toward its progress is this project's own work.
     await assertRefsInScope(
       { orgId, projectId },

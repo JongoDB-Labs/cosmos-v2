@@ -6,8 +6,7 @@ import { prisma } from "@/lib/db/client";
 import { logAudit } from "@/lib/audit";
 import { requireAccess } from "@/lib/abac/require-access";
 import { ForbiddenError, type AuthContext } from "@/lib/rbac/check";
-import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { isProjectVisible } from "@/lib/rbac/project-access";
+import { canReadMeeting } from "@/lib/meetings/meeting-reader";
 import { loadEffectivePermissions } from "@/lib/rbac/effective-permissions";
 import { createClassificationResolver, type ClassificationResolver } from "@/lib/classification/resolver";
 import { rateLimit } from "@/lib/rate-limit/bucket";
@@ -205,7 +204,7 @@ const personal = (e: unknown) =>
 // ── Who may see / edit a meeting ────────────────────────────────────────────
 
 interface Viewer {
-  /** May this person read the meeting in Cosmos (the ICS feed's gate)? */
+  /** May this person read the meeting in Cosmos: the meeting pages' own rule, as the ICS feed asks it. */
   canSee(m: Pick<SyncMeeting, "projectId">): Promise<boolean>;
   /** May they edit it (the meeting PUT's gate)? */
   canEdit(m: Pick<SyncMeeting, "createdById" | "projectId">): Promise<boolean>;
@@ -214,17 +213,17 @@ interface Viewer {
 async function viewerFor(orgId: string, userId: string): Promise<Viewer> {
   const eff = await loadEffectivePermissions(orgId, userId);
   if (!eff) return { canSee: async () => false, canEdit: async () => false };
+  // Like the ICS feed: nobody at a keyboard, so no OWNER break-glass.
   const ctx: AuthContext = {
     userId, orgId, orgRole: eff.orgRole, permissions: eff.permissions, basePermissions: eff.basePermissions,
     abacRules: eff.abacRules, isApiKey: true,
   };
-  const canRead = hasPermission(ctx.permissions, Permission.MEETING_READ);
-  const projects = new Map<string, Promise<boolean>>();
+  // canReadMeeting, so a policy on MEETING_READ takes a meeting out of their
+  // Outlook as it takes it off their page. Asked once per project (or none).
+  const projects = new Map<string | null, Promise<boolean>>();
   return {
     async canSee(m) {
-      if (!canRead) return false;
-      if (!m.projectId) return true;
-      if (!projects.has(m.projectId)) projects.set(m.projectId, isProjectVisible(ctx, m.projectId));
+      if (!projects.has(m.projectId)) projects.set(m.projectId, canReadMeeting(ctx, m.projectId));
       return projects.get(m.projectId)!;
     },
     async canEdit(m) {
@@ -607,11 +606,15 @@ async function stopInvite(
       if (!(e instanceof CalendarNotConnected || e instanceof CalendarReconnectNeeded)) throw e;
       if (!link.contentHash.startsWith(PENDING_CANCEL)) {
         await prisma.externalEventLink.update({ where: { id: link.id }, data: { contentHash: PENDING_CANCEL + reason } });
+        // About their Outlook connection, not the meeting (it names nothing of
+        // it), so it names no meeting: a meeting notification reaches only
+        // people who can read the meeting, and an organizer who lost it (one
+        // reason to stop) must still be asked to reconnect.
         await createNotification({
           orgId, userId: organizer, type: "integration.outlook_invite_cancel_pending",
           title: "Reconnect Outlook to cancel invitations",
           message: "Cosmos couldn't cancel an Outlook invitation you sent. Reconnect Outlook Calendar (Settings, Preferences) and it will be cancelled.",
-          relatedType: "meeting", relatedId: m.id, url: null,
+          url: null,
         }).catch(() => undefined);
       }
       return "pending";

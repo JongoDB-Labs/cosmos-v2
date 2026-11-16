@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { refuseApiKey } from "@/lib/auth/key-gate";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { isValidSkinId } from "@/lib/theme/cookie";
@@ -69,7 +69,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // A person's own display and Do Not Disturb settings, not a key's.
     refuseApiKey(ctx);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updatePreferencesSchema.parse(body);
     // The rows a preference names: a board the caller may open (their project
     // page lands on it), and a theme of this org or a built-in one. A missing

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { updateEmployee } from "@/lib/payroll/service";
 import { employeeUpdateSchema } from "@/lib/payroll/validation";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -35,7 +35,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     await requireAccess(ctx, "FINANCE_MANAGE");
 
-    const input = employeeUpdateSchema.parse(await request.json());
+    const input = employeeUpdateSchema.parse(await readJsonBody(request));
     const employee = await updateEmployee(orgId, employeeId, input, ctx.userId);
     // Which fields changed, never their values: a cost rate is pay, and the
     // audit log is read by people who may not see pay.

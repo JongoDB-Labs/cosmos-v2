@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,7 +90,7 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ title }),
       });
-      if (!res.ok) throw new Error((await res.text()) || "Could not rename that");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not rename that");
     },
     onSuccess: () => {
       setRenaming(null);
@@ -102,7 +102,7 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
   const remove = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/v1/orgs/${orgId}/documents/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.text()) || "Could not delete that");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not delete that");
     },
     onSuccess: () => {
       setConfirmDelete(null);
@@ -116,7 +116,7 @@ export function OrgLibrary({ orgId, canUpload }: { orgId: string; canUpload: boo
       const body = new FormData();
       body.append("file", file);
       const res = await fetch(`/api/v1/orgs/${orgId}/documents`, { method: "POST", body });
-      if (!res.ok) throw new Error((await res.text()) || "Upload failed");
+      if (!res.ok) throw await fetchErrorOf(res, "Upload failed");
       return res.json();
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),

@@ -4,7 +4,7 @@ import { getAuthContext, getCurrentUser } from "@/lib/auth/session";
 import { refuseApiKey } from "@/lib/auth/key-gate";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { FEED_CREATE_REFUSAL_TEXT, feedInactiveReason, feedOptionsSchema, readFeedOptions } from "@/lib/calendar/feed-settings";
 import { feedPath, newFeedToken } from "@/lib/calendar/feed-token";
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const idpConnId = (await getCurrentUser())?.idpConnId ?? null;
     const refusal = feedInactiveReason(await loadFeedStanding(r.org), { idpConnId });
     if (refusal) return NextResponse.json({ error: FEED_CREATE_REFUSAL_TEXT[refusal] }, { status: 403 });
-    const options = feedOptionsSchema.parse((await request.json().catch(() => ({})))?.options ?? readFeedOptions({}));
+    const options = feedOptionsSchema.parse((await readJsonBody(request, { orElse: {} }))?.options ?? readFeedOptions({}));
     const active = await prisma.calendarFeed.count({ where: { orgId: r.org.id, userId: r.ctx.userId, revokedAt: null } });
     if (active >= MAX_ACTIVE_FEEDS) {
       return NextResponse.json({ error: `You can have up to ${MAX_ACTIVE_FEEDS} links. Revoke one first.` }, { status: 400 });

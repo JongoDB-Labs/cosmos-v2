@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 import { createNotification } from "@/lib/notifications/create";
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     if (!meeting || !(await canReadMeeting(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = addAttendeeSchema.parse(body);
     if (!(await allOrgMembers(orgId, [data.userId]))) return attendeesNotMembers();
 
@@ -135,7 +135,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
     if (!meeting || !(await canReadMeeting(ctx, meeting.projectId))) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = bulkUpdateSchema.parse(body);
     if (!(await allOrgMembers(orgId, data.attendees.map((a) => a.userId)))) return attendeesNotMembers();
 

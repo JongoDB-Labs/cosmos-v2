@@ -19,17 +19,20 @@ export interface AxeViolation {
  * Inject axe-core into the page and run a WCAG 2 A/AA scan. Returns the list of
  * violations (id, impact, where). Codifies the manual axe audits from rounds
  * 16/17 as a repeatable check.
+ *
+ * `include`: a selector to scan only that part of the page (one popup, say),
+ * for a check about it rather than about whatever else is on screen.
  */
 export async function runAxe(
   page: Page,
-  opts?: { tags?: string[] },
+  opts?: { tags?: string[]; include?: string },
 ): Promise<AxeViolation[]> {
   await page.evaluate((src) => {
     // eslint-disable-next-line no-eval
     if (!(window as unknown as { axe?: unknown }).axe) eval(src);
   }, AXE_SOURCE);
   const tags = opts?.tags ?? ["wcag2a", "wcag2aa"];
-  return page.evaluate(async (runTags) => {
+  return page.evaluate(async ({ runTags, include }) => {
     // Exclude `[data-a11y-preview]` regions — these intentionally render an
     // arbitrary user-CHOSEN color (e.g. the theme picker's live swatch), so
     // their contrast reflects that choice, not a code regression we should gate
@@ -48,7 +51,10 @@ export async function runAxe(
         };
       }
     ).axe.run(
-      { exclude: [["[data-a11y-preview]"], ["[data-sonner-toaster]"]] },
+      {
+        ...(include && { include: [[include]] }),
+        exclude: [["[data-a11y-preview]"], ["[data-sonner-toaster]"]],
+      },
       { runOnly: runTags },
     );
     return (res.violations as Array<{
@@ -63,7 +69,7 @@ export async function runAxe(
       nodes: v.nodes.length,
       targets: v.nodes.slice(0, 3).map((n) => n.target.join(" ")),
     }));
-  }, tags);
+  }, { runTags: tags, include: opts?.include });
 }
 
 /** Serious/critical violations are the ones we gate on. */

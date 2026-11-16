@@ -66,6 +66,9 @@ export function SearchableMultiSelect({
   "aria-describedby"?: string;
   "aria-required"?: boolean | "true" | "false";
 }) {
+  // Stable prefix for the per-row description ids that `aria-describedby`
+  // points at; several of these dropdowns can be open on one page.
+  const descId = React.useId();
   // Control by the matching option objects (in `value` order) so base-ui's
   // referential equality (Object.is) lines up with the rendered items AND the
   // selection order the caller passed in is preserved. Map back to string ids at
@@ -157,9 +160,24 @@ export function SearchableMultiSelect({
                   key={item.value}
                   value={item}
                   disabled={item.disabled}
+                  // As in <SearchableSelect>: the row's accessible NAME stays the
+                  // label, and a description under it is attached as a
+                  // description, so `getByRole("option", { name })` and a
+                  // screen reader both still get the label alone.
+                  aria-label={item.description ? item.label : undefined}
+                  aria-describedby={item.description ? `${descId}-${item.value}` : undefined}
                   className="relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 >
-                  <span className="line-clamp-1 flex-1">{item.label}</span>
+                  {item.description ? (
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="line-clamp-1">{item.label}</span>
+                      <span id={`${descId}-${item.value}`} className="line-clamp-2 text-xs text-muted-foreground">
+                        {item.description}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="line-clamp-1 flex-1">{item.label}</span>
+                  )}
                   <Combobox.ItemIndicator
                     render={
                       <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />

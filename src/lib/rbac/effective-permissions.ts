@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db/client";
 import { resolvePermissions, type AuthContext } from "./check";
-import { Permission, maskFromDb } from "./permissions";
+import { Permission, maskFromDb, permissionNames, type PermissionKey } from "./permissions";
 import { coerceRules, type AbacRule } from "@/lib/abac/engine";
 import type { OrgRole } from "@prisma/client";
 
@@ -101,6 +101,28 @@ export async function loadEffectivePermissions(
     unrestrictedBasePermissions,
     abacRules: [...coerceRules(member.abacRules), ...workRolePolicies, ...restrictions],
   };
+}
+
+/**
+ * What a person's browser session may do in each of their orgs, as permission
+ * KEYS: {@link loadEffectivePermissions} per org, the fold `getAuthContext`
+ * gates every request on (work roles, the stored override, the org's
+ * restrictions, an owner's break-glass). The dashboard shell sends these so the
+ * client's `can()` shows what the server allows. Keys, never the mask: a mask
+ * is not to be serialized, and keys are what the client builds one from. An
+ * org the person is no longer in gets none.
+ */
+export async function sessionPermissionKeysByOrg(
+  userId: string,
+  orgIds: string[],
+): Promise<Map<string, PermissionKey[]>> {
+  const keys = await Promise.all(
+    orgIds.map(async (orgId) => {
+      const eff = await loadEffectivePermissions(orgId, userId);
+      return [orgId, eff ? permissionNames(eff.permissions) : []] as const;
+    }),
+  );
+  return new Map(keys);
 }
 
 /** The member fields {@link memberPermissions} reads, for a Prisma `select`. */

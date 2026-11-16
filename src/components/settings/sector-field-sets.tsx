@@ -6,6 +6,7 @@ import { Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { notifyError } from "@/lib/errors/notify";
 import { SECTOR_FIELD_SECTORS, SECTOR_FIELD_TEMPLATES } from "@/lib/custom-fields/sector-field-templates";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 const SECTOR_LABELS: Record<string, string> = {
   software: "Software",
@@ -41,7 +42,7 @@ export function SectorFieldSets({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sector }),
       });
-      if (!res.ok) throw new Error("Couldn't apply the field set.");
+      if (!res.ok) throw await fetchErrorOf(res);
       const data = (await res.json()) as { created: number; skipped: string[] };
       if (data.created === 0) {
         toast.message("Already applied", {

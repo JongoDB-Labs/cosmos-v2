@@ -13,8 +13,12 @@ import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext 
  * team's id.
  */
 
+// Current members only, as the board's teams route reads them: a removed
+// person is on no team, and a nested relation load does not pass through the
+// removed-member extension in src/lib/db/client.ts.
 const TEAM_MEMBERS = {
   members: {
+    where: { projectMember: { orgMember: { removedAt: null } } },
     select: { projectMember: { select: { orgMember: { select: { userId: true } } } } },
   },
 } as const;

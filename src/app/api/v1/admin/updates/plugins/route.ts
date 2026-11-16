@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { handleApiError, success } from "@/lib/api-helpers";
+import { handleApiError, success, readJsonBody } from "@/lib/api-helpers";
 import { requireSystemAdmin } from "@/lib/internal/require-system-admin";
 import { pluginVersionStatus, reconcilePluginForAllOrgs } from "@/lib/updates/plugins";
 
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     if (!(await requireSystemAdmin())) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const { slug } = bodySchema.parse(await request.json());
+    const { slug } = bodySchema.parse(await readJsonBody(request));
     const result = await reconcilePluginForAllOrgs(slug);
     // 207 when some orgs did not move: the others DID, and the caller needs to
     // know which failed rather than a blanket failure that hides the successes.

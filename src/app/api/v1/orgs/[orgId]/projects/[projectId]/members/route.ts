@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
 import { memberDisclosure } from "@/lib/members/scoped-roster.server";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { removeProjectMember, setProjectMember } from "@/lib/projects/membership.server";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
@@ -40,8 +40,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     // Explicit select throughout — OrgMember.permissions is a permission mask
     // and must never ride out in a response payload.
+    // Current members only. A removed person's project membership is retained for
+    // their reinstatement, and this model does not pass through the removed-member
+    // extension in src/lib/db/client.ts, so the filter is written out here.
     const members = await prisma.projectMember.findMany({
-      where: { projectId },
+      where: { projectId, orgMember: { removedAt: null } },
       select: {
         id: true,
         orgMemberId: true,
@@ -84,7 +87,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const { orgId, projectId } = await params;
     const r = await authenticate(orgId);
     if (r.error) return r.error;
-    const body = await request.json().catch(() => null);
+    const body = await readJsonBody(request, { orElse: null });
     return success(await setProjectMember(r.ctx, projectId, body, { ipAddress: getIpAddress(request) }));
   } catch (e) {
     return handleApiError(e);
@@ -96,7 +99,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { orgId, projectId } = await params;
     const r = await authenticate(orgId);
     if (r.error) return r.error;
-    const body = await request.json().catch(() => null);
+    const body = await readJsonBody(request, { orElse: null });
     await removeProjectMember(r.ctx, projectId, body, { ipAddress: getIpAddress(request) });
     return success({ removed: true });
   } catch (e) {

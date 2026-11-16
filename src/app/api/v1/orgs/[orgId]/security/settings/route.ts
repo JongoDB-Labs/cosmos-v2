@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext, revokeOrgSessions } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { deleteApiKeysIn, keyHoldersWithoutManage } from "@/lib/auth/api-key-manage.server";
 import { revokeCalendarFeedsIn } from "@/lib/calendar/feed-revoke.server";
@@ -115,7 +115,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.SECURITY_MANAGE);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const { actionRestrictions: rawRestrictions, ...data } = updateSettingsSchema.parse(body);
 
     let actionRestrictions: Prisma.InputJsonValue | undefined;

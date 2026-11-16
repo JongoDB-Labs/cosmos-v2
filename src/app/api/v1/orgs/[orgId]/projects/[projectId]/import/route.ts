@@ -6,7 +6,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { ConflictError } from "@/lib/rbac/check";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { runEntityImport } from "@/lib/import/entity-import";
 import { ENTITY_DEFS, type EntityImportRequest } from "@/lib/import/entity-fields";
 import { escapeLike } from "@/lib/query/like";
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await requireProjectVisible(ctx, project.id);
     await requireProjectManage(ctx, project.id, Permission.PROJECT_UPDATE);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const req = importSchema.parse(body) as EntityImportRequest;
 
     // The mirror of the org route's refusal. An org-scoped entity spans the

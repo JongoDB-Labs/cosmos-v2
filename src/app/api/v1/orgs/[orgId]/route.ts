@@ -5,7 +5,7 @@ import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { getVisibleProjectIds } from "@/lib/rbac/project-access";
 import { memberDisclosure } from "@/lib/members/scoped-roster.server";
-import { success, handleApiError, getIpAddress, noContent } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, noContent, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { revalidateOrg } from "@/lib/cache/queries";
@@ -113,7 +113,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_UPDATE);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     if (body && typeof body === "object" && "settings" in body) {
       return Response.json({ error: SETTINGS_REFUSED }, { status: 400 });
     }
@@ -196,7 +196,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // Defense-in-depth against an accidental/forged delete: the caller must
     // echo the exact org name (the UI requires typing it). Origin-CSRF is
     // already enforced in middleware; this is the second, intentional gate.
-    const body = await request.json().catch(() => ({}));
+    const body = await readJsonBody(request, { orElse: {} });
     const confirmName =
       body && typeof body === "object" ? (body as { confirmName?: unknown }).confirmName : undefined;
     if (confirmName !== org.name) {

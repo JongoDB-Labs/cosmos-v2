@@ -52,6 +52,7 @@ import { timeEntriesToCsv, timeCsvFilename } from "@/lib/time/entries-csv";
 import { localDateString } from "@/lib/time/local-date";
 import { ApprovalsQueue } from "./approvals-queue";
 import { toast } from "sonner";
+import { fetchErrorOf, FetchError } from "@/lib/query/json-fetcher";
 
 interface Project {
   id: string;
@@ -471,7 +472,7 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
       // Pin to one person so the day/week totals below describe THAT person.
       if (shownUserId) params.set("userId", shownUserId);
       const res = await fetch(`/api/v1/orgs/${orgId}/time-entries?${params}`);
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw await fetchErrorOf(res);
       const data = await res.json();
       if (reqRef.current !== token) return;
       // GET /time-entries returns `success({ data, total })` → the body is
@@ -537,7 +538,7 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
           setRequestingSupervisor(true);
           return;
         }
-        throw new Error(body?.error ?? "That action could not be completed.");
+        throw new FetchError(res.status, body, body?.error ?? "That action could not be completed.");
       }
       // "Who did this go to?" had no answer before — submitting flipped a
       // status silently. Say it out loud, at the moment they ask.
@@ -571,7 +572,7 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "That request could not be sent.");
+        throw new FetchError(res.status, body, body?.error ?? "That request could not be sent.");
       }
       const body = await res.json().catch(() => null);
       setRequestingSupervisor(false);
@@ -626,7 +627,7 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
         body: JSON.stringify(body),
       });
 
-      if (!res.ok) throw new Error("Failed to save time entry.");
+      if (!res.ok) throw await fetchErrorOf(res);
       setDialogOpen(false);
       setEditingEntry(null);
       setForm(emptyForm);
@@ -649,7 +650,7 @@ export function TimeTracker({ orgId, selfUserId }: TimeTrackerProps) {
         // in an otherwise complete audit chain.
         body: JSON.stringify({ reason }),
       });
-      if (!res.ok) throw new Error("Failed to delete time entry.");
+      if (!res.ok) throw await fetchErrorOf(res);
       setRefreshKey((k) => k + 1);
     } catch (err) {
       console.error(err);

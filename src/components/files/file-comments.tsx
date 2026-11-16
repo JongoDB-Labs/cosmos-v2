@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { Button } from "@/components/ui/button";
 import { notifyError } from "@/lib/errors/notify";
@@ -47,7 +47,7 @@ export function FileComments({ orgId, docId }: { orgId: string; docId: string })
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ content }),
       });
-      if (!res.ok) throw new Error((await res.text()) || "Could not post that");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not post that");
     },
     onSuccess: () => {
       setDraft("");
@@ -59,7 +59,7 @@ export function FileComments({ orgId, docId }: { orgId: string; docId: string })
   const remove = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`${base}/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw await fetchErrorOf(res);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
     onError: (e) => notifyError(e),

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { success } from "@/lib/api-helpers";
+import { success, readJsonBody } from "@/lib/api-helpers";
 import { checkRateLimit } from "@/lib/rate-limit/guard";
 import { predicateCql } from "@/lib/query/execute.server";
 import { cqlErrorResponse, cqlGate } from "@/lib/query/route.server";
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const limited = checkRateLimit(request, "cql.predicate", gate.ctx.userId, { capacity: 60, refillPerSecond: 6 });
     if (limited) return limited;
 
-    const body = bodySchema.parse(await request.json().catch(() => ({})));
+    const body = bodySchema.parse(await readJsonBody(request, { orElse: {} }));
     return success(
       await predicateCql(gate.ctx, { cql: body.cql, query: body.query }, { tz: body.tz, vars: body.vars, contextProjectId: body.contextProjectId }),
     );

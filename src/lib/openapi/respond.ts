@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { bodyIsOptional, type AnyObject, type RouteContract } from "./contract";
 import { pageQueryShape } from "./paginate";
-import { ProblemError } from "./problem";
+import { INVALID_JSON_BODY, ProblemError } from "./problem";
 
 type Out<T> = T extends z.ZodType ? z.output<T> : undefined;
 type PageQuery = { limit?: number; cursor?: string };
@@ -62,7 +62,7 @@ export async function parseRequest<C extends RouteContract>(
       try {
         raw = JSON.parse(text);
       } catch {
-        throw new ProblemError(400, "invalid_request", "Request body must be valid JSON");
+        throw new ProblemError(400, "invalid_request", INVALID_JSON_BODY);
       }
     }
     parsedBody = shape.body.parse(raw);

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { ConflictError } from "@/lib/rbac/check";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { requireInvoiceVisible } from "@/lib/invoicing/visibility.server";
 import { addReimbursables, listUnbilledReimbursables } from "@/lib/invoicing/reimbursables.server";
 import { requireAccess } from "@/lib/abac/require-access";
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await requireAccess(ctx, "FINANCE_MANAGE");
     await requireInvoiceVisible(ctx, orgId, invoiceId);
 
-    const pick = bodySchema.parse(await request.json().catch(() => ({})));
+    const pick = bodySchema.parse(await readJsonBody(request, { orElse: {} }));
     const added = await addReimbursables(orgId, invoiceId, pick);
     await logAudit({
       orgId,

@@ -22,6 +22,7 @@ import {
   scopeMembersToTeam,
 } from "@/lib/teams/ceremony-team-scope";
 import { notifyError } from "@/lib/errors/notify";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface CapacityEntry {
   userId: string;
@@ -101,7 +102,7 @@ export function CapacityDialog({
     setLoading(true);
     try {
       const res = await fetch(`${basePath}/capacity`);
-      if (!res.ok) throw new Error("Failed to load capacity");
+      if (!res.ok) throw await fetchErrorOf(res);
       const rows: CapacityEntry[] = await res.json();
       const map: Record<string, string> = {};
       for (const r of rows) map[r.userId] = String(r.capacity);
@@ -130,7 +131,7 @@ export function CapacityDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ entries }),
       });
-      if (!res.ok) throw new Error("Failed to save capacity");
+      if (!res.ok) throw await fetchErrorOf(res);
       onClose();
     } catch (err) {
       notifyError(err, "Couldn't save capacity.");

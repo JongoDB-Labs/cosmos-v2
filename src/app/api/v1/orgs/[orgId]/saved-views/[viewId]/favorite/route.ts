@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, noContent, handleApiError } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { canSee, viewerScope } from "@/lib/query/saved-filters.server";
 import { requireKeyMay } from "@/lib/rbac/key-role";
 
@@ -33,7 +33,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const ctx = await visible(orgId, viewId);
     if (ctx === "unauthorized") return new Response("Unauthorized", { status: 401 });
     if (!ctx) return new Response("Not found", { status: 404 });
-    const body = bodySchema.parse(await request.json().catch(() => ({})));
+    const body = bodySchema.parse(await readJsonBody(request, { orElse: {} }));
     const sortOrder =
       body.sortOrder
       ?? ((await prisma.savedViewFavorite.aggregate({ where: { userId: ctx.userId }, _max: { sortOrder: true } }))._max.sortOrder ?? -1) + 1;

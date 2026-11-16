@@ -1,6 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export type ChatSearchHit = {
   messageId: string;
@@ -24,7 +25,7 @@ export function useChatSearch(orgId: string, query: string, channelId?: string) 
       const r = await fetch(
         `/api/v1/orgs/${orgId}/chat/search?${params.toString()}`,
       );
-      if (!r.ok) throw new Error("search failed");
+      if (!r.ok) throw await fetchErrorOf(r, "search failed");
       const j = await r.json();
       return (j.hits ?? []) as ChatSearchHit[];
     },

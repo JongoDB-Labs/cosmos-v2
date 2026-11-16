@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MoreVertical } from "lucide-react";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 type Pref = "ALL" | "MENTIONS" | "MUTED";
 type Action = Pref | "MUTE_8H";
@@ -39,7 +40,7 @@ export function NotificationPrefMenu({
           body: JSON.stringify(body),
         },
       );
-      if (!r.ok) throw new Error("Couldn't update notification preference.");
+      if (!r.ok) throw await fetchErrorOf(r);
       qc.invalidateQueries({ queryKey: channelsKey });
     } catch (err) {
       notifyError(err, "Couldn't update notification preference.");

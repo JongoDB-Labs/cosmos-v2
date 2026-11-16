@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export interface ProjectTeamMember {
   userId: string;
@@ -34,7 +35,7 @@ export function useProjectTeams(orgId: string, projectId: string) {
     enabled: Boolean(orgId && projectId),
     queryFn: async (): Promise<ProjectTeam[]> => {
       const r = await fetch(`/api/v1/orgs/${orgId}/projects/${projectId}/teams`);
-      if (!r.ok) throw new Error("Failed to load teams");
+      if (!r.ok) throw await fetchErrorOf(r, "Failed to load teams");
       const body = await r.json();
       const raw: unknown = Array.isArray(body) ? body : (body?.data ?? []);
       if (!Array.isArray(raw)) return [];

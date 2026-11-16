@@ -19,6 +19,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import type { WorkItem, Board, BoardColumn } from "@/types/models";
 import { cumulativeFlow, type CfdCategory } from "@/lib/dashboard/cfd";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface CfdViewProps {
   orgId: string;
@@ -57,8 +58,8 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
           fetch(`${basePath}/work-items`),
         ]);
 
-        if (!boardRes.ok) throw new Error("Failed to load board");
-        if (!itemsRes.ok) throw new Error("Failed to load work items");
+        if (!boardRes.ok) throw await fetchErrorOf(boardRes, "Failed to load board");
+        if (!itemsRes.ok) throw await fetchErrorOf(itemsRes, "Failed to load work items");
 
         const boardData: Board = await boardRes.json();
         const itemsData: WorkItem[] = await itemsRes.json();

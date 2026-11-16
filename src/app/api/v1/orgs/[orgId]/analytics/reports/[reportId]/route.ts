@@ -4,7 +4,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireAccess } from "@/lib/abac/require-access";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, noContent, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -61,7 +61,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       createdById: existing.createdById,
     });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = updateReportSchema.parse(body);
 
     const updated = await prisma.savedReport.update({

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireProjectRead } from "@/lib/rbac/require-project-read";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { Prisma } from "@prisma/client";
 import { escapeLike } from "@/lib/query/like";
 
@@ -72,7 +72,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
     if (!project) return new Response("Not found", { status: 404 });
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const patch = tabPrefsSchema.parse(body);
 
     // Load the caller's existing prefs so we can merge (upsert can't read the

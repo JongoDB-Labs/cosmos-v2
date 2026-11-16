@@ -44,6 +44,7 @@ import {
   saveMobileNav,
 } from "@/lib/nav/mobile-nav";
 import { AppearanceSkinPicker } from "./appearance-skin-picker";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 type ThemeModeOption = "LIGHT" | "DARK" | "SYSTEM";
 type Density = "COMPACT" | "COMFORTABLE" | "SPACIOUS";
@@ -305,13 +306,13 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
 
       if (draft.bgDarkRemoved && !draft.bgDarkFile) {
         const res = await fetch("/api/v1/me/background?mode=dark", { method: "DELETE" });
-        if (!res.ok) throw new Error("Couldn't remove the dark mode background.");
+        if (!res.ok) throw await fetchErrorOf(res);
         newDarkUrl = null;
       }
 
       if (draft.bgLightRemoved && !draft.bgLightFile) {
         const res = await fetch("/api/v1/me/background?mode=light", { method: "DELETE" });
-        if (!res.ok) throw new Error("Couldn't remove the light mode background.");
+        if (!res.ok) throw await fetchErrorOf(res);
         newLightUrl = null;
       }
 

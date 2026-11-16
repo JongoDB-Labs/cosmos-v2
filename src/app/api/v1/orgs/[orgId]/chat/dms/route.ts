@@ -2,7 +2,7 @@ import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { getBus } from "@/lib/realtime/bus";
 import { topics } from "@/lib/realtime/topics";
 import { z } from "zod";
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const parsed = schema.safeParse(await req.json().catch(() => null));
+    const parsed = schema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     const otherIds = parsed.data.userIds.filter((id) => id !== ctx.userId);

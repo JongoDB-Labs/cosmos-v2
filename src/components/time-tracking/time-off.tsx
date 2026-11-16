@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -169,7 +169,7 @@ export function TimeOff({ orgId }: { orgId: string }) {
           note: note.trim() || undefined,
         }),
       });
-      if (!res.ok) throw new Error((await res.text()) || "Could not file that");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not file that");
       return res.json();
     },
     onSuccess: () => {
@@ -186,7 +186,7 @@ export function TimeOff({ orgId }: { orgId: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: v.action }),
       });
-      if (!res.ok) throw new Error((await res.text()) || "Could not do that");
+      if (!res.ok) throw await fetchErrorOf(res, "Could not do that");
       return res.json();
     },
     onSuccess: refresh,

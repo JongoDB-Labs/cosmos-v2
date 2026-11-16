@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireAccess } from "@/lib/abac/require-access";
 import { refuseProjectScopedKey } from "@/lib/auth/key-gate";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { randomBytes } from "crypto";
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     refuseProjectScopedKey(ctx);
     await requireAccess(ctx, "WEBHOOK_MANAGE");
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createWebhookSchema.parse(body);
 
     // The signing secret is generated once and SEALED at rest (3.13.16): the DB

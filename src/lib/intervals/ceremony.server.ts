@@ -232,7 +232,9 @@ export async function getCeremonyPayload(
     const team = await prisma.team.findFirst({
       where: { id: query.teamId, projectId },
       select: {
+        // Current members only, as in planning: a removed person is on no team.
         members: {
+          where: { projectMember: { orgMember: { removedAt: null } } },
           select: {
             projectMember: { select: { orgMember: { select: { userId: true } } } },
           },

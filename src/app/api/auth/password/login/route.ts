@@ -15,7 +15,7 @@ import {
 } from "@/lib/auth/first-login";
 import { sealSecret } from "@/lib/crypto/vault";
 import { rateLimit } from "@/lib/rate-limit/bucket";
-import { getIpAddress } from "@/lib/api-helpers";
+import { getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { escapeLike } from "@/lib/query/like";
 
 const MFA_PENDING_TTL = 300; // 5 minutes to complete the second factor
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const parsed = schema.safeParse(await readJsonBody(request, { orElse: null }));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid email or password." }, { status: 400 });
   }

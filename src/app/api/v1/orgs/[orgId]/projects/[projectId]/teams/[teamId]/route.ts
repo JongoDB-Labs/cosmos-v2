@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { addTeamMember, removeTeamMember, requireTeamManage } from "@/lib/projects/membership.server";
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, { params }: RouteParams): Promi
     const r = await authenticate(orgId);
     if (!r.ok) return r.error;
 
-    const body = await request.json().catch(() => null);
+    const body = await readJsonBody(request, { orElse: null });
     const tm = await addTeamMember(r.ctx, projectId, teamId, body, { ipAddress: getIpAddress(request) });
     // Idempotent: re-adding someone already on the team is a no-op, not an
     // error. The UI can retry a dropped request without special-casing it.

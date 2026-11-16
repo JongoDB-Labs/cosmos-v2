@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { created, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return problem(401, "unauthorized", undefined, { request });
     requirePermission(ctx, Permission.ORG_MANAGE_TEMPLATES);
 
-    const body = await request.json();
+    const body = await readJsonBody(request);
     const data = createWorkItemTypeSchema.parse(body);
 
     // Check for key uniqueness within the org

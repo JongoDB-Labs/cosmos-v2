@@ -17,7 +17,7 @@ import {
 import { notifyError } from "@/lib/errors/notify";
 import { Search } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import { orderByPreferredType, resolveLinkTypeId } from "@/lib/okr/link-type-default";
@@ -100,7 +100,7 @@ export function KeyResultLinksDialog({
     (async () => {
       try {
         const res = await fetch(`${base}/work-items`);
-        if (!res.ok) throw new Error("load");
+        if (!res.ok) throw await fetchErrorOf(res);
         const all: WorkItemLite[] = await res.json();
         if (!cancelled) setItems(all);
       } catch (err) {

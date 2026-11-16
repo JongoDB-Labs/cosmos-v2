@@ -15,7 +15,7 @@ import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { getAiProviderStatus } from "@/lib/ai/ai-credentials";
 import { resolveModelCredential } from "@/lib/ai/model-credential-provider";
 import { publishToOrg } from "@/lib/realtime/broker";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import {
   pruneToProjects,
   readAutomationConfig,
@@ -171,7 +171,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.ORG_UPDATE);
 
-    const data = configSchema.parse(await request.json());
+    const data = configSchema.parse(await readJsonBody(request));
 
     // Can't enable an automation without a valid project scope (and, for
     // auto-triage, a default project drawn from that scope).

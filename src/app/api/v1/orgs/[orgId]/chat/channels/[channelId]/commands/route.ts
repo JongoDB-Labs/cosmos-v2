@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { canManageChannelGiven, canSeeChannelGiven, loadChannelAndMembership } from "@/lib/chat/access";
 import { postServerMessage } from "@/lib/chat/system-message";
 import { getBus } from "@/lib/realtime/bus";
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const limited = checkRateLimit(req, "chat.command", ctx.userId, { capacity: 20, refillPerSecond: 0.5 });
     if (limited) return limited;
 
-    const parsed = schema.safeParse(await req.json().catch(() => null));
+    const parsed = schema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return err("invalid_input");
     const { command, args } = parsed.data;
     // Every command needs CHAT_USE like the Chat page, /mute included: it is the
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // An API key never holds it (no scope grants it).
     requirePermission(ctx, Permission.CHAT_USE);
 
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel || channel.orgId !== orgId) return new Response("Not found", { status: 404 });
     if (!canSeeChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       return new Response("Not found", { status: 404 });

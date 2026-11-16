@@ -49,6 +49,181 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.561.15",
+    date: "2026-11-14",
+    title: "Errors say what went wrong",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When a save, move or delete is refused, the message now gives the reason the server gave, such as a name that is already taken or a sprint that can\u2019t join that Program Increment, instead of a general \u201cCouldn\u2019t save\u201d message.",
+      },
+      {
+        kind: "fix",
+        text: "A form that fails a check now names the field and what is wrong with it, instead of saying \u201cInvalid request\u201d.",
+      },
+      {
+        kind: "fix",
+        text: "A request whose body isn\u2019t valid JSON is now answered as a bad request (400) with that reason, instead of a server error (500). This matters most to anyone calling the API directly.",
+      },
+    ],
+  },
+  {
+    version: "2.561.14",
+    date: "2026-11-14",
+    title: "Inviting someone back brings them back",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Inviting back someone who was removed from your organization now lets them in when they sign in, with the role in the invitation and the work roles and projects they had. Before, the invitation disappeared at their sign-in and they stayed out, with nothing to say why. Their old API keys and calendar links stay ended.",
+      },
+      {
+        kind: "fix",
+        text: "An invitation now reaches its person whatever capital letters their address was written with.",
+      },
+      {
+        kind: "fix",
+        text: "Inviting someone back, or resending their invitation, needs the same access as re-adding them from the members list: it counts the work roles and extra permissions they would get back.",
+      },
+      {
+        kind: "fix",
+        text: "Removing someone from your organization also cancels their invitations to it. An invitation sent before someone was removed no longer brings them back; send them a new one.",
+      },
+    ],
+  },
+  {
+    version: "2.561.13",
+    date: "2026-11-14",
+    title: "People removed from an organization leave its lists",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Someone removed from your organization no longer appears in project member lists, team rosters or a work role\u2019s holders, and is no longer counted in the member counts on projects and work roles. Cosmo no longer lists them either.",
+      },
+      {
+        kind: "fix",
+        text: "Someone removed from your organization can no longer be added to a team, by you or by Cosmo, and their project role can no longer be changed from the staffing register.",
+      },
+      {
+        kind: "fix",
+        text: "Saving a work role\u2019s list of holders no longer takes the role away from people who were removed from the organization, so re-adding someone brings their work roles back as intended.",
+      },
+      {
+        kind: "improvement",
+        text: "Sprint planning, sprint reviews, the team filter and team swimlanes count only current members as a team\u2019s people. Work still assigned to someone who was removed, and that names no team, now shows under \u201cNo team\u201d until it is reassigned.",
+      },
+    ],
+  },
+  {
+    version: "2.561.12",
+    date: "2026-11-14",
+    title: "Menus offer only what you may use",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Buttons and menus now follow your full access in each organization, including what a work role adds, what an admin set for you, and what your organization restricts. Before, they followed your role alone, so a viewer whose work role allows chat saw no way into it.",
+      },
+      {
+        kind: "fix",
+        text: "The command menu and the phone's bottom bar show Chat only to people who may use chat. The command menu also hides Notes and Meetings from guests, as the top bar already did.",
+      },
+      {
+        kind: "fix",
+        text: "Inviting someone, or changing a member's role, now offers only the roles you may give. A member who manages members through a work role is no longer offered Admin or Billing admin, which were refused when picked.",
+      },
+    ],
+  },
+  {
+    version: "2.561.11",
+    date: "2026-11-14",
+    title: "Single sign-on checks where it connects, and the Microsoft setup note says only what's known",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Single sign-on now connects to an organization's identity provider under the same address rules as every other outside URL: never to link-local or cloud metadata addresses, and to a private address only inside the ranges the instance's operator lists in SSO_ALLOW_PRIVATE_CIDRS, a new list for identity providers alone. That covers the discovery request and every later request to the provider. OUTBOUND_ALLOW_PRIVATE_CIDRS stays the list for the endpoints org admins configure, and neither list opens a range to the other side. An operator whose identity provider is on a private network must list its range in SSO_ALLOW_PRIVATE_CIDRS, or sign-in through it fails.",
+      },
+      {
+        kind: "improvement",
+        text: "The Helm chart can now set SSO_ALLOW_PRIVATE_CIDRS through the sso.allowPrivateCidrs value, and OUTBOUND_ALLOW_PRIVATE_CIDRS through the outbound.allowPrivateCidrs value. Both are empty by default, so existing installs render unchanged.",
+      },
+      {
+        kind: "fix",
+        text: "When MICROSOFT_TRUSTED_DOMAINS is unset, the note the server logs at start no longer tells you to add the xms_edov claim as if it were missing. The server can't see the app registration, so the note now says what linking rests on, and to act only if sign-ins are refused for it.",
+      },
+    ],
+  },
+  {
+    version: "2.561.10",
+    date: "2026-11-14",
+    title: "Boards answer the same way through the app and the assistant",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening, renaming or deleting a board in a project you cannot see now says the board was not found, the same answer as for a board that does not exist. Changing its columns already did; the rest said access was denied.",
+      },
+      {
+        kind: "improvement",
+        text: "The assistant now says which boards you made, the same way the board list in the app does, without naming who made the others. It reads a project's boards from the same list the app shows, so the two cannot disagree about which boards you can see.",
+      },
+    ],
+  },
+  {
+    version: "2.561.9",
+    date: "2026-11-14",
+    title: "Everyone you assign is told",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Giving a work item several assignees at once, as its Assignees picker does, now tells each person newly added. Before, none of them were told. Nobody already assigned is told again, including someone moved to the front, and you're never told about your own change.",
+      },
+      {
+        kind: "fix",
+        text: "A mention in a note now follows who can read the note, the same people the note itself lets in.",
+      },
+      {
+        kind: "fix",
+        text: "Outlook Calendar now keeps a meeting only for the people its page lets in, including any access policy on reading meetings.",
+      },
+    ],
+  },
+  {
+    version: "2.561.8",
+    date: "2026-11-14",
+    title: "Know when an assignee can't see the project",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "In a work item's Assignees picker, anyone who can't see the item's project is marked \"Can't see this project\". Assigning one of them still works, and now says that they can't open the item and won't be notified. Assign to, on the Work Items page, says the same in its confirmation.",
+      },
+      {
+        kind: "fix",
+        text: "A meeting invitation now reaches only people who can see the meeting, the same people its page lets in. Before, someone added to a meeting in a project they couldn't see was still told about it.",
+      },
+    ],
+  },
+  {
+    version: "2.561.7",
+    date: "2026-11-14",
+    title: "A project's chat channel follows who can see the project",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A chat channel tied to a project that only its team can see is now shown only to people who can see that project. Others no longer find it in their channel list, in Browse channels or in chat search, and can't join it, read it or post to it, even if they were added to it before.",
+      },
+      {
+        kind: "fix",
+        text: "Someone who loses access to the project loses its channel too, and gets it back when they can see the project again. Until then they get no notifications or unread counts from it, its messages don't appear as mention backlinks for them, and Cosmo won't answer them in it.",
+      },
+      {
+        kind: "fix",
+        text: "A channel you join while chat is open now shows new messages straight away, without reloading the page. A project channel you can no longer see stops sending you messages within a minute.",
+      },
+      {
+        kind: "fix",
+        text: "The duplicate-message check, which keeps a message resent after a dropped connection from posting twice, now matches the channel and author too.",
+      },
+    ],
+  },
+  {
     version: "2.561.6",
     date: "2026-11-14",
     title: "Restrictions and removals apply consistently",

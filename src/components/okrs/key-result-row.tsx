@@ -27,6 +27,7 @@ import { krProgressPercent } from "@/lib/okr/progress";
 import { KeyResultCheckinDialog, RAG_META } from "./key-result-checkin-dialog";
 import { KeyResultEditDialog } from "./key-result-edit-dialog";
 import { KeyResultLinksDialog } from "./key-result-links-dialog";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface KeyResultRowProps {
   keyResult: KeyResult;
@@ -90,7 +91,7 @@ export function KeyResultRow({
         `/api/v1/orgs/${orgId}/projects/${projectId}/key-results/${keyResult.id}`,
         { method: "DELETE" },
       );
-      if (!res.ok) throw new Error("Failed to delete key result");
+      if (!res.ok) throw await fetchErrorOf(res);
       setDeleteOpen(false);
       onCheckedIn();
     } catch (err) {

@@ -63,6 +63,44 @@ describe("private addresses an operator allows, for configured endpoints only", 
   });
 });
 
+// Identity providers have a list of their own, SSO_ALLOW_PRIVATE_CIDRS. Listing
+// an IdP's range must never open it to an org admin's endpoints, and an org
+// admin's range must never open it to SSO.
+describe("the SSO list and the org-admin list are separate", () => {
+  const sso = { allowOperatorPrivate: true, operatorRanges: "SSO_ALLOW_PRIVATE_CIDRS" } as const;
+
+  it("an SSO request reaches a range listed in SSO_ALLOW_PRIVATE_CIDRS, and nothing outside it", () => {
+    vi.stubEnv(ENV, "");
+    vi.stubEnv("SSO_ALLOW_PRIVATE_CIDRS", "10.20.0.0/16");
+    expect(isAllowedOutboundAddress("10.20.1.2", sso)).toBe(true);
+    expect(isAllowedOutboundAddress("10.21.0.1", sso)).toBe(false);
+  });
+
+  it("an SSO request is refused a range listed only in OUTBOUND_ALLOW_PRIVATE_CIDRS", () => {
+    vi.stubEnv(ENV, "10.20.0.0/16");
+    vi.stubEnv("SSO_ALLOW_PRIVATE_CIDRS", "");
+    expect(isAllowedOutboundAddress("10.20.1.2", sso)).toBe(false);
+    // Control: the same address under the org-admin policy is allowed.
+    expect(isAllowedOutboundAddress("10.20.1.2", { allowOperatorPrivate: true })).toBe(true);
+  });
+
+  it("an org admin's endpoint is refused a range listed only in SSO_ALLOW_PRIVATE_CIDRS", () => {
+    vi.stubEnv(ENV, "");
+    vi.stubEnv("SSO_ALLOW_PRIVATE_CIDRS", "10.20.0.0/16");
+    expect(isAllowedOutboundAddress("10.20.1.2", { allowOperatorPrivate: true })).toBe(false);
+    expect(isAllowedOutboundAddress("10.20.1.2", sso)).toBe(true);
+  });
+
+  it("link-local and metadata stay unreachable for SSO whatever is listed", () => {
+    vi.stubEnv("SSO_ALLOW_PRIVATE_CIDRS", "0.0.0.0/0, ::/0, 169.254.0.0/16, fe80::/10");
+    for (const ip of ["169.254.169.254", "fe80::1", "fd00:ec2::254"]) expect(isAllowedOutboundAddress(ip, sso)).toBe(false);
+  });
+
+  it("a bad SSO entry names the SSO variable", () => {
+    expect(() => operatorPrivateRanges("nonsense", "SSO_ALLOW_PRIVATE_CIDRS")).toThrow(/^SSO_ALLOW_PRIVATE_CIDRS: "nonsense" is not a CIDR/);
+  });
+});
+
 describe("requestPublicUrl", () => {
   let server: http.Server;
   let port: number;

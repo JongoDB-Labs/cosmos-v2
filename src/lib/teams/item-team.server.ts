@@ -28,9 +28,10 @@ export async function teamProjectError(args: {
  * the database instead of filtering a board's list.
  *
  * Read the way the board's teams route reads it (team -> members -> project
- * member -> org member), so a person removed from the org still counts for the
- * team they were on, exactly as on the board. The query language and the
- * board must give the same answer for the same rows.
+ * member -> org member), current members only, exactly as on the board. A
+ * person removed from the org is on no team, so an item left assigned to them
+ * that names no team is no team's work until someone picks it up. The query
+ * language and the board must give the same answer for the same rows.
  */
 export async function loadTeamRosters(
   db: Pick<Prisma.TransactionClient, "team">,
@@ -43,7 +44,10 @@ export async function loadTeamRosters(
     select: {
       id: true,
       projectId: true,
-      members: { select: { projectMember: { select: { orgMember: { select: { userId: true } } } } } },
+      members: {
+        where: { projectMember: { orgMember: { removedAt: null } } },
+        select: { projectMember: { select: { orgMember: { select: { userId: true } } } } },
+      },
     },
   });
   return new Map(

@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, hasPermission } from "@/lib/rbac/permissions";
 import { keyTimeRoster, readableTimeUserIds, timeUserIdFilter } from "@/lib/time/scope";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { totalHours } from "@/lib/time/time-off";
 import { approvalAuthority } from "@/lib/time/approval";
@@ -173,7 +173,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.TIME_CREATE);
 
-    const body = createSchema.parse(await req.json());
+    const body = createSchema.parse(await readJsonBody(req));
     const mayDecide = hasPermission(ctx.permissions, Permission.TIME_APPROVE);
 
     const subject = body.userId ?? ctx.userId;

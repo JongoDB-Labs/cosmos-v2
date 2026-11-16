@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requireEmployeeAdmin } from "@/lib/rbac/employee-admin";
 import { createEmployeesForMembers } from "@/lib/payroll/service";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requireEmployeeAdmin(ctx.permissions);
 
-    const { userIds } = bodySchema.parse(await request.json());
+    const { userIds } = bodySchema.parse(await readJsonBody(request));
     const { createdUserIds, skippedUserIds } = await createEmployeesForMembers(
       orgId,
       ctx.userId,

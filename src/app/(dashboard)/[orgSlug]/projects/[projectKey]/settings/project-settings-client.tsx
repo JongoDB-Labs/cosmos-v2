@@ -34,6 +34,8 @@ import {
 import { FEATURE_OPTIONS, isOfferedTo } from "@/lib/project-features";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import { resolveLinkTypeId } from "@/lib/okr/link-type-default";
+import { fetchErrorOf, FetchError } from "@/lib/query/json-fetcher";
+import { notifyError } from "@/lib/errors/notify";
 
 interface ProjectSettingsClientProps {
   orgId: string;
@@ -125,14 +127,14 @@ export function ProjectSettingsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), description }),
       });
-      if (!res.ok) throw new Error("Failed to update project");
+      if (!res.ok) throw await fetchErrorOf(res);
       // Mirror the trimmed value the server stored so `dirty` settles to false
       // (router.refresh() updates props but not this already-mounted state).
       setName(name.trim());
       toast.success("Project updated");
       router.refresh();
-    } catch {
-      toast.error("Failed to update project");
+    } catch (err) {
+      notifyError(err, "Failed to update project");
     } finally {
       setSaving(false);
     }
@@ -161,11 +163,11 @@ export function ProjectSettingsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [field]: value }),
       });
-      if (!res.ok) throw new Error("Failed to update link type");
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success("Link type saved");
-    } catch {
+    } catch (err) {
       setLocal(prev); // rollback
-      toast.error("Failed to update link type");
+      notifyError(err, "Failed to update link type");
     } finally {
       setSavingLinkType(false);
     }
@@ -184,12 +186,12 @@ export function ProjectSettingsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enabledFeatures: next }),
       });
-      if (!res.ok) throw new Error("Failed to update features");
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success(on ? "Module enabled" : "Module disabled");
       router.refresh(); // re-render the project tabs
-    } catch {
+    } catch (err) {
       setFeatures(prev); // rollback
-      toast.error("Failed to update features");
+      notifyError(err, "Failed to update features");
     } finally {
       setSavingFeatures(false);
     }
@@ -210,12 +212,12 @@ export function ProjectSettingsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ disabledBoardTypes: next }),
       });
-      if (!res.ok) throw new Error("Failed to update board types");
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success(on ? "Board type enabled" : "Board type disabled");
       router.refresh();
-    } catch {
+    } catch (err) {
       setDisabledTypes(prev); // rollback
-      toast.error("Failed to update board types");
+      notifyError(err, "Failed to update board types");
     } finally {
       setSavingTypes(false);
     }
@@ -246,12 +248,12 @@ export function ProjectSettingsClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ settings: { hiddenBoardIds: next } }),
       });
-      if (!res.ok) throw new Error("Failed to update default boards");
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success(on ? "Board shown by default" : "Board hidden by default");
       router.refresh();
-    } catch {
+    } catch (err) {
       setHiddenBoards(prev); // rollback
-      toast.error("Failed to update default boards");
+      notifyError(err, "Failed to update default boards");
     } finally {
       setSavingBoards(false);
     }
@@ -281,7 +283,7 @@ export function ProjectSettingsClient({
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Failed to update project visibility");
+        throw new FetchError(res.status, j, j.error ?? "Failed to update project visibility");
       }
       toast.success(on ? "Project limited to its members" : "Project visible to the whole org");
       router.refresh();
@@ -304,11 +306,11 @@ export function ProjectSettingsClient({
           body: JSON.stringify({ archived: true }),
         }
       );
-      if (!res.ok) throw new Error("Failed to archive project");
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success("Project archived");
       router.push(`/${orgSlug}/projects`);
-    } catch {
-      toast.error("Failed to archive project");
+    } catch (err) {
+      notifyError(err, "Failed to archive project");
       setArchiving(false);
     }
   }
@@ -320,11 +322,11 @@ export function ProjectSettingsClient({
         `/api/v1/orgs/${orgId}/projects/${projectId}`,
         { method: "DELETE" }
       );
-      if (!res.ok) throw new Error("Failed to delete project");
+      if (!res.ok) throw await fetchErrorOf(res);
       toast.success("Project deleted");
       router.push(`/${orgSlug}/projects`);
-    } catch {
-      toast.error("Failed to delete project");
+    } catch (err) {
+      notifyError(err, "Failed to delete project");
       setDeleting(false);
     }
   }

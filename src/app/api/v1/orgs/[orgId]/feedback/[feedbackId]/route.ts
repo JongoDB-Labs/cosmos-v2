@@ -6,7 +6,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { refuseApiKey } from "@/lib/auth/key-gate";
 import { requireAccess } from "@/lib/abac/require-access";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { requirePermission } from "@/lib/rbac/check";
 import { FEEDBACK_ROW_SELECT, toFeedbackDto } from "@/lib/feedback/feedback-dto";
 import { FEEDBACK_SUBJECT } from "@/lib/feedback/subject";
@@ -95,7 +95,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     });
     if (!existing || !(await inVisibleProject(ctx, existing.projectId))) return new Response("Not found", { status: 404 });
 
-    const data = updateSchema.parse(await request.json());
+    const data = updateSchema.parse(await readJsonBody(request));
 
     const isAuthor = existing.authorId === ctx.userId;
     const wantsContentEdit =

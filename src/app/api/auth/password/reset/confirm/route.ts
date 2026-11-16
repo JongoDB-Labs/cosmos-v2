@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { getIpAddress } from "@/lib/api-helpers";
+import { getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { rateLimit } from "@/lib/rate-limit/bucket";
 import { hashPassword, passwordPolicyError } from "@/lib/auth/password";
 import {
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Too many attempts. Please wait." }, { status: 429 });
   }
 
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const parsed = schema.safeParse(await readJsonBody(request, { orElse: null }));
   if (!parsed.success) {
     return NextResponse.json({ error: INVALID }, { status: 400 });
   }

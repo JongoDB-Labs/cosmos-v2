@@ -17,7 +17,7 @@ import {
 } from "@/lib/auth/first-login";
 import { sealSecret } from "@/lib/crypto/vault";
 import { rateLimit } from "@/lib/rate-limit/bucket";
-import { getIpAddress } from "@/lib/api-helpers";
+import { getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { endOtherSessions } from "@/lib/auth/credential-change";
 
 const MFA_PENDING_TTL = 300;
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
   // Only valid while a rotation is actually owed (defense against replay).
   if (!user.mustChangePassword) return expire();
 
-  const parsed = schema.safeParse(await request.json().catch(() => null));
+  const parsed = schema.safeParse(await readJsonBody(request, { orElse: null }));
   if (!parsed.success) {
     return NextResponse.json({ error: "Enter a new password." }, { status: 400 });
   }

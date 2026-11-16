@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 import { workflowSettings } from "@/lib/workflow/settings";
 
@@ -48,7 +48,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     requirePermission(ctx, Permission.WORKFLOW_MANAGE);
 
-    const patch = putSchema.parse(await request.json());
+    const patch = putSchema.parse(await readJsonBody(request));
     const before = workflowSettings(org.settings);
     // Merged in one statement, so a concurrent change to any other org setting
     // (or another workflow key) is not overwritten by a stale read.

@@ -14,6 +14,7 @@ import {
   type EntityType,
   type ResolvedEntity,
 } from "@/lib/mentions/refs";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 export function useEntitySearch(
   orgId: string,
@@ -42,7 +43,7 @@ export function useEntitySearch(
       );
       // Rate-limited (one budget with ⌘K): not "no matches". Thrown, it isn't
       // cached; the last results stay up while React Query asks again.
-      if (r.status === 429) throw new Error("Search is rate-limited");
+      if (r.status === 429) throw await fetchErrorOf(r, "Search is rate-limited");
       if (!r.ok) return [];
       const j = await r.json();
       return Array.isArray(j) ? (j as ResolvedEntity[]) : [];

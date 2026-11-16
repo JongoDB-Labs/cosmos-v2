@@ -66,8 +66,10 @@ export async function listProjectMembers(input: Record<string, unknown>, ctx: To
 
   // Explicit select: OrgMember.permissions is a permission mask and never
   // rides out in a reply.
+  // Current members only, as the route lists them: a removed person's project
+  // membership is retained, and this model bypasses the removed-member extension.
   const members = await prisma.projectMember.findMany({
-    where: { projectId },
+    where: { projectId, orgMember: { removedAt: null } },
     select: {
       id: true,
       role: true,
@@ -255,10 +257,10 @@ const teamMemberSchema = z.object({
   isLead: z.boolean().optional(),
 });
 
-/** The person's ProjectMember id on this project, or null. */
+/** The person's ProjectMember id on this project, or null. A removed member has none. */
 async function projectMemberIdOf(orgId: string, projectId: string, userId: string): Promise<string | null> {
   const pm = await prisma.projectMember.findFirst({
-    where: { projectId, orgMember: { orgId, userId } },
+    where: { projectId, orgMember: { orgId, userId, removedAt: null } },
     select: { id: true },
   });
   return pm?.id ?? null;

@@ -15,6 +15,7 @@ import {
 import { notifyError } from "@/lib/errors/notify";
 import { KR_DEFAULT_TARGET, krProgressPercent } from "@/lib/okr/progress";
 import type { KeyResult } from "@/types/models";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface KeyResultEditDialogProps {
   orgId: string;
@@ -78,7 +79,7 @@ export function KeyResultEditDialog({
           }),
         },
       );
-      if (!res.ok) throw new Error("Failed to update key result");
+      if (!res.ok) throw await fetchErrorOf(res);
       onSaved();
       onOpenChange(false);
     } catch (err) {

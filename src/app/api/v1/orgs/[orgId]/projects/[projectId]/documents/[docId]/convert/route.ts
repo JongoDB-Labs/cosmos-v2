@@ -5,7 +5,7 @@ import { resolveAuth } from "@/lib/auth/api-key";
 import { requirePermission } from "@/lib/rbac/check";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { convertBlockToItem, convertTableToWorkItems } from "@/lib/files/convert";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { readableProjectDocument } from "@/lib/files/access";
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!(await readableProjectDocument(orgId, projectId, docId, ctx)))
       return new Response("Not found", { status: 404 });
 
-    const { blockId, title, columnKey, itemType, table } = schema.parse(await req.json());
+    const { blockId, title, columnKey, itemType, table } = schema.parse(await readJsonBody(req));
     if (table) {
       const result = await convertTableToWorkItems({
         orgId,

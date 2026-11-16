@@ -32,6 +32,7 @@ import {
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import type { CrmContact, OrgMember } from "@/types/models";
 import { notifyError } from "@/lib/errors/notify";
+import { fetchErrorOf } from "@/lib/query/json-fetcher";
 
 interface ContactDetailSheetProps {
   contact: CrmContact | null;
@@ -128,7 +129,7 @@ export function ContactDetailSheet({
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to update contact");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       const updated: CrmContact = await res.json();
       onUpdate(updated);
@@ -149,7 +150,7 @@ export function ContactDetailSheet({
         method: "DELETE",
       });
 
-      if (!res.ok) throw new Error("Failed to delete contact");
+      if (!res.ok) throw await fetchErrorOf(res);
 
       setConfirmDelete(false);
       onDelete(contact.id);

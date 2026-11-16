@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getAuthContext } from "@/lib/auth/session";
-import { success, noContent, handleApiError } from "@/lib/api-helpers";
+import { success, noContent, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { canSeeChannelGiven, canManageChannelGiven, loadChannelAndMembership, mayUseChat } from "@/lib/chat/access";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (!canSeeChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole })) {
       // 404, not 403 — avoid existence leaks for private channels
@@ -72,13 +72,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (!ctx) return new Response("Unauthorized", { status: 401 });
     if (!mayUseChat(ctx)) return new Response("Forbidden", { status: 403 });
 
-    const { channel, member } = await loadChannelAndMembership(channelId, ctx.userId);
+    const { channel, member } = await loadChannelAndMembership(ctx, channelId);
     if (!channel) return new Response("Not found", { status: 404 });
     if (!canManageChannelGiven({ channel, member, viewerOrgId: orgId, orgRole: ctx.orgRole, roleCounts: roleCountsFor(ctx, Permission.CHAT_USE) })) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const parsed = patchSchema.safeParse(await req.json().catch(() => null));
+    const parsed = patchSchema.safeParse(await readJsonBody(req, { orElse: null }));
     if (!parsed.success) return new Response("Bad Request", { status: 400 });
 
     const { name, description, topic, archive } = parsed.data;

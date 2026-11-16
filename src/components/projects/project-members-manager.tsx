@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { jsonFetch, fetchErrorOf, FetchError } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 
@@ -103,7 +103,7 @@ export function ProjectMembersManager({
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Couldn't update the role.");
+        throw new FetchError(res.status, j, j.error ?? "Couldn't update the role.");
       }
       await refetch();
       return true;
@@ -123,7 +123,7 @@ export function ProjectMembersManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orgMemberId }),
       });
-      if (!res.ok) throw new Error("Couldn't remove the member.");
+      if (!res.ok) throw await fetchErrorOf(res);
       await refetch();
     } catch (err) {
       notifyError(err, "Couldn't remove the member.");

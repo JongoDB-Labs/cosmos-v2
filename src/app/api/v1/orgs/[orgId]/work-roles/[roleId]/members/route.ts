@@ -5,7 +5,7 @@ import { getAuthContext } from "@/lib/auth/session";
 import { requirePermission } from "@/lib/rbac/check";
 import { Permission, maskFromDb } from "@/lib/rbac/permissions";
 import { currentWorkRoleRefusal, workRoleCeilingRefusal } from "@/lib/rbac/grant-ceiling";
-import { success, handleApiError, getIpAddress } from "@/lib/api-helpers";
+import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
 
 type RouteParams = { params: Promise<{ orgId: string; roleId: string }> };
@@ -27,8 +27,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const r = await resolve(orgId, roleId);
     if (r.error) return r.error;
 
+    // Current holders only. A removed person's work roles are retained for their
+    // reinstatement, and this model does not pass through the removed-member
+    // extension in src/lib/db/client.ts.
     const assigned = await prisma.orgMemberWorkRole.findMany({
-      where: { workRoleId: roleId },
+      where: { workRoleId: roleId, orgMember: { removedAt: null } },
       select: { orgMemberId: true },
     });
     return success({ orgMemberIds: assigned.map((a) => a.orgMemberId) });
@@ -47,7 +50,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const r = await resolve(orgId, roleId);
     if (r.error) return r.error;
 
-    const { orgMemberIds } = setSchema.parse(await request.json());
+    const { orgMemberIds } = setSchema.parse(await readJsonBody(request));
 
     // Only accept ids that are genuinely members of THIS org (no cross-tenant
     // assignment, no dangling ids).
@@ -67,7 +70,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // A roster that only takes people off is the ceiling on current role, and
     // is counted without the org's restrictions, as removing them would be.
     const holders = new Set(
-      (await prisma.orgMemberWorkRole.findMany({ where: { workRoleId: roleId }, select: { orgMemberId: true } }))
+      (await prisma.orgMemberWorkRole.findMany({
+        where: { workRoleId: roleId, orgMember: { removedAt: null } },
+        select: { orgMemberId: true },
+      }))
         .map((a) => a.orgMemberId),
     );
     const adds = validIds.some((id) => !holders.has(id));
@@ -82,8 +88,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return refused("You can't take away a role that grants permissions you don't have");
     }
 
+    // The roster is the CURRENT holders. A removed person's row is left alone:
+    // reinstating them brings their work roles back (members/route.ts), so
+    // replacing the roster must not delete it. `validIds` holds current members
+    // only, so it could never re-create it either.
     await prisma.$transaction([
-      prisma.orgMemberWorkRole.deleteMany({ where: { workRoleId: roleId } }),
+      prisma.orgMemberWorkRole.deleteMany({ where: { workRoleId: roleId, orgMember: { removedAt: null } } }),
       prisma.orgMemberWorkRole.createMany({
         data: validIds.map((id) => ({ orgMemberId: id, workRoleId: roleId })),
         skipDuplicates: true,

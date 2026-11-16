@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef, RowSelectionState } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
 import { jsonFetch, FetchError } from "@/lib/query/json-fetcher";
@@ -58,6 +58,8 @@ import { announceBulkChange, combineBulkChanges, sendBulkChange } from "@/compon
 import { toast } from "sonner";
 import { entityUrl } from "@/lib/mentions/urls";
 import { useProjectTeams } from "@/hooks/use-project-teams";
+import { fetchMembersWhoCantSeeProject } from "@/hooks/use-project-member-visibility";
+import { cantSeeProjectWarning } from "@/lib/org/member-picker";
 import {
   ANY,
   EMPTY_FILTERS,
@@ -151,6 +153,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
   const canBulkDelete = can(Permission.ITEM_DELETE);
   const canCreateItem = can(Permission.ITEM_CREATE);
   const canUpdateItem = can(Permission.ITEM_UPDATE);
+  const qc = useQueryClient();
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
   // A bulk move the workflow wants details for, asked once per transition.
   const { ask: askTransition, dialog: transitionDialog } = useTransitionPrompt();
@@ -937,6 +940,21 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
         }
       };
 
+      // The confirmation says so when the new assignee can't see this row's
+      // project: the assigner's only signal, since the assignee hears nothing.
+      const assign = async (m: { id: string; displayName: string }) => {
+        try {
+          await sendItemChange(itemBase, { assigneeId: m.id }, askTransition);
+          const cantSee = await fetchMembersWhoCantSeeProject(qc, orgSlug, orgId, r.project.id);
+          const warning = cantSee?.has(m.id) ? cantSeeProjectWarning([m.displayName]) : null;
+          if (warning) toast.warning(`Assigned to ${m.displayName}. ${warning}`);
+          else toast.success(`Assigned to ${m.displayName}`);
+          await refetch();
+        } catch (err) {
+          if (!(err instanceof TransitionBackedOut)) notifyError(err, "Couldn't change the assignee.");
+        }
+      };
+
       const quick: ActionMenuItem[] = canUpdateItem
         ? [
             {
@@ -952,12 +970,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
                 ...(facets?.members ?? []).map((m) => ({
                   label: m.displayName,
                   checked: r.assignee?.id === m.id,
-                  onClick: () =>
-                    patch(
-                      { assigneeId: m.id },
-                      `Assigned to ${m.displayName}`,
-                      "Couldn't change the assignee.",
-                    ),
+                  onClick: () => assign(m),
                 })),
               ],
             },
@@ -1088,7 +1101,7 @@ export function WorkItemsView({ orgId, orgSlug }: { orgId: string; orgSlug: stri
         ...(crud.length > 0 ? [{ items: crud }] : []),
       ];
     },
-    [orgSlug, orgId, router, canCreateItem, canBulkDelete, canUpdateItem, refetch, facets, askTransition],
+    [orgSlug, orgId, router, canCreateItem, canBulkDelete, canUpdateItem, refetch, facets, askTransition, qc],
   );
 
   const watching = cqlOn ? hasClause(cqlQuery, WATCHING) : filters.watchedByMe;

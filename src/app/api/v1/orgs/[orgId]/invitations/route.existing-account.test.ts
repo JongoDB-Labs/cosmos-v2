@@ -15,7 +15,7 @@ import { OrgRole } from "@prisma/client";
 import type { AuthContext } from "@/lib/rbac/check";
 import { Permission, RolePermissions } from "@/lib/rbac/permissions";
 
-const { getAuthContext, getCurrentUser, prisma, logAudit, provisionEmailPasswordInvite, getPublicOrigin } =
+const { getAuthContext, getCurrentUser, prisma, prismaUnfiltered, logAudit, provisionEmailPasswordInvite, getPublicOrigin } =
   vi.hoisted(() => ({
     getAuthContext: vi.fn(),
     getCurrentUser: vi.fn(),
@@ -31,10 +31,13 @@ const { getAuthContext, getCurrentUser, prisma, logAudit, provisionEmailPassword
       invitation: { create: vi.fn() },
       $transaction: vi.fn(),
     },
+    // No removed membership to bring back, so nothing retained counts toward the
+    // ceiling (retainedGrantsFor).
+    prismaUnfiltered: { orgMember: { findMany: vi.fn(async () => []) } },
   }));
 
 vi.mock("@/lib/auth/session", () => ({ getAuthContext, getCurrentUser }));
-vi.mock("@/lib/db/client", () => ({ prisma }));
+vi.mock("@/lib/db/client", () => ({ prisma, prismaUnfiltered }));
 vi.mock("@/lib/audit", () => ({ logAudit }));
 vi.mock("@/lib/auth/public-url", () => ({ getPublicOrigin }));
 vi.mock("@/lib/integrations/invitation-email", () => ({
