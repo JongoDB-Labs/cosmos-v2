@@ -9,6 +9,7 @@ import { Starfield } from "@/components/brand/starfield";
 import { GoogleLogo, MicrosoftLogo } from "@/components/brand/provider-logos";
 import { useBrand } from "@/components/providers/brand-provider";
 import { getSkinPreset, DEFAULT_SKIN_ID } from "@/lib/theme/skins";
+import { RETURN_TO_PARAM, safeReturnTo, withReturnTo } from "@/lib/auth/return-to";
 
 const ERROR_MESSAGES: Record<string, string> = {
   not_allowed: "Your email is not yet approved. Ask an admin to add it.",
@@ -46,12 +47,17 @@ type SsoStatus = { enabled: boolean; enforced: boolean; accountRequests?: boolea
 
 /** Every way an account request can fail to be taken reads the same. */
 const REQUEST_NOT_SENT = "We couldn't send your request. Try again in a minute.";
+/** Likewise for a password reset request. */
+const RESET_NOT_SENT = "We couldn't send a reset link. Try again in a minute.";
 
 function LoginInner() {
   const brand = useBrand();
   const params = useSearchParams();
   const error = params.get("error");
   const message = error ? (ERROR_MESSAGES[error] ?? "Sign-in failed.") : null;
+  // The page that sent the visitor here (the proxy adds it), or "/". Every way
+  // of signing in below lands there.
+  const returnTo = safeReturnTo(params.get(RETURN_TO_PARAM));
   // Cookie-derived values (remembered org, skin motif) MUST NOT be read during
   // render: the server has no cookies, so `document.cookie` reads diverge from
   // the client and fail hydration (React #418 — e.g. the <Starfield/> motif
@@ -254,7 +260,7 @@ function LoginInner() {
       setPhase("mfa");
       return;
     }
-    if (data.ok) window.location.href = "/";
+    if (data.ok) window.location.href = returnTo;
   }
 
   async function submitCreds(e?: React.FormEvent) {
@@ -281,14 +287,17 @@ function LoginInner() {
   }
 
   // Self-service "forgot password": request a reset email for an email/password
-  // account. The endpoint always responds OK (it never reveals whether the email
-  // exists), so on any non-error response we show the same neutral confirmation.
+  // account. The route answers 200 whatever it decided (it never reveals whether
+  // the email exists), so only a 200 shows the neutral confirmation. Anything
+  // else means the request was never taken (a throttle, an outage, a refusal in
+  // front of the route), and the visitor is told it wasn't sent, with one
+  // message for every such case that says nothing about the address.
   async function submitForgot(e?: React.FormEvent) {
     e?.preventDefault();
     setPwBusy(true);
     setPwError(null);
     try {
-      await fetch("/api/auth/password/reset/request", {
+      const res = await fetch("/api/auth/password/reset/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -296,11 +305,14 @@ function LoginInner() {
           ...(orgSlug ? { orgSlug } : {}),
         }),
       });
-      setPassword("");
-      setPhase("forgot_sent");
+      if (res.ok) {
+        setPassword("");
+        setPhase("forgot_sent");
+      } else {
+        setPwError(RESET_NOT_SENT);
+      }
     } catch {
-      // Even on a network error, don't leak anything — show the neutral screen.
-      setPhase("forgot_sent");
+      setPwError(RESET_NOT_SENT);
     } finally {
       setPwBusy(false);
     }
@@ -309,9 +321,9 @@ function LoginInner() {
   // Ask this org for an account. The route answers 200 whatever it decided,
   // so the confirmation says nothing about whether the org accepts the
   // address. Anything else means the request was never taken (an outage, a
-  // throttle, a refusal in front of the route), and the visitor is told so
-  // with one message for every such case, which says nothing about the org or
-  // the address either.
+  // limit on requests from this visitor or for this address, a refusal in
+  // front of the route), and the visitor is told so with one message for
+  // every such case, which says nothing about the org or the address either.
   async function submitRequest(e?: React.FormEvent) {
     e?.preventDefault();
     setPwBusy(true);
@@ -385,7 +397,7 @@ function LoginInner() {
         setRecoveryCodes(data.recoveryCodes);
         setPhase("recovery");
       } else {
-        window.location.href = "/";
+        window.location.href = returnTo;
       }
     } catch {
       setPwError("Something went wrong. Please try again.");
@@ -419,7 +431,7 @@ function LoginInner() {
         setPwError(msg);
         return;
       }
-      window.location.href = "/";
+      window.location.href = returnTo;
     } catch {
       setPwError("Something went wrong. Please try again.");
     } finally {
@@ -463,9 +475,10 @@ function LoginInner() {
             disabled={anySubmitting}
             onClick={() => {
               setSubmitting("sso");
-              window.location.href = `/api/auth/sso/${encodeURIComponent(
-                orgSlug,
-              )}/login`;
+              window.location.href = withReturnTo(
+                `/api/auth/sso/${encodeURIComponent(orgSlug)}/login`,
+                returnTo,
+              );
             }}
           >
             {submitting === "sso" ? "Redirecting…" : "Sign in with SSO"}
@@ -500,7 +513,7 @@ function LoginInner() {
             disabled={anySubmitting}
             onClick={() => {
               setSubmitting("google");
-              window.location.href = "/api/auth/google";
+              window.location.href = withReturnTo("/api/auth/google", returnTo);
             }}
           >
             <GoogleLogo className="h-4 w-4" />
@@ -516,7 +529,7 @@ function LoginInner() {
             disabled={anySubmitting}
             onClick={() => {
               setSubmitting("microsoft");
-              window.location.href = "/api/auth/microsoft";
+              window.location.href = withReturnTo("/api/auth/microsoft", returnTo);
             }}
           >
             <MicrosoftLogo className="h-4 w-4" />
@@ -621,7 +634,7 @@ function LoginInner() {
                   required
                 />
                 {pwError && (
-                  <p className="text-xs text-[var(--status-critical-text)]">{pwError}</p>
+                  <p role="alert" className="text-xs text-[var(--status-critical-text)]">{pwError}</p>
                 )}
                 <Button
                   type="button"
@@ -837,7 +850,7 @@ function LoginInner() {
                   type="button"
                   className="w-full"
                   onClick={() => {
-                    window.location.href = "/";
+                    window.location.href = returnTo;
                   }}
                 >
                   I&apos;ve saved them — continue

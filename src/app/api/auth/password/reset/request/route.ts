@@ -12,6 +12,11 @@ import { logAudit } from "@/lib/audit";
 import { maskEmail, truncateForLog } from "@/lib/auth/mask-email";
 import { escapeLike } from "@/lib/query/like";
 
+/** Both limits answer alike, so neither says which one was reached. */
+function tooManyRequests() {
+  return NextResponse.json({ error: "Too many requests. Please wait and try again." }, { status: 429 });
+}
+
 const schema = z.object({
   email: z.string().email().max(320),
   // Optional org context from /login?org=<slug> — used only to pick the org's
@@ -22,7 +27,9 @@ const schema = z.object({
 /**
  * What became of a reset request. Recorded for the OPERATOR only — every one of
  * these returns the same generic body to the caller, so naming them here never
- * becomes an enumeration oracle.
+ * becomes an enumeration oracle. The one exception, `throttled`, answers 429;
+ * it is decided before anything is looked up, so it says nothing about an
+ * account either.
  *
  * This exists because the absence of a signal used to be ambiguous. The route
  * logged only on send failure, so "no log line" meant *mail went out*, *no
@@ -43,20 +50,18 @@ type ResetOutcome =
  * Self-service "forgot password" — begin a reset for an email/password account.
  *
  * SECURITY: this endpoint MUST NOT reveal whether an email exists (or whether it
- * has a password vs. being SSO/Google-only). Every path returns the SAME generic
- * `{ ok: true }`; only a real email/password account actually gets mail. It is
- * rate-limited per IP and per target email so it can't be used to spam an inbox
- * or enumerate accounts by timing/volume.
+ * has a password vs. being SSO/Google-only). Every path that takes the request
+ * returns the SAME generic `{ ok: true }`; only a real email/password account
+ * actually gets mail. It is rate-limited per IP and per target email so it
+ * can't be used to spam an inbox or enumerate accounts by timing/volume. A
+ * request either limit refuses is answered 429, because no link was sent; both
+ * limits are reached before anything about the address is looked up, so that
+ * answer can't depend on it.
  */
 export async function POST(request: NextRequest) {
   const ip = getIpAddress(request) ?? "unknown";
   const rl = rateLimit(`pwreset:${ip}`, { capacity: 5, refillPerSecond: 0.05 });
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: "Too many requests. Please wait and try again." },
-      { status: 429 },
-    );
-  }
+  if (!rl.allowed) return tooManyRequests();
 
   const parsed = schema.safeParse(await readJsonBody(request, { orElse: null }));
   // A malformed body still gets the generic OK — never surface validation detail.
@@ -71,7 +76,10 @@ export async function POST(request: NextRequest) {
   // returned to the caller.
   let detail: string | undefined;
 
-  // Per-account brake so nobody can flood a specific inbox with reset mail.
+  // Per-address brake so nobody can flood a specific inbox with reset mail.
+  // Keyed on the address as typed, whether or not it has an account, and
+  // checked before any lookup. It used to answer 200, and the form said a link
+  // was on its way when none was sent.
   const acctRl = rateLimit(`pwreset:acct:${normalized}`, {
     capacity: 3,
     refillPerSecond: 0.02,
@@ -230,5 +238,5 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true });
+  return outcome === "throttled" ? tooManyRequests() : NextResponse.json({ ok: true });
 }

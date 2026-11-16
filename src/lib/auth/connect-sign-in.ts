@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { landingUrl, safeReturnTo } from "@/lib/auth/return-to";
 
 /**
  * Connecting a sign-in method (Profile, Sign-in methods) rides the provider's
@@ -18,16 +19,6 @@ type Payload = { p: ConnectProvider; s: string; h: string; r: string };
 
 export function sessionHash(sessionId: string): string {
   return crypto.createHash("sha256").update(sessionId).digest("base64url");
-}
-
-/** A same-site path to come back to; anything else becomes "/". URL parsing
- *  drops tabs and newlines, so "/\t/evil.example" would become "//evil.example":
- *  whitespace and control characters are refused outright. */
-export function safeReturnTo(raw: unknown): string {
-  if (typeof raw !== "string" || raw.length > 512 || !/^\/(?![/\\])[^\s\\\x00-\x1f\x7f]*$/.test(raw)) {
-    return "/";
-  }
-  return raw;
 }
 
 export function connectCookieValue(input: {
@@ -68,8 +59,7 @@ export function connectOutcomeUrl(
   returnTo: string,
   outcome: { connected: ConnectProvider } | { error: string },
 ): URL {
-  let url = new URL(safeReturnTo(returnTo), origin);
-  if (url.origin !== new URL(origin).origin) url = new URL("/", origin);
+  const url = landingUrl(origin, returnTo);
   if ("connected" in outcome) url.searchParams.set("connected", outcome.connected);
   else url.searchParams.set("connect_error", outcome.error);
   return url;

@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.563.1",
+    date: "2026-11-16",
+    title: "Signing in takes you back to the page you opened",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If you open a link to a Cosmos page while signed out, signing in now takes you to that page instead of the home page. This works with a password, Google, Microsoft and your organization's single sign-on. Single sign-on takes you back only to a page in that organization, and to the organization's home otherwise.",
+      },
+      {
+        kind: "fix",
+        text: "The forgot-password form now tells you when a reset link could not be sent, so you can try again. It used to say a link was on its way whatever happened.",
+      },
+      {
+        kind: "fix",
+        text: "Asking an organization for an account too many times for the same address now asks you to wait and try again. It used to say the request was sent when it had not been.",
+      },
+      {
+        kind: "fix",
+        text: "View original in the file viewer now shows PDF files. They were blocked from showing inside the page. Other files still cannot be shown inside another page.",
+      },
+    ],
+  },
+  {
     version: "2.563.0",
     date: "2026-11-16",
     title: "Team filters work for teams of any size",
