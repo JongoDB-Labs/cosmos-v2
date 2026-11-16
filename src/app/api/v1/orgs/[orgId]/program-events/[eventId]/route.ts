@@ -19,7 +19,8 @@ const bodySchema = z.object({
   categoryId: z.string().uuid(),
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
-  allDay: z.boolean().default(false),
+  // Left out, the event stays as it is: no defaults on an update.
+  allDay: z.boolean().optional(),
   timeZone: z.string().max(100).optional(),
   location: z.string().max(500).nullish(),
   ownerTeamId: z.string().uuid().nullish(),

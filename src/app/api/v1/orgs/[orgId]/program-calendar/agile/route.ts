@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { success, handleApiError } from "@/lib/api-helpers";
+import { handleApiError } from "@/lib/api-helpers";
 import { orgContext } from "@/lib/openapi/org-context";
-import { parseRequest } from "@/lib/openapi/respond";
+import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { loadAgileOverlay } from "@/lib/program-calendar/agile.server";
 import { MAX_WINDOW_DAYS } from "@/lib/program-calendar/overlays";
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!(to > from) || to.getTime() - from.getTime() > MAX_WINDOW_DAYS * DAY_MS) {
       return problem(400, "invalid_request", `from must be before to, at most ${MAX_WINDOW_DAYS} days apart`, { request });
     }
-    return success(await loadAgileOverlay(ctx, { from, to, projectId: query.projectId }));
+    return respond(listAgileOverlay, 200, await loadAgileOverlay(ctx, { from, to, projectId: query.projectId }));
   } catch (error) {
     return handleApiError(error, request);
   }

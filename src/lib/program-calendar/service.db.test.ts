@@ -327,3 +327,61 @@ describe("a picked project, with the org's own events", () => {
     expect(ids(there)).not.toContain(made.id);
   });
 });
+
+describe("a timed event is listed under the dates it is drawn on", () => {
+  // The grid draws a timed event on its own zone's clock, so the window it is
+  // listed in has to be read on that clock too. Read as raw instants, a 19:00
+  // review in Los Angeles on 31 Jan (03:00 UTC on 1 Feb) was missing from
+  // January's grid and fetched for February's, where it is not drawn: on the
+  // edge day of any view it vanished from both.
+  const jan = [utc(2027, 1, 1), utc(2027, 2, 1)] as const;
+  const feb = [utc(2027, 2, 1), utc(2027, 3, 1)] as const;
+  let west = "", east = "", onTheLine = "";
+
+  beforeAll(async () => {
+    const ctx = ctxFor(insider);
+    west = (await createProgramEvent(ctx, insider, {
+      title: "West coast review", categoryId: catA, allDay: false, timeZone: "America/Los_Angeles",
+      startsAt: new Date("2027-02-01T03:00:00Z"), endsAt: new Date("2027-02-01T04:00:00Z"),
+    })).id;
+    // 1 Feb, 08:00 in Tokyo is still 31 Jan in UTC.
+    east = (await createProgramEvent(ctx, insider, {
+      title: "Far east sync", categoryId: catB, allDay: false, timeZone: "Asia/Tokyo",
+      startsAt: new Date("2027-01-31T23:00:00Z"), endsAt: new Date("2027-02-01T00:00:00Z"),
+    })).id;
+    // Control: an all-day date is a date in every zone, whatever it was entered in.
+    onTheLine = (await createProgramEvent(ctx, insider, {
+      title: "Stand-down day", categoryId: catA, allDay: true, timeZone: "America/Los_Angeles",
+      startsAt: utc(2027, 2, 1), endsAt: utc(2027, 2, 1),
+    })).id;
+  });
+
+  it("lists each in the month it is held in, and not in the other", async () => {
+    const inJan = ids(await listProgramEvents(ctxFor(insider), ...jan));
+    const inFeb = ids(await listProgramEvents(ctxFor(insider), ...feb));
+    expect(inJan).toContain(west);
+    expect(inFeb).not.toContain(west);
+    expect(inFeb).toContain(east);
+    expect(inJan).not.toContain(east);
+    expect(inFeb).toContain(onTheLine);
+    expect(inJan).not.toContain(onTheLine);
+  });
+
+  it("a one-day window holds the evening it is drawn on", async () => {
+    // The Day view asks for one day, so this is where it vanished outright.
+    const day = ids(await listProgramEvents(ctxFor(insider), utc(2027, 1, 31), utc(2027, 2, 1)));
+    expect(day).toContain(west);
+    expect(day).not.toContain(east);
+  });
+
+  it("the category counts read the same window", async () => {
+    // Positive control first: February holds the east event (catB) and the
+    // stand-down day (catA), so a zero below is about the window, not the data.
+    const inFeb = await categoryCounts(ctxFor(insider), ...feb);
+    expect(inFeb[catB] ?? 0).toBe(1);
+    expect(inFeb[catA] ?? 0).toBe(1);
+    const inJan = await categoryCounts(ctxFor(insider), ...jan);
+    expect(inJan[catA] ?? 0).toBe(1);
+    expect(inJan[catB] ?? 0).toBe(0);
+  });
+});

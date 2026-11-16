@@ -5,6 +5,7 @@ import { CalendarClock, CalendarDays, Diamond, Layers, Repeat, Rocket, type Luci
 import { cn } from "@/lib/utils";
 import type { CSSProperties } from "react";
 import { KIND_LABEL, type OverlayKind } from "@/lib/program-calendar/overlays";
+import { isIanaZone } from "@/lib/program-calendar/time";
 
 export interface ChipCategory {
   id: string;
@@ -90,7 +91,10 @@ export function EventChip({
           hour: "2-digit",
           minute: "2-digit",
           hour12: false,
-          timeZone: timeZone || "UTC",
+          // A zone `Intl` does not know reads as UTC, as the grid and the
+          // server read it: one bad stored row must not throw and take the
+          // whole calendar down for every viewer.
+          timeZone: timeZone && isIanaZone(timeZone) ? timeZone : "UTC",
         }).format(startsAt)
       : null;
 

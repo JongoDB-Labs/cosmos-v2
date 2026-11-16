@@ -27,8 +27,12 @@ import { requirePermission, type AuthContext } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { DEFAULT_CATEGORIES } from "./categories";
-import { normalizeRange } from "./time";
+import { normalizeRange, isIanaZone, storedZoneName, zonedInstant } from "./time";
 import { escapeLike } from "@/lib/query/like";
+
+// The wall-clock conversion is the calendar's, shared with the grid and the
+// event form; re-exported because the importer's tests read it here.
+export { zonedInstant };
 
 /** Mirrors `ProgramEvent.timeZone`'s column default (and the service's own
  *  fallback) — an event with no zone is assumed to be in the program's. */
@@ -93,10 +97,10 @@ const zoneKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
 /**
  * Spellings a person writes in a spreadsheet, and the IANA zone each means.
  *
- * This is not politeness: `event-chip.tsx` passes the stored value straight to
- * `Intl.DateTimeFormat({ timeZone })`, which THROWS on an unknown zone. Storing
- * "Eastern (ET)" verbatim — which is what the real export carries — would take
- * the calendar down at render rather than show a wrong time.
+ * This is not politeness. The service refuses a zone `Intl` cannot build, and
+ * a stored one the grid and the chip do not know reads as UTC. Either way
+ * "Eastern (ET)" kept verbatim, which is what the real export carries, would
+ * cost the row or show it at the wrong hour.
  */
 const ZONE_ALIASES: Record<string, string> = {
   eastern: "America/New_York",
@@ -131,58 +135,11 @@ const ZONE_ALIASES: Record<string, string> = {
   z: "UTC",
 };
 
-/** Is this a zone `Intl` will actually accept? */
-function isIanaZone(value: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** A sheet's zone label as an IANA zone, or null when it means nothing. */
 export function resolveTimeZone(raw: string): string | null {
   const value = raw.trim();
   if (!value) return null;
-  if (isIanaZone(value)) return value;
-  return ZONE_ALIASES[zoneKey(value)] ?? null;
-}
-
-/** Milliseconds `timeZone` is ahead of UTC at `at` (DST included). */
-function zoneOffsetMs(at: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
-  }).formatToParts(at);
-  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? "0");
-  const asUtc = Date.UTC(
-    part("year"), part("month") - 1, part("day"),
-    // Some environments render midnight as hour 24 even under h23.
-    part("hour") % 24, part("minute"), part("second"),
-  );
-  return asUtc - at.getTime();
-}
-
-/**
- * The instant at which it is `y-m-d hh:mm` in `timeZone`.
- *
- * Offset-then-correct: the zone's offset is itself a function of the instant,
- * so the first guess is measured at the wrong moment near a DST boundary. The
- * second measurement settles it (and for a wall clock inside a spring-forward
- * gap, which does not exist, it lands on the instant just after the jump).
- */
-export function zonedInstant(
-  y: number, m: number, d: number, hh: number, mm: number, timeZone: string,
-): Date {
-  const wall = Date.UTC(y, m - 1, d, hh, mm);
-  const first = zoneOffsetMs(new Date(wall), timeZone);
-  let t = wall - first;
-  const second = zoneOffsetMs(new Date(t), timeZone);
-  if (second !== first) t = wall - second;
-  return new Date(t);
+  return storedZoneName(value) ?? ZONE_ALIASES[zoneKey(value)] ?? null;
 }
 
 // ── Reading a sheet's dates and times ────────────────────────────────────────
