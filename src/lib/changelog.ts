@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.563.3",
+    date: "2026-11-16",
+    title: "Web framework patch",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Behind the scenes: updated the web framework to its latest patch release.",
+      },
+    ],
+  },
+  {
     version: "2.562.9",
     date: "2026-11-16",
     title: "Steadier releases",
