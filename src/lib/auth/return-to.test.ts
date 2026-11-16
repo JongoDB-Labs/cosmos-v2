@@ -136,6 +136,31 @@ describe("the return address across the provider round trip", () => {
     }
   });
 
+  it("keeps nothing when the address is too long for the cookie, so the sign-in lands on /", () => {
+    // The address is stored encoded, and a "/" is stored as three characters.
+    // This one is within the rule's length but stored as 4,095: past the
+    // browser's cookie limit, which drops the whole cookie.
+    const long = `/${"a/".repeat(1023)}`;
+    expect(safeReturnTo(long)).toBe(long);
+    const res = NextResponse.redirect("https://idp.example/authorize");
+    rememberReturnTo(res, start(`?next=${encodeURIComponent(long)}`));
+    expect(res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+    expect(res.headers.get("set-cookie")).toMatch(/signin_return=;.*Expires=Thu, 01 Jan 1970/);
+  });
+
+  it("keeps the longest address that fits, well under the browser's cookie limit", () => {
+    const fits = `/${"a".repeat(1997)}`;
+    expect(encodeURIComponent(fits)).toHaveLength(2000);
+    const kept = NextResponse.redirect("https://idp.example/authorize");
+    rememberReturnTo(kept, start(`?next=${encodeURIComponent(fits)}`));
+    expect(kept.cookies.get(RETURN_TO_COOKIE)?.value).toBe(fits);
+    expect(kept.headers.get("set-cookie")!.length).toBeLessThan(4096);
+
+    const over = NextResponse.redirect("https://idp.example/authorize");
+    rememberReturnTo(over, start(`?next=${encodeURIComponent(`${fits}a`)}`));
+    expect(over.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
+  });
+
   it("is read back, and checked again, at the callback", () => {
     const callback = (value: string) =>
       new NextRequest("http://localhost/api/auth/google/callback", {

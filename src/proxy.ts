@@ -252,9 +252,12 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
   }
 
   // Back to this page after signing in. Built on the public origin: behind the
-  // edge, request.url carries the internal bind address.
+  // edge, request.url carries the internal bind address. Built from the
+  // request's headers, so no cache may keep it and hand it to someone else.
   const signIn = loginUrl(getPublicOrigin(request), { returnTo: `${pathname}${request.nextUrl.search}` });
-  return withSecurityHeaders(NextResponse.redirect(signIn));
+  const res = NextResponse.redirect(signIn);
+  res.headers.set("Cache-Control", "no-store");
+  return withSecurityHeaders(res);
 }
 
 export const config = {

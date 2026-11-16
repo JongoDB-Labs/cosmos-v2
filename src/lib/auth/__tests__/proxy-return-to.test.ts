@@ -51,6 +51,16 @@ describe("proxy: signed-out page visits keep their address", () => {
     expect(location.searchParams.get("next")).toBe("/acme/issues");
   });
 
+  it("tells caches never to keep the redirect, which is built from the request's headers", async () => {
+    const res = await signedOut("/acme/issues", {
+      host: "localhost:3000",
+      "x-forwarded-host": "cosmos.example.dev",
+      "x-forwarded-proto": "https",
+    });
+    expect(res.status).toBe(307);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("still answers an API call with 401, not a redirect", async () => {
     const res = await signedOut("/api/v1/orgs/o1/projects");
     expect(res.status).toBe(401);

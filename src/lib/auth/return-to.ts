@@ -17,6 +17,13 @@ export const RETURN_TO_PARAM = "next";
 /** Carries the address across the provider's round trip, from start to callback. */
 export const RETURN_TO_COOKIE = "signin_return";
 const RETURN_TO_MAX_AGE_SECONDS = 10 * 60;
+/**
+ * The longest address the cookie keeps, counted as stored. A cookie is stored
+ * encoded (a "/" takes three characters), and a browser drops a cookie past
+ * 4096 bytes whole, so an address the rule accepts could otherwise be lost
+ * without a trace. This keeps the cookie well under that limit.
+ */
+const RETURN_TO_COOKIE_MAX_CHARS = 2000;
 
 const PLACEHOLDER = "http://return-to.invalid";
 
@@ -85,11 +92,12 @@ export function ssoReturnTo(returnTo: unknown, orgSlug: string): string {
 
 /**
  * At a sign-in start: keep this sign-in's return address for the callback, or
- * clear one left by an abandoned sign-in.
+ * clear one left by an abandoned sign-in. An address too long to keep is not
+ * kept, and that sign-in lands on "/".
  */
 export function rememberReturnTo(response: NextResponse, request: NextRequest): void {
   const back = safeReturnTo(request.nextUrl.searchParams.get(RETURN_TO_PARAM));
-  if (back === "/") {
+  if (back === "/" || encodeURIComponent(back).length > RETURN_TO_COOKIE_MAX_CHARS) {
     response.cookies.delete(RETURN_TO_COOKIE);
     return;
   }
