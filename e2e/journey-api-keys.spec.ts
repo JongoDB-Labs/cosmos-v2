@@ -85,10 +85,12 @@ test.describe("journey — API keys", () => {
     // A form people fill in: no serious axe violations, with a scope ticked.
     // A ticked scope's `code` label is the smallest muted text on the darkest
     // ground in the dialog (10px, on the ticked row's tint). It was 4.29:1
-    // with #64748b; the default skin's muted text is darker now (#5B697E).
+    // with #64748b; with the default skin's muted text now, axe measures it at
+    // 5.11:1 in light and 4.56:1 in dark.
     // The row fades its background in, so the scan waits for that transition
     // to end: mid-fade, axe would measure a lighter ground and pass early.
-    const row = create.locator("label").filter({ has: read });
+    // `has` is matched inside each label, so it is rooted at the page, not the dialog.
+    const row = create.locator("label").filter({ has: page.getByRole("checkbox", { name: "Read read", exact: true }) });
     await expect.poll(() => row.evaluate((el) => el.getAnimations().length), { timeout: 5_000 }).toBe(0);
     // Positive control: the row really is tinted, so the scan sees the ticked state.
     expect(await row.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");

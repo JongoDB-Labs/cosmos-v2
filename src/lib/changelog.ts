@@ -79,7 +79,11 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "Small grey text in the default light theme is a little darker, so it is easier to read. This includes the item counts on calendar days and the tags on RAID cards.",
+        text: "Small grey text in the default theme is easier to read: a little darker in light mode and a little lighter in dark mode. This includes the item counts on calendar days, the tags on RAID cards, the selected file in the files list and the scopes in the Create API key dialog.",
+      },
+      {
+        kind: "fix",
+        text: "In Payroll, a person\u2019s Supervisor button no longer says \u201c\u2014 none \u2014\u201d before their supervisors have loaded. It says \u201cEdit\u201d until you open it, then who supervises them.",
       },
       {
         kind: "fix",
