@@ -433,7 +433,7 @@ export function TeamTable({
       // Reuse rowActions so the inline ⋯ and the right-click menu can never drift
       // (also drops the old non-functional "View profile" stub).
       cell: ({ row }) => (
-        <div className="flex justify-end group/action">
+        <div className="flex justify-end">
           <ActionMenu groups={rowActions(row.original)}>
             <span />
           </ActionMenu>

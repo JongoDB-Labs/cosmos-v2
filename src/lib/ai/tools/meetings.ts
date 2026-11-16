@@ -30,7 +30,10 @@ export const meetingTools: ToolDefinition[] = [
   },
   {
     name: "create_meeting",
-    description: "Schedule a meeting.",
+    description:
+      "Schedule a meeting. It reaches Outlook only for the people in attendeeIds who have connected their Outlook Calendar, " +
+      "and for a Teams meeting also the requester, who hosts it in their own Outlook. Nobody else is added, the requester included: " +
+      "to put it in their own calendar, list their user id. Use list_org_members to find other people's ids.",
     input_schema: {
       type: "object",
       properties: {
@@ -44,6 +47,15 @@ export const meetingTools: ToolDefinition[] = [
           description: "Default STANDUP",
         },
         notes: { type: "string", description: "Optional notes" },
+        attendeeIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "User ids of the people attending; each must be in this organization",
+        },
+        teamsMeeting: {
+          type: "boolean",
+          description: "Make it a Teams meeting, hosted in the requester's own Outlook (it must be connected)",
+        },
       },
       required: ["title", "meetingDate"],
     },

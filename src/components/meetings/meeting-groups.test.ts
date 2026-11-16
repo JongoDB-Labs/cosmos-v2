@@ -37,9 +37,9 @@ describe("groupMeetingsByWhen", () => {
       "America/Los_Angeles",
     );
     expect(titles(g)).toEqual({
-      today: ["today 23:00", "today 15:00"],
-      thisWeek: ["Sunday 22:30", "Monday 01:00"],
-      upcoming: ["next Tuesday", "next month"], // soonest first
+      today: ["today 15:00", "today 23:00"],
+      thisWeek: ["Monday 01:00", "Sunday 22:30"],
+      upcoming: ["next Tuesday", "next month"],
       past: ["last Sunday 23:30", "last month"],
     });
   });
@@ -57,9 +57,35 @@ describe("groupMeetingsByWhen", () => {
     );
     expect(titles(g)).toEqual({
       today: ["today 09:30"],
-      thisWeek: ["Wednesday 23:30", "Monday 00:30"],
+      thisWeek: ["Monday 00:30", "Wednesday 23:30"],
       upcoming: ["next Monday 00:15"],
       past: [],
+    });
+  });
+
+  it("lists Today, This Week and Upcoming soonest first, and Past most recent first", () => {
+    // Given out of order, so no order can come from the input.
+    const g = groupMeetingsByWhen(
+      [
+        meeting("Thursday", "2026-11-19T10:00:00.000Z"),
+        meeting("two weeks ago", "2026-11-04T10:00:00.000Z"),
+        meeting("today 21:00", "2026-11-18T21:00:00.000Z"),
+        meeting("next month", "2026-12-18T10:00:00.000Z"),
+        meeting("Monday", "2026-11-16T10:00:00.000Z"),
+        meeting("last week", "2026-11-11T10:00:00.000Z"),
+        meeting("today 09:00", "2026-11-18T09:00:00.000Z"),
+        meeting("next week", "2026-11-25T10:00:00.000Z"),
+        meeting("Saturday", "2026-11-21T10:00:00.000Z"),
+        meeting("today 23:00", "2026-11-18T23:00:00.000Z"),
+      ],
+      NOW,
+      "UTC",
+    );
+    expect(titles(g)).toEqual({
+      today: ["today 09:00", "today 21:00", "today 23:00"],
+      thisWeek: ["Monday", "Thursday", "Saturday"],
+      upcoming: ["next week", "next month"],
+      past: ["last week", "two weeks ago"],
     });
   });
 

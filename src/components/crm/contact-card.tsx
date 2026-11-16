@@ -105,8 +105,9 @@ export function ContactCard({ contact, members, onClick, onDelete }: ContactCard
           onClick={() => onClick(contact)}
           onKeyDown={activateOnKey(() => onClick(contact))}
         >
-          {/* pr-6 leaves room for the hover ⋯ menu button */}
-          <div className="flex items-start justify-between gap-2 pr-6">
+          {/* pr-6 leaves room for the hover ⋯ menu button; pr-7 for its 32px
+              touch size, always shown on a coarse pointer */}
+          <div className="flex items-start justify-between gap-2 pr-6 [@media(pointer:coarse)]:pr-7">
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{contact.name}</p>
               {contact.company && (

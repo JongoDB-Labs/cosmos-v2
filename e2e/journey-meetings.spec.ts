@@ -73,9 +73,11 @@ test.describe("journey — meetings", () => {
     const meeting = (await res.json()) as { id: string };
     try {
       await page.goto(`/${ORG}/meetings`, { waitUntil: "domcontentloaded" });
-      const section = (name: string) => page.getByRole("heading", { level: 2, name, exact: true }).locator("xpath=..");
-      await expect(section("Upcoming").getByText(title, { exact: true })).toBeVisible({ timeout: 20_000 });
-      await expect(section("Past").getByText(title, { exact: true })).toHaveCount(0);
+      // The heading of the one section this meeting's own card sits in: it
+      // reads "Upcoming", so it can't be "Past" (or anything else).
+      const card = page.getByText(title, { exact: true });
+      await expect(card).toBeVisible({ timeout: 20_000 });
+      await expect(card.locator("xpath=ancestor::div[h2][1]/h2")).toHaveText("Upcoming");
 
       const trigger = page.getByRole("button", { name: `Actions for ${title}` });
       // The positive control: hidden while the pointer is elsewhere.
@@ -93,7 +95,8 @@ test.describe("journey — meetings", () => {
       await trigger.click();
       await expect(page.getByRole("menuitem", { name: "Open" })).toBeVisible();
     } finally {
-      await page.request.delete(`/api/v1/orgs/${org.id}/meetings/${meeting.id}`, { headers: { Origin: base } });
+      const removed = await page.request.delete(`/api/v1/orgs/${org.id}/meetings/${meeting.id}`, { headers: { Origin: base } });
+      expect(removed.status(), "the seeded meeting was cleaned up").toBe(204);
     }
   });
 });

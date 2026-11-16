@@ -15,8 +15,8 @@ export interface MeetingGroups<M> {
  * land in Past, next month's meetings included.
  *
  * `tz` is the viewer's zone, so the boundaries are their midnight and their
- * Monday, wherever the code runs. Upcoming runs soonest first; the other
- * sections newest first, as the list always has.
+ * Monday, wherever the code runs. Today, This Week and Upcoming run soonest
+ * first, so what's next is at the top; Past runs most recent first.
  */
 export function groupMeetingsByWhen<M extends { meetingDate: string | Date }>(
   meetings: readonly M[],
@@ -30,13 +30,14 @@ export function groupMeetingsByWhen<M extends { meetingDate: string | Date }>(
   const at = (m: M) => new Date(m.meetingDate).getTime();
 
   const groups: MeetingGroups<M> = { today: [], thisWeek: [], upcoming: [], past: [] };
-  for (const m of [...meetings].sort((a, b) => at(b) - at(a))) {
+  // Soonest first, for what is still to come; Past is turned round below.
+  for (const m of [...meetings].sort((a, b) => at(a) - at(b))) {
     const t = at(m);
     if (t >= dayStart && t <= dayEnd) groups.today.push(m);
     else if (t >= weekStart && t <= weekEnd) groups.thisWeek.push(m);
     else if (t > weekEnd) groups.upcoming.push(m);
     else groups.past.push(m);
   }
-  groups.upcoming.reverse();
+  groups.past.reverse(); // most recent first
   return groups;
 }

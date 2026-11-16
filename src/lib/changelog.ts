@@ -51,19 +51,23 @@ const RELEASES: Release[] = [
   {
     version: "2.563.2",
     date: "2026-11-16",
-    title: "Upcoming meetings, and card menus that show on hover",
+    title: "Cosmo invites people to meetings, an Upcoming section, and menus on hover",
     highlights: [
       {
         kind: "fix",
-        text: "A meeting Cosmo creates now appears in Outlook right away, the same as one you create yourself. Before, it waited for the next calendar sync.",
+        text: "Cosmo can now invite people when it schedules a meeting, and can make it a Teams meeting. The meeting goes straight to the Outlook calendar of each invited person who has connected Outlook, and a Teams meeting also to yours, as its host. Before, Cosmo couldn\u2019t invite anyone, so a meeting it made reached no one\u2019s Outlook until someone added attendees in the app.",
       },
       {
         kind: "fix",
-        text: "The meetings list has a new Upcoming section for meetings after this week. They used to be listed under Past. Today, This Week and Upcoming now follow your own time zone.",
+        text: "Adding a Google Meet to a meeting now updates its copies in attendees\u2019 Outlook calendars right away, with the Meet link.",
       },
       {
         kind: "fix",
-        text: "The ⋯ menu on meeting, project, board, RAID and contact cards, and on the hidden board tabs, now appears when you point at the card. Before, it showed only when you tabbed to it or right-clicked.",
+        text: "The meetings list has a new Upcoming section for meetings after this week. They used to be listed under Past. Today, This Week and Upcoming follow your own time zone and list the soonest meeting first. Past lists the most recent first.",
+      },
+      {
+        kind: "fix",
+        text: "The ⋯ menu on meeting, project, board, RAID and contact cards, and on the hidden board tabs, now appears when you point at the card. Before, it showed only when you tabbed to it or right-clicked. In the team, contracts and finance tables it appears when you point anywhere on the row, not only at its last cell.",
       },
     ],
   },

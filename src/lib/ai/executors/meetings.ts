@@ -5,7 +5,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { canReadMeeting, readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { SYNCED_MEETING_FIELDS, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
-import { createSyncMeeting } from "@/lib/meetings/create-meeting.server";
+import { createSyncMeeting, meetingRefusalMessage } from "@/lib/meetings/create-meeting.server";
 import { refsError } from "@/lib/rbac/foreign-refs";
 
 /**
@@ -77,6 +77,10 @@ const createSchema = z.object({
   sprintId: z.string().uuid().nullish(),
   meetingType: z.nativeEnum(MeetingType).optional(),
   notes: z.string().max(10000).nullish(),
+  // Who gets it in Outlook, as in the app: its attendees, and a Teams
+  // meeting's host (the requester). Nobody is added who wasn't asked for.
+  attendeeIds: z.array(z.string().uuid()).max(500).optional(),
+  teamsMeeting: z.boolean().optional(),
 });
 
 export async function createMeeting(input: Record<string, unknown>, ctx: ToolContext) {
@@ -101,21 +105,28 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
   );
   if (foreignSprint) return { error: foreignSprint };
 
-  // The app's create path, so it reaches Outlook at once, as a meeting made in the app does.
-  const created = await createSyncMeeting(
+  // The app's create path: the same attendee and Teams rules, and the same
+  // push, so it reaches the same people's Outlook at once.
+  const made = await createSyncMeeting(
     {
-      orgId: ctx.orgId,
-      title: data.title,
-      meetingDate: new Date(data.meetingDate),
-      projectId: data.projectId ?? null,
-      sprintId: data.sprintId ?? null,
-      meetingType: data.meetingType ?? MeetingType.STANDUP,
-      notes: data.notes ?? "",
-      createdById: ctx.userId,
+      data: {
+        orgId: ctx.orgId,
+        title: data.title,
+        meetingDate: new Date(data.meetingDate),
+        projectId: data.projectId ?? null,
+        sprintId: data.sprintId ?? null,
+        meetingType: data.meetingType ?? MeetingType.STANDUP,
+        notes: data.notes ?? "",
+        createdById: ctx.userId,
+      },
+      attendeeIds: data.attendeeIds,
+      teamsMeeting: data.teamsMeeting,
+      isApiKey: !!ctx.auth.isApiKey,
     },
     { select: MEETING_SELECT },
   );
-  return { created: true, id: created.id, meeting: created };
+  if (made.refused) return { error: meetingRefusalMessage(made.refused) };
+  return { created: true, id: made.meeting.id, meeting: made.meeting };
 }
 
 // ── update_meeting ─────────────────────────────────────────────────────────

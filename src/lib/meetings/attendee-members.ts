@@ -12,5 +12,6 @@ export async function allOrgMembers(orgId: string, userIds: string[]): Promise<b
   return n === ids.length;
 }
 
-export const attendeesNotMembers = () =>
-  Response.json({ error: "Attendees must be members of this organization." }, { status: 400 });
+export const ATTENDEES_NOT_MEMBERS = "Attendees must be members of this organization.";
+
+export const attendeesNotMembers = () => Response.json({ error: ATTENDEES_NOT_MEMBERS }, { status: 400 });

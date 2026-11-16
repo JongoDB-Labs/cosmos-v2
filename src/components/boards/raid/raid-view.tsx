@@ -703,8 +703,9 @@ function RaidCard({
           isDragging && "opacity-80 shadow-lg",
         )}
       >
-        {/* pr-5 leaves room for the hover ⋯ menu button */}
-        <div className="flex items-start gap-2 mb-2 pr-5">
+        {/* pr-5 leaves room for the hover ⋯ menu button; pr-7 for its 32px
+            touch size, always shown on a coarse pointer */}
+        <div className="flex items-start gap-2 mb-2 pr-5 [@media(pointer:coarse)]:pr-7">
           {/* Drag handle — grab to move the card into another RAID column. */}
           <button
             type="button"

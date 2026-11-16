@@ -155,6 +155,23 @@ describe("creating a Teams meeting", () => {
   });
 });
 
+describe("creating a meeting with attendees", () => {
+  // The same rule Cosmo's create_meeting follows (create-meeting.server.ts):
+  // only the org's own people, checked before anything is saved.
+  it("refuses someone from outside the organization, saving nothing; the org's own are saved once each", async () => {
+    h.ctx = member(insider);
+    const stranger = (await prisma.user.create({ data: { email: `stranger-${stamp}@mtr.test`, displayName: "Stranger" } })).id;
+    const meetingDate = "2026-12-01T10:00:00.000Z";
+    const refused = await createMeeting(json("POST", { title: `att-out-${stamp}`, meetingDate, attendeeIds: [outsider, stranger] }), at());
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: "Attendees must be members of this organization." });
+    expect(await titled(`att-out-${stamp}`)).toBe(0);
+    const made = await createMeeting(json("POST", { title: `att-in-${stamp}`, meetingDate, attendeeIds: [outsider, outsider] }), at());
+    expect(made.status).toBe(201);
+    expect(((await made.json()) as { attendees: { userId: string }[] }).attendees.map((a) => a.userId)).toEqual([outsider]);
+  });
+});
+
 describe("turning on Outlook invitations while someone else hosts Teams", () => {
   // Invitations would have to carry the Teams meeting, which would end the
   // host's. So it is refused, and the refusal names who to ask.
