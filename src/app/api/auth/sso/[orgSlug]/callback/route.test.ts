@@ -10,8 +10,13 @@ import { format } from "node:util";
 import { NextRequest } from "next/server";
 import { OrgRole, type IdpConnection } from "@prisma/client";
 
-const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
+const { findUnique, completeSsoLogin } = vi.hoisted(() => ({ findUnique: vi.fn(), completeSsoLogin: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({ prisma: { organization: { findUnique } }, prismaUnfiltered: {} }));
+// The security core has its own tests; here only where the callback sends the browser after it.
+vi.mock("@/lib/auth/sso", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/sso")>()),
+  completeSsoLogin,
+}));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));
 vi.mock("@/lib/chat/seed-general", () => ({ autoJoinGeneral: vi.fn() }));
 
@@ -19,6 +24,8 @@ import { GET } from "./route";
 import { clearOidcConfigCache } from "@/lib/auth/sso";
 import { sealSecret } from "@/lib/crypto/vault";
 import { FAKE_IDP_CLIENT_ID, FAKE_IDP_NONCE, startFakeIdp, type FakeIdp } from "@/lib/auth/__tests__/fake-idp";
+import { RETURN_TO_COOKIE } from "@/lib/auth/return-to";
+import { SESSION_COOKIE } from "@/lib/auth/client";
 
 const CODE = "the-code-7f3a";
 const CLIENT_SECRET = "test-client-secret-7f3a";
@@ -65,9 +72,12 @@ afterEach(() => {
 });
 
 /** The callback as the IdP's redirect reaches it, from a fresh client address each time. */
-function callback() {
+function callback(extraCookie = "") {
   const req = new NextRequest(`http://localhost:3000/api/auth/sso/acme/callback?code=${CODE}&state=${TX.state}`, {
-    headers: { cookie: `sso_tx=${encodeURIComponent(JSON.stringify(TX))}`, "x-forwarded-for": `198.51.100.${crypto.randomInt(1, 250)}` },
+    headers: {
+      cookie: `sso_tx=${encodeURIComponent(JSON.stringify(TX))}${extraCookie}`,
+      "x-forwarded-for": `198.51.100.${crypto.randomInt(1, 250)}`,
+    },
   });
   return GET(req, { params: Promise.resolve({ orgSlug: "acme" }) });
 }
@@ -101,5 +111,48 @@ describe("SSO callback: what a failed code exchange logs", () => {
     expect(text).not.toContain("idp-detail-7f3a");
     expect(text).not.toContain(CODE);
     expect(text).not.toContain(CLIENT_SECRET);
+  });
+});
+
+describe("SSO callback: where a sign-in lands", () => {
+  const kept = (path: string) => `; ${RETURN_TO_COOKIE}=${encodeURIComponent(path)}`;
+  const landed = (res: Response) => {
+    const url = new URL(res.headers.get("location")!);
+    return `${url.pathname}${url.search}`;
+  };
+
+  beforeEach(() => {
+    completeSsoLogin.mockResolvedValue({ ok: true, token: "session-token", userId: "u1", mfaSatisfied: true });
+  });
+
+  it("lands on the page kept at the start when it is in this org, and clears it", async () => {
+    const res = await callback(kept("/acme/issues?view=list"));
+    // Positive control: the code exchange went through and a session was set.
+    expect(completeSsoLogin).toHaveBeenCalledTimes(1);
+    expect(res.headers.get("set-cookie")).toContain(`${SESSION_COOKIE}=session-token`);
+    expect(landed(res)).toBe("/acme/issues?view=list");
+    expect(res.headers.get("set-cookie")).toMatch(/signin_return=;/);
+  });
+
+  it.each([
+    ["a page in another org", "/other/issues"],
+    ["an org whose name starts the same", "/acme-other/issues"],
+    ["an address that is not a page on this site", "//elsewhere.example/acme"],
+  ])("lands on the org's home for %s: the session opens this org only", async (_case, path) => {
+    const res = await callback(kept(path));
+    expect(completeSsoLogin).toHaveBeenCalledTimes(1);
+    expect(landed(res)).toBe("/acme");
+  });
+
+  it("lands on the org's home with nothing kept", async () => {
+    expect(landed(await callback())).toBe("/acme");
+  });
+
+  it("keeps the page on the sign-in page when the sign-in is refused", async () => {
+    completeSsoLogin.mockResolvedValue({ ok: false, reason: "jit_disabled" });
+    const url = new URL((await callback(kept("/acme/issues"))).headers.get("location")!);
+    expect(url.pathname).toBe("/login");
+    expect(url.searchParams.get("error")).toBe("sso_no_account");
+    expect(url.searchParams.get("next")).toBe("/acme/issues");
   });
 });

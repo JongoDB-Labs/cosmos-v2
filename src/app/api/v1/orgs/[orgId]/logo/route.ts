@@ -8,6 +8,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, noContent, getIpAddress } from "@/lib/api-helpers";
 import { getStorage } from "@/lib/storage";
 import { serveHeaders } from "@/lib/files/serve";
+import { denyFramingUnlessSet } from "@/lib/security/headers";
 import { LOGO_UPLOAD_TYPES, storedOrgLogo } from "@/lib/org/stored-logo";
 import { patchOrgSettings } from "@/lib/org/patch-settings.server";
 import { logAudit } from "@/lib/audit";
@@ -143,7 +144,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function GET(_request: NextRequest, { params }: RouteParams) {
+async function serveLogo(_request: NextRequest, { params }: RouteParams): Promise<Response> {
   try {
     const { orgId } = await params;
     const org = await orgFor(orgId);
@@ -172,6 +173,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   } catch (error) {
     return handleApiError(error);
   }
+}
+
+/** Framing is this route's to state on a GET (routeSetsOwnCsp): a refusal says DENY. */
+export async function GET(request: NextRequest, ctx: RouteParams) {
+  return denyFramingUnlessSet(await serveLogo(request, ctx));
 }
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {

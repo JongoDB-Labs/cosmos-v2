@@ -11,6 +11,8 @@ import { problem } from "@/lib/openapi/problem";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
 import { otherAddressRedirect } from "@/lib/deploy/other-address-redirect";
 import { legacyChatRedirect } from "@/lib/chat/legacy-chat-redirect";
+import { loginUrl } from "@/lib/auth/return-to";
+import { getPublicOrigin } from "@/lib/auth/public-url";
 
 function withSecurityHeaders(res: NextResponse): NextResponse {
   applySecurityHeaders(res.headers);
@@ -116,8 +118,13 @@ export async function proxy(request: NextRequest) {
   // and only Microsoft Teams' hosts. Everything else keeps 'none'.
   if (isTabPath(request.nextUrl.pathname)) applyTeamsTabFraming(res.headers);
   // Stored files carry the CSP their route chose; the page CSP set above would
-  // replace it (see routeSetsOwnCsp).
-  if (routeSetsOwnCsp(request.nextUrl.pathname)) res.headers.delete("Content-Security-Policy");
+  // replace it (see routeSetsOwnCsp). So does a GET the route will answer: its
+  // framing is the route's too (a PDF preview may be framed by this site).
+  if (routeSetsOwnCsp(request.nextUrl.pathname)) {
+    res.headers.delete("Content-Security-Policy");
+    const toRoute = res.headers.get("x-middleware-next") === "1";
+    if (toRoute && (request.method === "GET" || request.method === "HEAD")) res.headers.delete("X-Frame-Options");
+  }
   return res;
 }
 
@@ -244,8 +251,10 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
     return withSecurityHeaders(problem(401, "unauthorized"));
   }
 
-  const loginUrl = new URL("/login", request.url);
-  return withSecurityHeaders(NextResponse.redirect(loginUrl));
+  // Back to this page after signing in. Built on the public origin: behind the
+  // edge, request.url carries the internal bind address.
+  const signIn = loginUrl(getPublicOrigin(request), { returnTo: `${pathname}${request.nextUrl.search}` });
+  return withSecurityHeaders(NextResponse.redirect(signIn));
 }
 
 export const config = {

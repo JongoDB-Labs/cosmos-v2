@@ -14,11 +14,11 @@ import { consumePendingInvitations } from "@/lib/auth/consume-invitations";
 import { resolveFirstPartyUser } from "@/lib/auth/first-party-identity";
 import { storeGoogleRefreshToken } from "@/lib/integrations/google";
 import { connectIntent, finishConnect } from "@/lib/auth/connect-flow";
+import { RETURN_TO_COOKIE, landingUrl, loginUrl, rememberedReturnTo } from "@/lib/auth/return-to";
 
-function redirectToLogin(origin: string, error: string) {
-  return NextResponse.redirect(
-    new URL(`/login?error=${encodeURIComponent(error)}`, origin),
-  );
+/** Back to the sign-in page with the error, keeping where the sign-in was headed. */
+function redirectToLogin(origin: string, error: string, returnTo: string) {
+  return NextResponse.redirect(loginUrl(origin, { error, returnTo }));
 }
 
 export async function GET(request: NextRequest) {
@@ -26,6 +26,8 @@ export async function GET(request: NextRequest) {
   // Use the public origin from forwarded headers — `url.origin` would be the
   // internal bind hostname (localhost:3000), breaking redirects behind nginx.
   const origin = getPublicOrigin(request);
+  // The page the sign-in started from (kept by the start route), or "/".
+  const back = rememberedReturnTo(request);
 
   // Brake brute-force callback hits per IP — 10/minute, 1/sec sustained.
   const rl = rateLimit(getRateLimitKey(request, "auth.callback"), {
@@ -33,14 +35,14 @@ export async function GET(request: NextRequest) {
     refillPerSecond: 1,
   });
   if (!rl.allowed) {
-    return redirectToLogin(origin, "rate_limited");
+    return redirectToLogin(origin, "rate_limited", back);
   }
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const cookieState = request.cookies.get(OAUTH_STATE_COOKIE)?.value;
 
   if (!code || !state || !cookieState || state !== cookieState) {
-    const res = redirectToLogin(origin, "invalid_state");
+    const res = redirectToLogin(origin, "invalid_state", back);
     res.cookies.delete(OAUTH_STATE_COOKIE);
     return res;
   }
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
     const googleClient = await getGoogleLoginClient(googleRedirectUri(request));
     const { tokens } = await googleClient.getToken(code);
     if (!tokens.id_token) {
-      const res = redirectToLogin(origin, "auth_failed");
+      const res = redirectToLogin(origin, "auth_failed", back);
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
@@ -70,7 +72,7 @@ export async function GET(request: NextRequest) {
     });
     const payload = ticket.getPayload();
     if (!payload?.email || !payload.sub) {
-      const res = redirectToLogin(origin, "auth_failed");
+      const res = redirectToLogin(origin, "auth_failed", back);
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
@@ -86,7 +88,7 @@ export async function GET(request: NextRequest) {
     // call Calendar/Drive/Gmail on behalf of the user later.
     refreshToken = tokens.refresh_token ?? null;
   } catch {
-    const res = redirectToLogin(origin, "auth_failed");
+    const res = redirectToLogin(origin, "auth_failed", back);
     res.cookies.delete(OAUTH_STATE_COOKIE);
     return res;
   }
@@ -113,7 +115,7 @@ export async function GET(request: NextRequest) {
   });
   if (!resolved.ok) {
     console.warn(`[auth:google] sign-in refused: ${resolved.reason}`);
-    const res = redirectToLogin(origin, resolved.reason);
+    const res = redirectToLogin(origin, resolved.reason, back);
     res.cookies.delete(OAUTH_STATE_COOKIE);
     return res;
   }
@@ -163,7 +165,7 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const response = NextResponse.redirect(new URL("/", origin));
+  const response = NextResponse.redirect(landingUrl(origin, back));
   response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -172,5 +174,6 @@ export async function GET(request: NextRequest) {
     secure: process.env.NODE_ENV === "production",
   });
   response.cookies.delete(OAUTH_STATE_COOKIE);
+  response.cookies.delete(RETURN_TO_COOKIE);
   return response;
 }

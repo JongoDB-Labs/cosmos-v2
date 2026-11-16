@@ -14,6 +14,7 @@ import {
   type SsoTransaction,
 } from "@/lib/auth/sso";
 import { setRememberedOrgCookie } from "@/lib/auth/remembered-org";
+import { RETURN_TO_COOKIE, loginUrl, rememberedReturnTo, ssoReturnTo } from "@/lib/auth/return-to";
 
 /**
  * SSO callback. openid-client checks the authorization response (state, and the
@@ -33,10 +34,9 @@ import { setRememberedOrgCookie } from "@/lib/auth/remembered-org";
 
 type RouteParams = { params: Promise<{ orgSlug: string }> };
 
-function redirectToLogin(origin: string, error: string) {
-  const res = NextResponse.redirect(
-    new URL(`/login?error=${encodeURIComponent(error)}`, origin),
-  );
+/** Back to the sign-in page with the error, keeping where the sign-in was headed. */
+function redirectToLogin(origin: string, error: string, returnTo: string) {
+  const res = NextResponse.redirect(loginUrl(origin, { error, returnTo }));
   res.cookies.delete(SSO_TX_COOKIE);
   return res;
 }
@@ -44,29 +44,31 @@ function redirectToLogin(origin: string, error: string) {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const origin = getPublicOrigin(request);
   const { orgSlug } = await params;
+  // The page the sign-in started from (kept by the start route), or "/".
+  const back = rememberedReturnTo(request);
 
   const rl = rateLimit(getRateLimitKey(request, "auth.sso.callback"), {
     capacity: 10,
     refillPerSecond: 1,
   });
   if (!rl.allowed) {
-    return redirectToLogin(origin, "rate_limited");
+    return redirectToLogin(origin, "rate_limited", back);
   }
 
   // 1. Recover + validate the transaction cookie (state/nonce/PKCE), bound to org.
   const txRaw = request.cookies.get(SSO_TX_COOKIE)?.value;
   if (!txRaw) {
-    return redirectToLogin(origin, "invalid_state");
+    return redirectToLogin(origin, "invalid_state", back);
   }
   let tx: SsoTransaction;
   try {
     tx = JSON.parse(txRaw) as SsoTransaction;
   } catch {
-    return redirectToLogin(origin, "invalid_state");
+    return redirectToLogin(origin, "invalid_state", back);
   }
   // The cookie must have been minted for THIS org — defeats cross-org replay.
   if (tx.orgSlug !== orgSlug || !tx.state || !tx.nonce || !tx.codeVerifier) {
-    return redirectToLogin(origin, "invalid_state");
+    return redirectToLogin(origin, "invalid_state", back);
   }
 
   // 2. Resolve the connection (must still be enabled).
@@ -76,7 +78,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   });
   const conn = org?.idpConnection;
   if (!conn || !conn.enabled) {
-    return redirectToLogin(origin, "sso_not_configured");
+    return redirectToLogin(origin, "sso_not_configured", back);
   }
 
   // 3. openid-client checks state, exchanges the code, and checks the ID token's
@@ -98,7 +100,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
     const idClaims = tokens.claims();
     if (!idClaims) {
-      return redirectToLogin(origin, "auth_failed");
+      return redirectToLogin(origin, "auth_failed", back);
     }
     claimsRaw = idClaims as Record<string, unknown>;
   } catch (err) {
@@ -108,13 +110,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // by name, code and message only, so a refused address or a bad token still
     // shows behind openid-client's "something went wrong".
     console.error("[sso] code grant / token validation failed", { orgSlug, error: describeSsoError(err) });
-    return redirectToLogin(origin, "auth_failed");
+    return redirectToLogin(origin, "auth_failed", back);
   }
 
   // 4. Normalize claims via attributeMapping and run the security core.
   const claims = extractClaims(claimsRaw, conn);
   if (!claims.subject) {
-    return redirectToLogin(origin, "auth_failed");
+    return redirectToLogin(origin, "auth_failed", back);
   }
 
   const result = await completeSsoLogin(orgSlug, conn, claims, {
@@ -139,12 +141,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     ) {
       console.warn("[sso] sign-in refused", { orgSlug, reason: result.reason });
     }
-    return redirectToLogin(origin, error);
+    return redirectToLogin(origin, error, back);
   }
 
   // 5. Set the session cookie (identical to the Google path) + clear the tx.
-  //    Straight to the org: an SSO session opens this org and no other.
-  const response = NextResponse.redirect(new URL(`/${encodeURIComponent(orgSlug)}`, origin));
+  //    To the page the sign-in started from when it is in this org, otherwise
+  //    the org's home: an SSO session opens this org and no other.
+  const response = NextResponse.redirect(new URL(ssoReturnTo(back, orgSlug), origin));
   response.cookies.set(SESSION_COOKIE, result.token, {
     httpOnly: true,
     sameSite: "lax",
@@ -153,6 +156,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     secure: process.env.NODE_ENV === "production",
   });
   response.cookies.delete(SSO_TX_COOKIE);
+  response.cookies.delete(RETURN_TO_COOKIE);
   // Remember this org so /login can pre-render its brand next time.
   setRememberedOrgCookie(response, orgSlug);
   return response;

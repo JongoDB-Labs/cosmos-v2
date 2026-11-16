@@ -100,12 +100,50 @@ describe("POST /api/auth/account-request from a signed-out browser", () => {
     expect(statuses.slice(5)).toEqual([429, 429]);
   });
 
-  it("limits each address, whichever clients it comes from", async () => {
+  it("limits each address, whichever clients it comes from, and says so", async () => {
     const email = address("one-address");
-    for (let i = 0; i < 5; i++) {
-      expect((await send({ orgSlug: slug, email }, clientAddress())).status).toBe(200);
-    }
-    // The answer stays the same; only the first few reach the database.
+    const statuses: number[] = [];
+    for (let i = 0; i < 5; i++) statuses.push((await send({ orgSlug: slug, email }, clientAddress())).status);
+    // A throttled request was not taken, so it is not answered as if it were:
+    // the form then tells the visitor it wasn't sent, rather than "sent".
+    expect(statuses).toEqual([200, 200, 200, 429, 429]);
     expect(vi.mocked(submitAccountRequest)).toHaveBeenCalledTimes(3);
+  });
+
+  it("limits by the address, whatever its case", async () => {
+    const email = address("typed");
+    for (let i = 0; i < 3; i++) expect((await send({ orgSlug: slug, email }, clientAddress())).status).toBe(200);
+    expect((await send({ orgSlug: slug, email: email.toUpperCase() }, clientAddress())).status).toBe(429);
+  });
+
+  it("answers the limit the same whether or not the address has an account", async () => {
+    const withAccount = address("has-account");
+    const user = await prisma.user.create({ data: { email: withAccount, displayName: "Has account" } });
+    try {
+      const answers = async (email: string) => {
+        const out: string[] = [];
+        for (let i = 0; i < 4; i++) {
+          const res = await send({ orgSlug: slug, email }, clientAddress());
+          out.push(`${res.status} ${await res.text()}`);
+        }
+        return out;
+      };
+      const known = await answers(withAccount);
+      const unknown = await answers(address("no-account"));
+      // Positive control: the limit really was reached in both runs.
+      expect(known[3]).toMatch(/^429 /);
+      expect(known).toEqual(unknown);
+      // And a throttled address reads exactly like a throttled client.
+      const edge = clientAddress();
+      let perClient = "";
+      for (let i = 0; i < 6; i++) {
+        const res = await send({ orgSlug: slug, email: address(`per-client-${i}`) }, edge);
+        perClient = `${res.status} ${await res.text()}`;
+      }
+      expect(perClient).toBe(known[3]);
+    } finally {
+      await prisma.accountRequest.deleteMany({ where: { orgId, email: withAccount } });
+      await prisma.user.delete({ where: { id: user.id } });
+    }
   });
 });

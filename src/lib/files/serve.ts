@@ -28,6 +28,12 @@
  * `X-Content-Type-Options: nosniff` on all of them, so a browser cannot decide a
  * .txt is really HTML and promote it.
  *
+ * Framing is decided here too: the proxy leaves it to these routes on a GET. A
+ * PDF is the one file the app shows inside a frame (the file viewer's "View
+ * original"), so this site, and no other, may frame it. Every other tier says
+ * DENY, like every other response. Images and media are shown with <img> and
+ * <video>, which framing headers do not govern.
+ *
  * The tier is chosen from the declared type where that is recognised, and from the
  * FILENAME where it is not. Browsers send no type at all for a great many ordinary
  * files — .log, .yml, .py, .sql — and deciding on the declared type alone would send
@@ -147,17 +153,26 @@ export const SANDBOXED_FILE_CSP = [
   "frame-ancestors 'none'",
 ].join("; ");
 
+/** The policy for a file previewed in a frame on this site: this site may frame it. */
+export const FRAMED_PREVIEW_CSP = "frame-ancestors 'self'";
+
 export function serveHeaders(contentType: string | null, filename: string): Headers {
   const { tier, type } = classify(contentType, filename);
   const safeName = filename.replace(/[\r\n"]/g, "");
   const h = new Headers({
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "private, max-age=300",
+    "X-Frame-Options": "DENY",
   });
 
   if (tier === "as-is") {
     h.set("Content-Type", type);
     h.set("Content-Disposition", `inline; filename="${safeName}"`);
+    if (type === "application/pdf") {
+      // Both, for browsers that read only one of them.
+      h.set("X-Frame-Options", "SAMEORIGIN");
+      h.set("Content-Security-Policy", FRAMED_PREVIEW_CSP);
+    }
   } else if (tier === "text") {
     // charset pinned: a file claiming text/plain in UTF-7 could otherwise smuggle
     // markup past a browser that honours the declaration.

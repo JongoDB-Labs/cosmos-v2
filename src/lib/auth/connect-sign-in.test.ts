@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { connectCookieValue, connectOutcomeUrl, readConnectIntent, safeReturnTo, sessionHash } from "./connect-sign-in";
+import { connectCookieValue, connectOutcomeUrl, readConnectIntent, sessionHash } from "./connect-sign-in";
 
-describe("safeReturnTo", () => {
+// Where a connect comes back to is checked by the same rule as a sign-in's
+// return address (return-to.ts, whose tests cover each refused shape). These
+// check that the connect flow applies it, on the way in and on the way out.
+describe("the connect flow's return address", () => {
   it("keeps a same-site path", () => {
-    expect(safeReturnTo("/acme/settings/profile")).toBe("/acme/settings/profile");
-    expect(safeReturnTo("/a?b=c#d")).toBe("/a?b=c#d");
+    const cookie = connectCookieValue({ provider: "google", state: "s", sessionId: "sid", returnTo: "/acme/settings/profile" });
+    expect(readConnectIntent(cookie, "google", "s")?.returnTo).toBe("/acme/settings/profile");
   });
 
   it("turns anything that could leave the site into /", () => {
-    for (const raw of ["//evil.example", "/\\evil.example", "/\t/evil.example", "/\n/evil.example", "https://evil.example", "evil", "", null, 7]) {
-      expect(safeReturnTo(raw)).toBe("/");
+    for (const raw of ["//evil.example", "/\\evil.example", "/\t/evil.example", "/\n/evil.example", "https://evil.example", "/.//evil.example", "evil", ""]) {
+      const cookie = connectCookieValue({ provider: "google", state: "s", sessionId: "sid", returnTo: raw });
+      expect(readConnectIntent(cookie, "google", "s")?.returnTo).toBe("/");
     }
   });
 
