@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { unstable_rethrow } from "next/navigation";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/db/client";
 import { sessionRowId } from "@/lib/auth/session-id";
@@ -172,13 +173,17 @@ async function signInWithMicrosoft(request: NextRequest): Promise<NextResponse> 
  * Whatever the outcome, the address kept for this sign-in is spent: clear it
  * (forgetReturnTo). A failure the handler didn't catch goes to the sign-in page
  * as auth_failed, like the failures it does catch, rather than a bare 500 that
- * would leave the cookie behind.
+ * would leave the cookie behind. Next's own control flow (redirect(),
+ * notFound()) is thrown on to Next first (unstable_rethrow): it is not a
+ * failure. Nothing in the handler uses it today; a redirect() added there
+ * would skip this clear, so it must clear the cookie itself.
  */
 export async function GET(request: NextRequest) {
   let response: NextResponse;
   try {
     response = await signInWithMicrosoft(request);
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[auth:microsoft] sign-in failed", unexpectedErrorKind(err));
     response = redirectToLogin(getPublicOrigin(request), "auth_failed", rememberedReturnTo(request));
     response.cookies.delete(MS_STATE_COOKIE);

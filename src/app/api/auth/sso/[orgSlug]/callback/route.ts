@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { unstable_rethrow } from "next/navigation";
 import * as oidc from "openid-client";
 import { prisma } from "@/lib/db/client";
 import { getPublicOrigin } from "@/lib/auth/public-url";
@@ -166,13 +167,17 @@ async function signInWithSso(request: NextRequest, { params }: RouteParams): Pro
  * Whatever the outcome, the address kept for this sign-in is spent: clear it
  * (forgetReturnTo). A failure the handler didn't catch goes to the sign-in page
  * as auth_failed, like the failures it does catch, rather than a bare 500 that
- * would leave the cookie behind.
+ * would leave the cookie behind. Next's own control flow (redirect(),
+ * notFound()) is thrown on to Next first (unstable_rethrow): it is not a
+ * failure. Nothing in the handler uses it today; a redirect() added there
+ * would skip this clear, so it must clear the cookie itself.
  */
 export async function GET(request: NextRequest, ctx: RouteParams) {
   let response: NextResponse;
   try {
     response = await signInWithSso(request, ctx);
   } catch (err) {
+    unstable_rethrow(err);
     console.error("[sso] sign-in failed", unexpectedErrorKind(err));
     // Clears the SSO transaction cookie too, as every refusal here does.
     response = redirectToLogin(getPublicOrigin(request), "auth_failed", rememberedReturnTo(request));

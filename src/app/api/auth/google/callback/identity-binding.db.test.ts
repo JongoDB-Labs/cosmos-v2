@@ -12,6 +12,9 @@
 // USER ID; `User.email` is not unique, so an email assertion proves nothing.
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { getURLFromRedirectError } from "next/dist/client/components/redirect";
 import crypto from "node:crypto";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
@@ -343,8 +346,30 @@ describe("Google sign-in lands on the page the sign-in started from", () => {
       expect(r.location.searchParams.get("next")).toBe("/acme/issues");
       expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
       expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
+      // The one-time state is spent too, as on the failures the handler catches.
+      expect(r.res.cookies.get(OAUTH_STATE_COOKIE)?.value).toBe("");
+      expect(r.res.cookies.get(OAUTH_STATE_COOKIE)?.expires).toEqual(new Date(0));
       expect(logged).toHaveBeenCalledWith("[auth:google] sign-in failed", { name: "Error", code: "P1001" });
       expect(JSON.stringify(logged.mock.calls)).not.toContain(preboundEmail);
+    } finally {
+      write.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
+  it("lets Next's own redirect through, rather than reporting it as a failure", async () => {
+    // The session write stands in for any step inside the handler.
+    const write = vi.spyOn(prisma.session, "create").mockImplementationOnce((() => redirect("/elsewhere")) as never);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const thrown = await signIn(prebound(), kept("/acme/issues")).then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(isRedirectError(thrown)).toBe(true);
+      expect(isRedirectError(thrown) && getURLFromRedirectError(thrown)).toBe("/elsewhere");
+      expect(logged).not.toHaveBeenCalledWith("[auth:google] sign-in failed", expect.anything());
     } finally {
       write.mockRestore();
       logged.mockRestore();

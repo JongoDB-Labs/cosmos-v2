@@ -8,6 +8,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import crypto from "node:crypto";
 import { format } from "node:util";
 import { NextRequest } from "next/server";
+import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { getURLFromRedirectError } from "next/dist/client/components/redirect";
 import { OrgRole, type IdpConnection } from "@prisma/client";
 
 const { findUnique, completeSsoLogin } = vi.hoisted(() => ({ findUnique: vi.fn(), completeSsoLogin: vi.fn() }));
@@ -160,8 +163,23 @@ describe("SSO callback: where a sign-in lands", () => {
     expect(url.searchParams.get("next")).toBe("/acme/issues");
     expect(res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
     expect(res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
+    expect(res.cookies.get("sso_tx")?.value).toBe("");
     expect(lines).toContain(format("[sso] sign-in failed", { name: "Error", code: "P1001" }));
     expect(text).not.toContain("person@sso.test");
+  });
+
+  it("lets Next's own redirect through, rather than reporting it as a failure", async () => {
+    completeSsoLogin.mockImplementationOnce(async () => redirect("/elsewhere"));
+    const { res: thrown, lines } = await loggedBy(() =>
+      callback(kept("/acme/issues")).then(
+        () => null,
+        (err: unknown) => err,
+      ),
+    );
+    expect(completeSsoLogin).toHaveBeenCalledTimes(1);
+    expect(isRedirectError(thrown)).toBe(true);
+    expect(isRedirectError(thrown) && getURLFromRedirectError(thrown)).toBe("/elsewhere");
+    expect(lines.filter((line) => line.includes("sign-in failed"))).toEqual([]);
   });
 
   it("keeps the page on the sign-in page when the sign-in is refused, and clears the cookie", async () => {

@@ -21,6 +21,9 @@
 // accounts apart.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, type NextResponse } from "next/server";
+import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { getURLFromRedirectError } from "next/dist/client/components/redirect";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { sessionRowId } from "@/lib/auth/session-id";
@@ -533,8 +536,30 @@ describe("Microsoft sign-in lands on the page the sign-in started from", () => {
       expect(r.location.searchParams.get("next")).toBe("/acme/issues");
       expect(r.res.cookies.get(RETURN_TO_COOKIE)?.value).toBe("");
       expect(r.res.cookies.get(RETURN_TO_COOKIE)?.expires).toEqual(new Date(0));
+      // The one-time state is spent too, as on the failures the handler catches.
+      expect(r.res.cookies.get(MS_STATE_COOKIE)?.value).toBe("");
+      expect(r.res.cookies.get(MS_STATE_COOKIE)?.expires).toEqual(new Date(0));
       expect(logged).toHaveBeenCalledWith("[auth:microsoft] sign-in failed", { name: "Error", code: "P1001" });
       expect(JSON.stringify(logged.mock.calls)).not.toContain(returnEmail);
+    } finally {
+      write.mockRestore();
+      logged.mockRestore();
+    }
+  });
+
+  it("lets Next's own redirect through, rather than reporting it as a failure", async () => {
+    h.tenant = T_HOME;
+    const write = vi.spyOn(prisma.session, "create").mockImplementationOnce((() => redirect("/elsewhere")) as never);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const thrown = await signIn(bound(), kept("/acme/issues")).then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(isRedirectError(thrown)).toBe(true);
+      expect(isRedirectError(thrown) && getURLFromRedirectError(thrown)).toBe("/elsewhere");
+      expect(logged).not.toHaveBeenCalledWith("[auth:microsoft] sign-in failed", expect.anything());
     } finally {
       write.mockRestore();
       logged.mockRestore();
