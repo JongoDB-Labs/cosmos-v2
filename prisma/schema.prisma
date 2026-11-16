@@ -1084,6 +1084,9 @@ model ProjectMember {
   teamMembers TeamMember[]
 
   @@unique([projectId, orgMemberId])
+  // The hop from an org member to their project memberships (the team join in
+  // lib/query/compile.ts, onTeams): the unique above leads with project_id.
+  @@index([orgMemberId])
   @@map("project_members")
 }
 
