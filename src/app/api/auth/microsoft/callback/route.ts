@@ -13,6 +13,7 @@ import {
   readMicrosoftIdToken,
   resolveMicrosoftTenantPolicy,
   verifiedMicrosoftEmails,
+  microsoftTrustedDomains,
   type MicrosoftIdClaims,
   type MicrosoftTenantPolicy,
 } from "@/lib/auth/microsoft";
@@ -115,7 +116,7 @@ export async function GET(request: NextRequest) {
   // (ALLOWED_EMAILS plus the allowed_emails table) applies inside
   // resolveFirstPartyUser. When nothing could count because the deployment
   // isn't set up for it, the person is told an administrator must act.
-  const vouched = verifiedMicrosoftEmails(claims);
+  const vouched = verifiedMicrosoftEmails(claims, microsoftTrustedDomains(cfg.trustedDomains));
   const resolved = await resolveFirstPartyUser({
     identity: { provider: "microsoft", tenantId: claims.tenantId, objectId: claims.objectId },
     verifiedEmails: vouched.emails,

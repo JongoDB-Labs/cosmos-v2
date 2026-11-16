@@ -49,13 +49,28 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
-    version: "2.561.16",
-    date: "2026-11-14",
+    version: "2.562.3",
+    date: "2026-11-16",
     title: "Sign-in sessions are stored hashed",
     highlights: [
       {
         kind: "fix",
         text: "Cosmos now stores only a one-way hash of each sign-in session, never the value your browser holds. Signing in, signing out, signing out your other sessions and an admin ending a session all work as before. Anyone who signs in during the few seconds the update takes to roll out may be asked to sign in once more.",
+      },
+    ],
+  },
+  {
+    version: "2.562.0",
+    date: "2026-11-16",
+    title: "Trusted domains for Microsoft sign-in",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Admins can list their organization\u2019s email domains in Admin \u2192 Sign-in providers. When a member of your Microsoft tenant signs in with Microsoft for the first time, sign-in matches them to their existing account on one of those domains. Until now this needed a change to the server\u2019s settings.",
+      },
+      {
+        kind: "fix",
+        text: "Sign-in providers now warns when Microsoft sign-in has no trusted domains. Without them, people who already have an account can be refused with \u201cYour administrator needs to finish setting up Microsoft sign-in\u201d.",
       },
     ],
   },

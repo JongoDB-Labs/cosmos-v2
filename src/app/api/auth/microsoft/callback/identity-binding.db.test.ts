@@ -29,12 +29,12 @@ import { SESSION_COOKIE } from "@/lib/auth/client";
 import { MS_STATE_COOKIE, MSA_TENANT_ID } from "@/lib/auth/microsoft";
 import { CONNECT_COOKIE, connectCookieValue } from "@/lib/auth/connect-sign-in";
 
-const h = vi.hoisted(() => ({ tenant: "common" as string | null }));
+const h = vi.hoisted(() => ({ tenant: "common" as string | null, trustedDomains: [] as string[] }));
 vi.mock("@/lib/auth/provider-config", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/provider-config")>()),
   getProviderConfig: async (p: string) =>
     p === "microsoft"
-      ? { enabled: true, clientId: "ms-client-id", clientSecret: "ms-secret", tenant: h.tenant }
+      ? { enabled: true, clientId: "ms-client-id", clientSecret: "ms-secret", tenant: h.tenant, trustedDomains: h.trustedDomains }
       : null,
 }));
 
@@ -192,6 +192,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   h.tenant = "common";
+  h.trustedDomains = [];
   vi.stubEnv("MICROSOFT_TRUSTED_DOMAINS", "");
   vi.stubEnv("INTERNAL_ADMINS", "");
 });
@@ -475,5 +476,30 @@ describe("Connect Microsoft (Profile, Sign-in methods) binds (tid, oid) to the s
     );
     expect(new URL(back.headers.get("location")!, "http://localhost").searchParams.get("connect_error")).toBe("session_changed");
     expect(await prisma.microsoftIdentity.count({ where: { objectId: oid(16) } })).toBe(0);
+  });
+});
+
+// An operator who can't edit the server's environment finishes the setup in
+// Admin → Sign-in providers. Without a trusted domain from either place, every
+// returning Microsoft user whose account predates the (tid, oid) binding was
+// refused with ms_setup_incomplete.
+describe("trusted domains set in Admin → Sign-in providers", () => {
+  it("links an existing account by a member's sign-in name, with no environment variable", async () => {
+    const email = `admin-trusted-${stamp}@ms-bind.test`;
+    const id = (await prisma.user.create({ data: { email, displayName: "Admin trusted" } })).id;
+    createdUserIds.push(id);
+    vi.stubEnv("ALLOWED_EMAILS", [victimEmail, migrateEmail, edovEmail, domainEmail, email].join(","));
+    h.tenant = T_HOME;
+
+    // Negative control: the same sign-in with nothing trusted is the refusal people saw.
+    const refused = await signIn({ tid: T_HOME, oid: oid(17), upn: email, acct: 0 });
+    expect(refused.userId).toBeNull();
+    expect(refused.error).toBe("ms_setup_incomplete");
+
+    h.trustedDomains = ["ms-bind.test"];
+    const r = await signIn({ tid: T_HOME, oid: oid(17), upn: email, acct: 0 });
+    expect(r.error).toBeNull();
+    expect(r.userId).toBe(id);
+    expect(await boundTo(oid(17))).toBe(id);
   });
 });
