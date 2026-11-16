@@ -165,6 +165,7 @@ export const googleTools: ToolDefinition[] = [
   {
     name: "share_calendar_event",
     confirm: true,
+    confirmTargets: ["eventId"],
     description:
       "Invite people to an existing Google Calendar event: adds them as attendees and emails them the invitation. " +
       "Everyone already on it stays on it. Confirm with the user first.",
@@ -180,6 +181,7 @@ export const googleTools: ToolDefinition[] = [
   {
     name: "delete_calendar_event",
     confirm: true,
+    confirmTargets: ["eventId"],
     description: "Delete a Google Calendar event by ID.",
     input_schema: {
       type: "object",

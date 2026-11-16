@@ -76,12 +76,16 @@ export function objectiveProgressPercent(
  */
 export const KR_DEFAULT_TARGET = 100;
 
-/** The stored numbers of a key result. */
+/** A key result's status, as stored and as shown (the `KeyResultStatus` enum). */
+export type KeyResultStatus = "NOT_STARTED" | "IN_PROGRESS" | "AT_RISK" | "ON_TRACK" | "DONE";
+
+/** The stored numbers and status of a key result. */
 export interface KeyResultValues {
   startValue: number;
   currentValue: number;
   targetValue: number;
   lowerIsBetter: boolean;
+  status: KeyResultStatus;
 }
 
 /** Anything with a completion stamp: a linked work item. */
@@ -101,11 +105,13 @@ export interface KeyResultMeasure {
   linkedDone: number;
   /** Whole percent, 0-100. */
   progress: number;
+  /** The status to show, from `keyResultStatus`. */
+  status: KeyResultStatus;
 }
 
 /**
- * A key result's current value, target and progress. The one rule every
- * surface uses: the OKR board, objective roll-ups, dashboards and Cosmo.
+ * A key result's current value, target, progress and status. The one rule
+ * every surface uses: the OKR board, objective roll-ups, dashboards and Cosmo.
  *
  * A key result with linked work items counts the done ones as its current
  * value. Its target is the number of linked items, unless someone set one.
@@ -125,6 +131,7 @@ export function measureKeyResult(
   const currentValue = autoTracked ? linkedDone : kr.currentValue;
   const targetFromLinks = autoTracked && kr.targetValue === KR_DEFAULT_TARGET;
   const targetValue = targetFromLinks ? linkedTotal : kr.targetValue;
+  const progress = krProgressPercent(kr.startValue, currentValue, targetValue, kr.lowerIsBetter);
   return {
     currentValue,
     targetValue,
@@ -132,8 +139,44 @@ export function measureKeyResult(
     targetFromLinks,
     linkedTotal,
     linkedDone,
-    progress: krProgressPercent(kr.startValue, currentValue, targetValue, kr.lowerIsBetter),
+    progress,
+    status: keyResultStatus(kr.status, { autoTracked, progress }),
   };
+}
+
+/**
+ * The status a key result shows.
+ *
+ * A key result with linked work items is measured by them, and its stored
+ * status is not: nothing writes it when a linked ticket finishes, so one whose
+ * tickets were all done still read "In Progress". Where the two can disagree,
+ * the measure wins: DONE once it reaches 100%, never DONE below that, and not
+ * "Not Started" once it has moved. On track and at risk come from a check-in,
+ * a judgement the count can't make, so they stand below 100%.
+ *
+ * A key result without links keeps the status someone set.
+ */
+export function keyResultStatus(
+  stored: KeyResultStatus,
+  measure: Pick<KeyResultMeasure, "autoTracked" | "progress">,
+): KeyResultStatus {
+  if (!measure.autoTracked) return stored;
+  if (measure.progress >= 100) return "DONE";
+  if (stored === "DONE") return measure.progress > 0 ? "IN_PROGRESS" : "NOT_STARTED";
+  if (stored === "NOT_STARTED" && measure.progress > 0) return "IN_PROGRESS";
+  return stored;
+}
+
+/**
+ * A key result's row with the numbers and status it shows in place of the
+ * stored ones. Every response that hands out a key result goes through this,
+ * so none of them repeats which fields the measure replaces.
+ */
+export function shownKeyResult<T extends Pick<KeyResultValues, "currentValue" | "targetValue" | "status">>(
+  kr: T,
+  m: Pick<KeyResultMeasure, "currentValue" | "targetValue" | "status">,
+): Omit<T, "currentValue" | "targetValue" | "status"> & Pick<KeyResultMeasure, "currentValue" | "targetValue" | "status"> {
+  return { ...kr, currentValue: m.currentValue, targetValue: m.targetValue, status: m.status };
 }
 
 /**

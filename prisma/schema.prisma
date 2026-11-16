@@ -487,6 +487,8 @@ model User {
 }
 
 model Session {
+  // sessionRowId(cookie token): a SHA-256 hex of the sign-in cookie, never the
+  // cookie itself (src/lib/auth/session-id.ts).
   id             String   @id
   userId         String   @map("user_id") @db.Uuid
   expiresAt      DateTime @map("expires_at")
@@ -3184,6 +3186,7 @@ model SessionRecord {
   id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   orgId        String        @map("org_id") @db.Uuid
   userId       String        @map("user_id") @db.Uuid
+  // The Session's row id (sessionRowId of the cookie), not the cookie.
   sessionToken String        @unique @map("session_token")
   ipAddress    String?       @map("ip_address")
   userAgent    String?       @map("user_agent")
@@ -3786,7 +3789,10 @@ model Objective {
   ownerId     String?         @map("owner_id") @db.Uuid
   period      String?
   status      ObjectiveStatus @default(ACTIVE)
-  progress    Int             @default(0) // 0-100, derived from key results
+  // 0-100. A stored copy that goes stale (a linked ticket finishing never
+  // writes it), so the app never reads it: progress is computed live, by
+  // lib/okr/rollup.server.
+  progress    Int             @default(0)
   // Target/end date used for health (on-track / at-risk / behind = progress vs
   // time elapsed toward this date). Null = no dated health signal.
   targetDate  DateTime?       @map("target_date")

@@ -23,6 +23,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { NextRequest } from "next/server";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { sessionRowId } from "@/lib/auth/session-id";
+import { createTestSession } from "@/lib/testing/sessions";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { MS_STATE_COOKIE, MSA_TENANT_ID } from "@/lib/auth/microsoft";
 import { CONNECT_COOKIE, connectCookieValue } from "@/lib/auth/connect-sign-in";
@@ -133,7 +135,7 @@ async function signIn(
   const error = location.searchParams.get("error");
   const sessionId = res.cookies.get(SESSION_COOKIE)?.value;
   if (!sessionId) return { userId: null, error, authMethod: null, location };
-  const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { userId: true, authMethod: true } });
+  const session = await prisma.session.findUnique({ where: { id: sessionRowId(sessionId) }, select: { userId: true, authMethod: true } });
   if (session && !createdUserIds.includes(session.userId)) createdUserIds.push(session.userId);
   return { userId: session?.userId ?? null, error, authMethod: session?.authMethod ?? null, location };
 }
@@ -145,9 +147,8 @@ async function mkUser(email: string, extra: Record<string, unknown> = {}) {
 }
 
 async function sessionFor(userId: string, extra: Record<string, unknown> = {}) {
-  const id = `ms-test-${stamp}-${Math.random().toString(36).slice(2)}`;
-  await prisma.session.create({ data: { id, userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra } });
-  return id;
+  const token = `ms-test-${stamp}-${Math.random().toString(36).slice(2)}`;
+  return createTestSession({ token, userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra });
 }
 
 const RETURN_TO = "/acme/settings/profile";

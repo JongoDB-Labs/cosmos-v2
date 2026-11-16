@@ -4,7 +4,7 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { Permission } from "@/lib/rbac/permissions";
 import { handleApiError } from "@/lib/api-helpers";
-import { measureKeyResult, rollUpObjective } from "@/lib/okr/progress";
+import { measureKeyResult, rollUpObjective, shownKeyResult } from "@/lib/okr/progress";
 import { isOverdue, objectiveHealth } from "@/lib/okr/health";
 import { dependenciesOf } from "@/lib/okr/dependencies.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
@@ -62,8 +62,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
 
     // FR a94ff583: a Key Result with linked tickets AUTO-tracks — its current
-    // value becomes the count of its linked tickets that are done, and its
-    // target the count of linked tickets unless someone set one. The objective
+    // value becomes the count of its linked tickets that are done, its target
+    // the count of linked tickets unless someone set one, and its status Done
+    // once they are (`keyResultStatus`). The objective
     // rolls up from the measured KRs (or, with none, from its own links), and
     // health is derived from that progress vs. the objective's target date.
     // Cosmo, dashboards and goals read the same rule (lib/okr).
@@ -83,10 +84,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         ...o,
         links: undefined,
         keyResults: measured.map(({ kr, linkedItems: krItems, m }) => ({
-          ...kr,
+          ...shownKeyResult(kr, m),
           links: undefined,
-          currentValue: m.currentValue,
-          targetValue: m.targetValue,
           autoTracked: m.autoTracked,
           targetFromLinks: m.targetFromLinks,
           linkedTotal: m.linkedTotal,

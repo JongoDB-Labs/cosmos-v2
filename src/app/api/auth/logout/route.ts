@@ -1,14 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
+import { sessionRowId } from "@/lib/auth/session-id";
 import { SKIN_COOKIE } from "@/lib/theme/cookie";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 
 async function clearSession(request: NextRequest) {
-  const sessionId = request.cookies.get(SESSION_COOKIE)?.value;
-  if (sessionId) {
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (token) {
     await prisma.session
-      .delete({ where: { id: sessionId } })
+      .delete({ where: { id: sessionRowId(token) } })
       .catch(() => undefined);
   }
   // 303 See Other (NOT the default 307): logout is called via `fetch(…, POST)`,

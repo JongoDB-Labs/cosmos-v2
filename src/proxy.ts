@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE } from "@/lib/auth/client";
+import { sessionRowId } from "@/lib/auth/session-id";
 import { applySecurityHeaders, applyTeamsTabFraming, routeSetsOwnCsp } from "@/lib/security/headers";
 import { isTabPath } from "@/lib/integrations/microsoft/teams-app/tab-paths";
 import { classifyBearer, parseKeyToken } from "@/lib/auth/bearer";
@@ -216,11 +217,11 @@ async function gate(request: NextRequest, next: () => NextResponse): Promise<Nex
     return withSecurityHeaders(problem(401, "unauthorized"));
   }
 
-  const sessionId = request.cookies.get(SESSION_COOKIE)?.value;
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
 
-  if (sessionId) {
+  if (token) {
     const session = await prisma.session.findUnique({
-      where: { id: sessionId },
+      where: { id: sessionRowId(token) },
       select: { expiresAt: true },
     });
 

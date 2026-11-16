@@ -1048,9 +1048,12 @@ export function TableView({ orgId, projectId, projectKey, boardId }: TableViewPr
     </DropdownMenu>
   )}
 
+  {/* The rows drawn, after the type filter AND the board's scope and filter
+      bar. It used to count `items` (type filter only), so a board scoped by
+      its query said "3 items" above a table of one row. */}
   <span className="text-xs text-muted-foreground">
-    {items.length}
-    {typeKeys.length > 0 ? ` of ${allItems.length}` : ""} items
+    {visibleItems.length}
+    {visibleItems.length !== allItems.length ? ` of ${allItems.length}` : ""} items
   </span>
 
   {selectedCount > 0 && (

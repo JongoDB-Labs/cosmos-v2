@@ -22,6 +22,8 @@ vi.mock("@/lib/rate-limit/bucket", () => ({
 }));
 
 import { prisma } from "@/lib/db/client";
+import { sessionRowId } from "@/lib/auth/session-id";
+import { createTestSession } from "@/lib/testing/sessions";
 import { SESSION_COOKIE } from "@/lib/auth/client";
 import { FIRST_LOGIN_COOKIE } from "@/lib/auth/first-login";
 import { provisionEmailPasswordInvite } from "@/lib/auth/invite-credentials";
@@ -97,10 +99,8 @@ describe("forced first-login: password change (no MFA)", () => {
 
     // A sign-in made before this change (say, under an earlier password).
     const before = await prisma.user.findFirstOrThrow({ where: { email: E_SIMPLE } });
-    const older = `zz-fl-older-${before.id}`;
-    await prisma.session.create({
-      data: { id: older, userId: before.id, expiresAt: new Date(Date.now() + 86_400_000) },
-    });
+    const older = await createTestSession({ userId: before.id });
+    expect(await prisma.session.findUnique({ where: { id: sessionRowId(older) } })).not.toBeNull();
 
     // Step 2: set a new password → session minted.
     const changeRes = await changePassword(
@@ -114,8 +114,8 @@ describe("forced first-login: password change (no MFA)", () => {
     const user = await prisma.user.findFirstOrThrow({ where: { email: E_SIMPLE } });
     expect(user.mustChangePassword).toBe(false);
     // The change ended the older sign-in, and only that one.
-    expect(await prisma.session.findUnique({ where: { id: older } })).toBeNull();
-    expect(await prisma.session.findUnique({ where: { id: minted! } })).not.toBeNull();
+    expect(await prisma.session.findUnique({ where: { id: sessionRowId(older) } })).toBeNull();
+    expect(await prisma.session.findUnique({ where: { id: sessionRowId(minted!) } })).not.toBeNull();
   });
 
   it("rejects a new password equal to the temporary one", async () => {
@@ -175,7 +175,7 @@ describe("forced first-login: MFA required", () => {
 
     const sessionId = enrollRes.cookies.get(SESSION_COOKIE)?.value;
     expect(sessionId).toBeTruthy();
-    const session = await prisma.session.findUniqueOrThrow({ where: { id: sessionId as string } });
+    const session = await prisma.session.findUniqueOrThrow({ where: { id: sessionRowId(sessionId as string) } });
     expect(session.mfaSatisfied).toBe(true);
 
     const user = await prisma.user.findFirstOrThrow({ where: { email: E_MFA } });

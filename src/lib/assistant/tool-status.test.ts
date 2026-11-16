@@ -3,6 +3,7 @@ import {
   isToolCallRunning,
   finalizeToolCalls,
   hasRunningToolCall,
+  toolCallOutcome,
 } from "./tool-status";
 
 describe("isToolCallRunning — default-closed status machine", () => {
@@ -84,5 +85,24 @@ describe("hasRunningToolCall", () => {
 
   it("is false when all calls are finished / status-less", () => {
     expect(hasRunningToolCall([{ status: "done" }, { id: "x" }])).toBe(false);
+  });
+});
+
+describe("toolCallOutcome — what the chip says happened", () => {
+  it("a preview is a proposal, not a run", () => {
+    const preview = { status: "confirmation_required", tool: "delete_work_item", targetCount: 1, targetIds: ["w1"] };
+    expect(toolCallOutcome({ id: "a", name: "delete_work_item", result: preview })).toBe("proposed");
+    // Live, after the result event, and persisted (no status): the same.
+    expect(toolCallOutcome({ id: "a", name: "delete_work_item", result: preview, status: "done" })).toBe("proposed");
+  });
+
+  it("a refusal is not done", () => {
+    expect(toolCallOutcome({ name: "delete_work_item", result: { error: "Work item not found" } })).toBe("refused");
+  });
+
+  it("a finished change is done, and a running one is running", () => {
+    expect(toolCallOutcome({ name: "delete_work_item", result: { deleted: true, id: "w1" } })).toBe("done");
+    expect(toolCallOutcome({ name: "list_projects", result: [{ id: "p" }] })).toBe("done");
+    expect(toolCallOutcome({ name: "delete_work_item", status: "running", result: null })).toBe("running");
   });
 });

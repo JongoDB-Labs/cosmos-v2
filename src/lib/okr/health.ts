@@ -1,6 +1,8 @@
 /**
  * Objective health (FR a94ff583): a stoplight derived from PROGRESS vs. TIME.
  *
+ *   - cancelled: the objective was called off, so there is nothing to pace
+ *                (checked first: a cancelled objective is neither done nor late)
  *   - done     : the objective is complete (progress ≥ 100 or status COMPLETED)
  *   - no_date  : no target date, so there's no pacing signal to judge
  *   - behind   : past the target date and not done, or progress well below the
@@ -16,7 +18,7 @@
  * it pinned to UTC, so an objective due Nov 13 is due until Nov 13 ends (UTC),
  * not from the first minute of it.
  */
-export type ObjectiveHealth = "done" | "on_track" | "at_risk" | "behind" | "no_date";
+export type ObjectiveHealth = "done" | "on_track" | "at_risk" | "behind" | "no_date" | "cancelled";
 
 export function objectiveHealth(
   progress: number,
@@ -25,6 +27,8 @@ export function objectiveHealth(
   startDate?: Date | string | number | null,
   now: number = Date.now(),
 ): ObjectiveHealth {
+  // Before the date check: a cancelled objective past its due day read "behind".
+  if (status === "CANCELLED") return "cancelled";
   if (status === "COMPLETED" || progress >= 100) return "done";
   if (!targetDate) return "no_date";
 
@@ -76,4 +80,5 @@ export const HEALTH_LABEL: Record<ObjectiveHealth, string> = {
   at_risk: "At risk",
   behind: "Behind",
   no_date: "No target date",
+  cancelled: "Cancelled",
 };

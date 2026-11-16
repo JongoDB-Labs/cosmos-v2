@@ -48,6 +48,15 @@ export interface ToolDefinition {
    */
   confirm?: boolean;
   /**
+   * For a confirm-class tool: the arguments that name what the call acts on
+   * (`delete_board`: `boardId`; `add_team_member`: `userId`). The preview
+   * counts these ids and the confirmation binds them. An argument that only
+   * says where (a `projectId`) or sets a value (an `assigneeId`) is not a
+   * target. Without it every `…Id` argument counts, which a plugin's tool still
+   * gets; `bulk_update_work_items` resolves its selection instead.
+   */
+  confirmTargets?: readonly string[];
+  /**
    * JSON Schema describing the tool's parameters.
    * Named `input_schema` to mirror Anthropic's native tool_use shape — the
    * Claude CLI text protocol does not care about the field name, but other

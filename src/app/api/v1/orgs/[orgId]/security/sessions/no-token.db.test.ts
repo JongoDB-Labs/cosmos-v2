@@ -1,13 +1,16 @@
 // @vitest-environment node
 //
 // The org Sessions view lists device, address and time metadata. A session's
-// token is the value of its sign-in cookie, so it must never be in the
-// response: whoever could read it could set the cookie and be that person, in
-// every org they belong to. Revoking works by the record's own id instead.
-// Against a real database.
+// cookie must never be in the response: whoever could read it could set the
+// cookie and be that person, in every org they belong to. A record keeps the
+// session's row id (a hash of the cookie), never the cookie, and the response
+// carries neither. Revoking works by the record's own id. Against a real
+// database.
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
+import { sessionRowId } from "@/lib/auth/session-id";
+import { createTestSession } from "@/lib/testing/sessions";
 import { RolePermissions } from "@/lib/rbac/permissions";
 import type { AuthContext } from "@/lib/rbac/check";
 
@@ -40,18 +43,18 @@ beforeAll(async () => {
   memberId = (await prisma.user.create({ data: { email: `m-${stamp}@sess.test`, displayName: "Member" } })).id;
   await prisma.orgMember.create({ data: { orgId, userId: memberId, role: "MEMBER", permissions: "0" } });
   const expiresAt = new Date(Date.now() + 86_400_000);
-  await prisma.session.create({ data: { id: OWNER_TOKEN, userId: ownerId, expiresAt } });
-  await prisma.session.create({ data: { id: ADMIN_TOKEN, userId: adminId, expiresAt } });
-  await prisma.session.create({ data: { id: MEMBER_TOKEN, userId: memberId, expiresAt } });
+  await createTestSession({ token: OWNER_TOKEN, userId: ownerId, expiresAt });
+  await createTestSession({ token: ADMIN_TOKEN, userId: adminId, expiresAt });
+  await createTestSession({ token: MEMBER_TOKEN, userId: memberId, expiresAt });
   memberRecordId = (
     await prisma.sessionRecord.create({
-      data: { orgId, userId: memberId, sessionToken: MEMBER_TOKEN, expiresAt, userAgent: "Member browser" },
+      data: { orgId, userId: memberId, sessionToken: sessionRowId(MEMBER_TOKEN), expiresAt, userAgent: "Member browser" },
     })
   ).id;
   // The owner opened the Sessions page earlier, which recorded their session.
   ownerRecordId = (
     await prisma.sessionRecord.create({
-      data: { orgId, userId: ownerId, sessionToken: OWNER_TOKEN, expiresAt, userAgent: "Owner browser" },
+      data: { orgId, userId: ownerId, sessionToken: sessionRowId(OWNER_TOKEN), expiresAt, userAgent: "Owner browser" },
     })
   ).id;
   h.ctx = {
@@ -82,19 +85,46 @@ describe("the org Sessions list", () => {
     expect(owner?.isCurrent).toBe(false);
     expect(mine?.isCurrent).toBe(true);
 
-    expect(text).not.toContain(OWNER_TOKEN);
-    expect(text).not.toContain(ADMIN_TOKEN);
-    expect(text).not.toContain(MEMBER_TOKEN);
+    for (const token of [OWNER_TOKEN, ADMIN_TOKEN, MEMBER_TOKEN]) {
+      expect(text).not.toContain(token);
+      expect(text).not.toContain(sessionRowId(token));
+    }
     expect(text).not.toContain("sessionToken");
+  });
+
+  it("records the caller's session by its row id, never by the cookie", async () => {
+    await GET(req("GET"), at());
+    const mine = await prisma.sessionRecord.findMany({ where: { orgId, userId: adminId }, select: { sessionToken: true } });
+    expect(mine.map((r) => r.sessionToken)).toEqual([sessionRowId(ADMIN_TOKEN)]);
   });
 
   it("revokes a session by the record id it lists", async () => {
     // A member's: an admin may not sign out an owner (ceiling.db.test.ts).
+    expect(await prisma.session.findUnique({ where: { id: sessionRowId(MEMBER_TOKEN) } })).not.toBeNull();
     const res = await POST(req("POST", { sessionIds: [memberRecordId] }), at());
     expect(res.status).toBe(200);
-    expect(await prisma.session.findUnique({ where: { id: MEMBER_TOKEN } })).toBeNull();
+    expect(await prisma.session.findUnique({ where: { id: sessionRowId(MEMBER_TOKEN) } })).toBeNull();
     expect((await prisma.sessionRecord.findUniqueOrThrow({ where: { id: memberRecordId } })).status).toBe("REVOKED");
     // The caller's own session is untouched.
-    expect(await prisma.session.findUnique({ where: { id: ADMIN_TOKEN } })).not.toBeNull();
+    expect(await prisma.session.findUnique({ where: { id: sessionRowId(ADMIN_TOKEN) } })).not.toBeNull();
+  });
+
+  // "Revoke All" (no body) ends the caller's other sessions and spares this
+  // one, which it finds by hashing the caller's cookie the way the record stores it.
+  it("revoking your other sessions ends them and keeps this one", async () => {
+    const elsewhere = await createTestSession({ userId: adminId });
+    await prisma.sessionRecord.create({
+      data: { orgId, userId: adminId, sessionToken: sessionRowId(elsewhere), expiresAt: new Date(Date.now() + 86_400_000) },
+    });
+    await GET(req("GET"), at()); // records this device
+    // Positive control: both of the caller's sessions are live and recorded.
+    expect(await prisma.session.count({ where: { id: { in: [sessionRowId(ADMIN_TOKEN), sessionRowId(elsewhere)] } } })).toBe(2);
+
+    const res = await POST(req("POST", {}), at());
+    expect(res.status).toBe(200);
+    expect(await prisma.session.findUnique({ where: { id: sessionRowId(elsewhere) } })).toBeNull();
+    expect(await prisma.session.findUnique({ where: { id: sessionRowId(ADMIN_TOKEN) } })).not.toBeNull();
+    const mine = await prisma.sessionRecord.findFirstOrThrow({ where: { orgId, sessionToken: sessionRowId(ADMIN_TOKEN) } });
+    expect(mine.status).toBe("ACTIVE");
   });
 });
