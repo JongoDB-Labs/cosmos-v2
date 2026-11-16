@@ -35,6 +35,8 @@ import { MS_CALENDAR } from "@/lib/integrations/microsoft/calendar-connect";
 import { _resetCalendarTokenCache, completeCalendarConnect } from "@/lib/integrations/microsoft/calendar-token.server";
 import { TEAMS_REFUSED } from "@/lib/meetings/teams-messages";
 import { memberToolCtx } from "@/lib/testing/tool-auth";
+import { ATTENDEES_NOT_MEMBERS } from "@/lib/meetings/attendee-members";
+import { entityTypeForTool, projectResult } from "@/lib/ai/egress/projection";
 import { createMeeting } from "./meetings";
 
 const TENANT = "11111111-2222-3333-4444-555555555555";
@@ -46,7 +48,7 @@ const ORIGINAL_VAULT_KEY = process.env.SSO_VAULT_KEY;
 
 type Person = { id: string; email: string };
 let orgId = "", otherOrgId = "";
-let alice: Person, bob: Person, carol: Person, stranger: Person;
+let alice: Person, bob: Person, carol: Person, stranger: Person, dave: Person;
 let g: ReturnType<typeof fakeGraph>;
 
 async function person(name: string): Promise<Person> {
@@ -70,7 +72,9 @@ async function connect(u: Person) {
 beforeAll(async () => {
   process.env.SSO_VAULT_KEY = crypto.randomBytes(32).toString("base64");
   _resetCalendarTokenCache();
-  [alice, bob, carol, stranger] = [await person("alice"), await person("bob"), await person("carol"), await person("stranger")];
+  [alice, bob, carol, stranger, dave] = [
+    await person("alice"), await person("bob"), await person("carol"), await person("stranger"), await person("dave"),
+  ];
   orgId = (await prisma.organization.create({ data: { name: `mout ${stamp}`, slug: `mout-${stamp}` } })).id;
   otherOrgId = (await prisma.organization.create({ data: { name: `mout2 ${stamp}`, slug: `mout2-${stamp}` } })).id;
   await prisma.orgMember.createMany({
@@ -78,6 +82,7 @@ beforeAll(async () => {
       { orgId, userId: alice.id, role: "ADMIN" },
       { orgId, userId: bob.id, role: "MEMBER" },
       { orgId, userId: carol.id, role: "MEMBER" },
+      { orgId, userId: dave.id, role: "MEMBER" },
       { orgId: otherOrgId, userId: stranger.id, role: "MEMBER" },
     ],
   });
@@ -86,6 +91,9 @@ beforeAll(async () => {
   });
   await connect(alice);
   await connect(bob); // carol never connects
+  // dave connected his Outlook, then was removed from the org (a soft delete).
+  await connect(dave);
+  await prisma.orgMember.updateMany({ where: { orgId, userId: dave.id }, data: { removedAt: new Date() } });
 });
 
 afterAll(async () => {
@@ -97,12 +105,12 @@ afterAll(async () => {
 
 beforeEach(() => {
   g = fakeGraph();
-  for (const u of [alice, bob]) g.setAddress(`Bearer at-${u.id}`, u.email);
+  for (const u of [alice, bob, dave]) g.setAddress(`Bearer at-${u.id}`, u.email);
   graph.deps = { fetch: g.fetch, sleep: g.sleep };
   graph.runs.splice(0);
 });
 
-type Made = { created?: boolean; id?: string; error?: string };
+type Made = { created?: boolean; id?: string; error?: string; calendarCopies?: string };
 const make = async (by: Person, input: Record<string, unknown>) =>
   (await createMeeting({ meetingDate: START, ...input }, await memberToolCtx(orgId, by.id))) as Made;
 const writes = () => g.calls.filter((c) => c.method !== "GET");
@@ -114,6 +122,9 @@ describe("a meeting Cosmo creates reaches Outlook (e2e DB, in-memory Graph)", ()
   it("lands in an attendee's Outlook when they've connected it: one event, one link", async () => {
     const res = await make(alice, { title: `with bob ${stamp}`, attendeeIds: [bob.id] });
     expect(res.created).toBe(true);
+    // Queued, not delivered: the push runs after the reply (after()), so Cosmo
+    // may say it's on its way, never that it has arrived.
+    expect(res.calendarCopies).toBe("queued");
     await Promise.all(graph.runs);
     expect(graph.runs).toHaveLength(1);
     expect([...g.events.values()].map((e) => e.subject)).toEqual([`with bob ${stamp}`]);
@@ -125,6 +136,7 @@ describe("a meeting Cosmo creates reaches Outlook (e2e DB, in-memory Graph)", ()
   it("with nobody on it, writes nothing to anyone's Outlook, as in the app (the creator isn't added)", async () => {
     const res = await make(alice, { title: `nobody ${stamp}` });
     expect(res.created).toBe(true);
+    expect(res.calendarCopies).toBe("none");
     await Promise.all(graph.runs);
     expect(graph.runs).toHaveLength(1); // the push ran: what it wrote is what's measured
     expect(writes()).toEqual([]);
@@ -141,12 +153,29 @@ describe("a meeting Cosmo creates reaches Outlook (e2e DB, in-memory Graph)", ()
   it("makes a Teams meeting in the requester's own Outlook, with a join link", async () => {
     const res = await make(alice, { title: `teams ${stamp}`, teamsMeeting: true });
     expect(res.created).toBe(true);
+    expect(res.calendarCopies).toBe("queued"); // the host's own copy
     await Promise.all(graph.runs);
     const row = await prisma.syncMeeting.findUniqueOrThrow({ where: { id: res.id! } });
     expect(row.teamsHostId).toBe(alice.id);
     expect(row.teamsJoinUrl).toMatch(/^https:\/\/teams\.microsoft\.com\/l\/meetup-join\/fake-/);
     expect(await linkedTo(res.id!)).toEqual([alice.id]);
     expect([...g.events.values()].map((e) => e.isOnlineMeeting)).toEqual([true]);
+  });
+
+  it("refuses someone removed from the organization, though their Outlook is still connected: nothing saved or pushed", async () => {
+    const res = await make(alice, { title: `leaver ${stamp}`, attendeeIds: [bob.id, dave.id] });
+    expect(res.error).toBe(ATTENDEES_NOT_MEMBERS);
+    expect(await saved(`leaver ${stamp}`)).toBe(0);
+    expect(graph.runs).toHaveLength(0);
+    expect(g.calls).toEqual([]); // Graph was never reached
+  });
+
+  it("tells Cosmo the copies are queued even when the result is withheld (the field survives projection)", async () => {
+    const res = await make(alice, { title: `withheld ${stamp}`, attendeeIds: [bob.id] });
+    await Promise.all(graph.runs);
+    expect(projectResult(res, entityTypeForTool("create_meeting"), "create_meeting")).toMatchObject({
+      created: true, id: res.id, calendarCopies: "queued",
+    });
   });
 
   it("refuses a Teams meeting when the requester's Outlook isn't connected, saving nothing", async () => {

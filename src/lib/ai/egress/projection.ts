@@ -158,9 +158,11 @@ const NATIVE_EXPOSABLE_FIELDS: Record<string, readonly string[]> = {
   feedback: ["id", "type", "status", "voteCount", "workItemId", "createdAt"],
   // listMeetings/create/update return id/projectId/sprintId/customTypeId/meetingType/status/
   // meetingDate/createdById(+title). `title`/`notes`/`transcript` are content → not exposed.
+  // `calendarCopies` is create_meeting's own "queued" | "none": a fixed enum, so the
+  // model can say Outlook copies are on their way rather than that they arrived.
   meeting: [
     "id", "projectId", "sprintId", "customTypeId", "meetingType", "status",
-    "meetingDate", "createdById", "createdAt", "updatedAt",
+    "meetingDate", "createdById", "createdAt", "updatedAt", "calendarCopies",
   ],
   // listGoals/create/update return id/projectId/ownerId/status/progress/progressMode/
   // targetDate/sortOrder(+title). `title`/`description` are content → dropped.

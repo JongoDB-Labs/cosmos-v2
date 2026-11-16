@@ -55,7 +55,7 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "fix",
-        text: "Cosmo can now invite people when it schedules a meeting, and can make it a Teams meeting. The meeting goes straight to the Outlook calendar of each invited person who has connected Outlook, and a Teams meeting also to yours, as its host. Before, Cosmo couldn\u2019t invite anyone, so a meeting it made reached no one\u2019s Outlook until someone added attendees in the app.",
+        text: "Cosmo can now invite people when it schedules a meeting, and can make it a Teams meeting. The meeting is sent right away to the Outlook calendar of each invited person who has connected Outlook, and a Teams meeting also to yours, as its host. Cosmo tells you the copies are on their way. Before, Cosmo couldn\u2019t invite anyone, so a meeting it made reached no one\u2019s Outlook until someone added attendees in the app.",
       },
       {
         kind: "fix",

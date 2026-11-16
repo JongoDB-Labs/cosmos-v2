@@ -106,7 +106,7 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
   if (foreignSprint) return { error: foreignSprint };
 
   // The app's create path: the same attendee and Teams rules, and the same
-  // push, so it reaches the same people's Outlook at once.
+  // push, queued for the same people's Outlook.
   const made = await createSyncMeeting(
     {
       data: {
@@ -126,7 +126,9 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
     { select: MEETING_SELECT },
   );
   if (made.refused) return { error: meetingRefusalMessage(made.refused) };
-  return { created: true, id: made.meeting.id, meeting: made.meeting };
+  // `calendarCopies` says the Outlook copies are queued, not delivered: the
+  // push runs after this reply, and a failed one is retried later.
+  return { created: true, id: made.meeting.id, calendarCopies: made.calendarCopies, meeting: made.meeting };
 }
 
 // ── update_meeting ─────────────────────────────────────────────────────────

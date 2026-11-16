@@ -21,6 +21,17 @@ export interface NewMeeting {
   isApiKey?: boolean;
 }
 
+/**
+ * Whether Outlook copies are on their way: "queued" when the meeting has
+ * attendees or a Teams host, "none" when it reaches nobody's calendar. Never
+ * "delivered": the push runs after the reply, and a failed one is retried by
+ * the reconcile, so at this point no one can know it has arrived.
+ */
+export type CalendarCopies = "queued" | "none";
+
+/** Run after the row is saved and before its push is queued; if it throws, nothing is pushed. */
+export type BeforePush<P> = (meeting: P) => Promise<unknown>;
+
 /** Why a meeting wasn't made. Nothing was saved and nothing pushed. */
 export type MeetingRefusal =
   | { kind: "attendees_not_members" }
@@ -36,12 +47,21 @@ export type MeetingRefusal =
  * Microsoft never fails the create. It writes to the Outlook of the attendees
  * who've connected it and of a Teams meeting's host; a meeting with neither
  * reaches nobody's calendar, wherever it was made.
+ *
+ * `beforePush` is for what must hold before anyone's calendar changes, such as
+ * the REST create's audit row: a create that fails after its push was queued
+ * would answer 500 for a meeting already on its way, and a retry would put a
+ * second copy in every attendee's Outlook.
  * `create-meeting.arch.test.ts` keeps other creates of a meeting out of the app.
  */
 export async function createSyncMeeting<S extends MeetingShape>(
   m: NewMeeting,
   shape: S,
-): Promise<{ meeting: Prisma.SyncMeetingGetPayload<S>; refused?: never } | { refused: MeetingRefusal; meeting?: never }> {
+  opts: { beforePush?: BeforePush<Prisma.SyncMeetingGetPayload<S>> } = {},
+): Promise<
+  | { meeting: Prisma.SyncMeetingGetPayload<S>; calendarCopies: CalendarCopies; refused?: never }
+  | { refused: MeetingRefusal; meeting?: never }
+> {
   const { orgId, createdById } = m.data;
   const attendeeIds = [...new Set(m.attendeeIds ?? [])];
   if (!(await allOrgMembers(orgId, attendeeIds))) return { refused: { kind: "attendees_not_members" } };
@@ -57,9 +77,11 @@ export async function createSyncMeeting<S extends MeetingShape>(
   };
   // Prisma can't narrow a generic select-or-include, so the row is typed back
   // to the shape the caller asked for here, once.
-  const meeting = await prisma.syncMeeting.create({ data, ...shape } as Prisma.SyncMeetingCreateArgs);
-  syncMeetingSoon(orgId, meeting.id);
-  return { meeting: meeting as unknown as Prisma.SyncMeetingGetPayload<S> };
+  const row = await prisma.syncMeeting.create({ data, ...shape } as Prisma.SyncMeetingCreateArgs);
+  const meeting = row as unknown as Prisma.SyncMeetingGetPayload<S>;
+  await opts.beforePush?.(meeting);
+  syncMeetingSoon(orgId, row.id);
+  return { meeting, calendarCopies: attendeeIds.length > 0 || m.teamsMeeting ? "queued" : "none" };
 }
 
 /** A refusal in words, for Cosmo to pass on. */

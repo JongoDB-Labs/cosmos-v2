@@ -150,25 +150,28 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         isApiKey: !!ctx.isApiKey,
       },
       { include: { attendees: true } },
+      {
+        // Audited before the push is queued: if the audit fails, the 500 is
+        // for a meeting no one's Outlook has, so a retry can't add a second copy.
+        beforePush: (meeting) =>
+          logAudit({
+            orgId,
+            userId: ctx.userId,
+            action: "meeting.created",
+            entity: "sync_meeting",
+            entityId: meeting.id,
+            metadata: {
+              meetingType: meeting.meetingType,
+              attendeeCount: String(meeting.attendees.length),
+              ...(meeting.teamsHostId && { teamsMeeting: "on" }),
+            } as Record<string, string>,
+            ipAddress: getIpAddress(request),
+          }),
+      },
     );
     if (made.refused) return meetingRefusalResponse(made.refused);
-    const { meeting } = made;
 
-    await logAudit({
-      orgId,
-      userId: ctx.userId,
-      action: "meeting.created",
-      entity: "sync_meeting",
-      entityId: meeting.id,
-      metadata: {
-        meetingType: meeting.meetingType,
-        attendeeCount: String(meeting.attendees.length),
-        ...(meeting.teamsHostId && { teamsMeeting: "on" }),
-      } as Record<string, string>,
-      ipAddress: getIpAddress(request),
-    });
-
-    return created(meeting);
+    return created(made.meeting);
   } catch (error) {
     return handleApiError(error);
   }

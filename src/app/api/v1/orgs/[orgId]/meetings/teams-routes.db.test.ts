@@ -24,6 +24,18 @@ vi.mock("@/lib/integrations/microsoft/calendar-sync.server", async (orig) => ({
   ...(await orig<typeof import("@/lib/integrations/microsoft/calendar-sync.server")>()),
   syncMeetingSoon: vi.fn(),
 }));
+// The real audit write, unless a test makes it fail.
+const audit = vi.hoisted(() => ({ fail: false }));
+vi.mock("@/lib/audit", async (orig) => {
+  const actual = await orig<typeof import("@/lib/audit")>();
+  return {
+    ...actual,
+    logAudit: async (...args: Parameters<typeof actual.logAudit>) => {
+      if (audit.fail) throw new Error("audit store unavailable");
+      return actual.logAudit(...args);
+    },
+  };
+});
 
 import { POST as createMeeting } from "./route";
 import { GET as getTeams, PUT as setTeams } from "./[meetingId]/teams/route";
@@ -169,6 +181,42 @@ describe("creating a meeting with attendees", () => {
     const made = await createMeeting(json("POST", { title: `att-in-${stamp}`, meetingDate, attendeeIds: [outsider, outsider] }), at());
     expect(made.status).toBe(201);
     expect(((await made.json()) as { attendees: { userId: string }[] }).attendees.map((a) => a.userId)).toEqual([outsider]);
+  });
+
+  it("refuses someone removed from the organization, saving and pushing nothing", async () => {
+    h.ctx = member(insider);
+    const leaver = (await prisma.user.create({ data: { email: `leaver-${stamp}@mtr.test`, displayName: "Leaver" } })).id;
+    await prisma.orgMember.create({ data: { orgId, userId: leaver, role: "MEMBER", permissions: "0", removedAt: new Date() } });
+    const meetingDate = "2026-12-02T10:00:00.000Z";
+    vi.mocked(syncMeetingSoon).mockClear();
+    const refused = await createMeeting(json("POST", { title: `att-left-${stamp}`, meetingDate, attendeeIds: [outsider, leaver] }), at());
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({ error: "Attendees must be members of this organization." });
+    expect(await titled(`att-left-${stamp}`)).toBe(0);
+    expect(syncMeetingSoon).not.toHaveBeenCalled();
+    // The same meeting with only current members is saved and pushed: the push is observable here.
+    const made = await createMeeting(json("POST", { title: `att-stay-${stamp}`, meetingDate, attendeeIds: [outsider] }), at());
+    expect(made.status).toBe(201);
+    expect(vi.mocked(syncMeetingSoon).mock.calls).toEqual([[orgId, ((await made.json()) as { id: string }).id]]);
+  });
+
+  it("never pushes a meeting whose audit row couldn't be written", async () => {
+    // The audit row is written before the push is queued. A 500 for a meeting
+    // already in attendees' Outlook would invite a retry, and a second copy.
+    h.ctx = member(insider);
+    const meetingDate = "2026-12-03T10:00:00.000Z";
+    vi.mocked(syncMeetingSoon).mockClear();
+    audit.fail = true;
+    try {
+      const failed = await createMeeting(json("POST", { title: `audit-down-${stamp}`, meetingDate, attendeeIds: [outsider] }), at());
+      expect(failed.status).toBe(500);
+      expect(syncMeetingSoon).not.toHaveBeenCalled();
+    } finally {
+      audit.fail = false;
+    }
+    const made = await createMeeting(json("POST", { title: `audit-up-${stamp}`, meetingDate, attendeeIds: [outsider] }), at());
+    expect(made.status).toBe(201);
+    expect(vi.mocked(syncMeetingSoon).mock.calls).toEqual([[orgId, ((await made.json()) as { id: string }).id]]);
   });
 });
 
