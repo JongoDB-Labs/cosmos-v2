@@ -13,11 +13,19 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { NextRequest } from "next/server";
 
 const nav = vi.hoisted(() => ({ search: "org=acme" }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(nav.search) }));
 // Enrollment draws a QR code; jsdom has no canvas to draw it on.
 vi.mock("qrcode", () => ({ toDataURL: async () => "data:image/png;base64,AA==" }));
+// One test runs the real forgot-password route, on a stand-in database that
+// knows no one, so the form is shown the route's own answer.
+const db = vi.hoisted(() => ({
+  user: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
+  invitation: { findFirst: vi.fn(async () => null) },
+}));
+vi.mock("@/lib/db/client", () => ({ prisma: db }));
 
 import { LoginForm } from "./login-form";
 
@@ -144,6 +152,32 @@ describe("the sign-in page's forgot-password form", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(RESET_FAILED);
     expect(screen.queryByText(RESET_SENT)).toBeNull();
     expect(screen.getByRole("button", { name: "Send reset link" })).toBeTruthy();
+  });
+
+  it("says it was not sent when the address has asked too often", async () => {
+    const { POST } = await import("@/app/api/auth/password/reset/request/route");
+    const ask = (client: number) =>
+      POST(
+        new NextRequest("http://localhost/api/auth/password/reset/request", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": `192.0.2.${client}` },
+          body: JSON.stringify({ email: "asked-often@example.test" }),
+        }),
+      );
+    for (let client = 1; client <= 3; client++) expect((await ask(client)).status).toBe(200);
+    const lookups = db.user.findFirst.mock.calls.length;
+    // Positive control: the requests under the limit did look the address up.
+    expect(lookups).toBe(3);
+    const limited = await ask(4);
+    expect(limited.status).toBe(429);
+    // Answered before any lookup, so the answer can't depend on the account.
+    expect(db.user.findFirst.mock.calls.length).toBe(lookups);
+
+    const body = await limited.text();
+    serveAll({ "/api/auth/password/reset/request": async () => new Response(body, { status: limited.status }) });
+    await sendReset();
+    expect((await screen.findByRole("alert")).textContent).toBe(RESET_FAILED);
+    expect(screen.queryByText(RESET_SENT)).toBeNull();
   });
 
   it("says the same when the request never reaches the server", async () => {
