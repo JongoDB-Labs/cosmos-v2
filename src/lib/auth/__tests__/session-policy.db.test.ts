@@ -13,8 +13,9 @@
 //   actionRestrictions     org-wide ABAC deny rules, folded into every
 //                          member's and every key's rules.
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
+import { sessionRowId } from "@/lib/auth/session-id";
 
 const h = vi.hoisted(() => ({ sessionId: "" }));
 vi.mock("next/headers", () => ({
@@ -37,23 +38,19 @@ const MIN = 60_000;
 let orgId = "", slug = "", userId = "", ownerId = "";
 const email = `p-${stamp}@policy.test`;
 
+// Returns the cookie value (the token); the row itself is keyed by sessionRowId(token).
 async function session(opts: { ageMins: number; idleMins: number; user?: string; expiredMinsAgo?: number; passwordOnly?: boolean; legacy?: boolean }) {
-  const id = randomBytes(24).toString("hex");
   const now = Date.now();
-  await prisma.session.create({
-    data: {
-      id,
-      userId: opts.user ?? userId,
-      createdAt: new Date(now - opts.ageMins * MIN),
-      lastActivityAt: new Date(now - opts.idleMins * MIN),
-      expiresAt: opts.expiredMinsAgo ? new Date(now - opts.expiredMinsAgo * MIN) : new Date(now + 24 * 60 * MIN),
-      // A first-party password sign-in: MFA-satisfied unless it stopped short of TOTP.
-      // A legacy row (no authMethod) is treated as federated.
-      authMethod: opts.legacy ? null : "password",
-      mfaSatisfied: !opts.passwordOnly,
-    },
+  return createTestSession({
+    userId: opts.user ?? userId,
+    createdAt: new Date(now - opts.ageMins * MIN),
+    lastActivityAt: new Date(now - opts.idleMins * MIN),
+    expiresAt: opts.expiredMinsAgo ? new Date(now - opts.expiredMinsAgo * MIN) : new Date(now + 24 * 60 * MIN),
+    // A first-party password sign-in: MFA-satisfied unless it stopped short of TOTP.
+    // A legacy row (no authMethod) is treated as federated.
+    authMethod: opts.legacy ? null : "password",
+    mfaSatisfied: !opts.passwordOnly,
   });
-  return id;
 }
 
 async function policy(data: Partial<{ sessionTimeoutMins: number; maxSessionAgeMins: number; idleTimeoutMins: number; maxConcurrentSessions: number; mfaRequired: boolean; actionRestrictions: object }>) {
@@ -116,7 +113,7 @@ describe("idleTimeoutMins", () => {
     await policy({ idleTimeoutMins: 30 });
     const id = await session({ ageMins: 60, idleMins: 45 });
     expect(await as(id)).toBeNull();
-    expect(await prisma.session.findUnique({ where: { id } })).toBeNull();
+    expect(await prisma.session.findUnique({ where: { id: sessionRowId(id) } })).toBeNull();
   });
 
   it("lets an active one through (positive control)", async () => {
@@ -137,7 +134,7 @@ describe("idleTimeoutMins", () => {
     await policy({ idleTimeoutMins: 1 });
     const id = await session({ ageMins: 5, idleMins: 0.67 });
     expect(await as(id)).not.toBeNull();
-    const row = await prisma.session.findUniqueOrThrow({ where: { id } });
+    const row = await prisma.session.findUniqueOrThrow({ where: { id: sessionRowId(id) } });
     expect(Date.now() - row.lastActivityAt.getTime()).toBeLessThan(5_000);
   });
 });

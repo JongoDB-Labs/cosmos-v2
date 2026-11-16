@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/lib/db/client";
+import { sessionRowId } from "@/lib/auth/session-id";
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -143,16 +144,17 @@ export async function GET(request: NextRequest) {
   // never on whatever the token carries today.
   await consumePendingInvitations(user.id, email);
 
-  const sessionId = crypto.randomBytes(32).toString("hex");
+  // The cookie gets the token; the row is stored under its hash.
+  const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000);
   await prisma.session.create({
     // The session counts for system admin only through the bound Microsoft
     // identity (see lib/internal/access).
-    data: { id: sessionId, userId: user.id, expiresAt, authMethod: "microsoft" },
+    data: { id: sessionRowId(token), userId: user.id, expiresAt, authMethod: "microsoft" },
   });
 
   const response = NextResponse.redirect(new URL("/", origin));
-  response.cookies.set(SESSION_COOKIE, sessionId, {
+  response.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",

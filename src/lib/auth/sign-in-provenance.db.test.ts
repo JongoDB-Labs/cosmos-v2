@@ -18,6 +18,7 @@ import { NextRequest } from "next/server";
 import type { IdpConnection } from "@prisma/client";
 
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 
 const h = vi.hoisted(() => ({ sessionId: null as string | null }));
 vi.mock("next/headers", () => ({
@@ -63,8 +64,7 @@ function adminAddress(tag: string) {
 }
 
 async function signIn(userId: string, extra: Record<string, unknown> = {}) {
-  const id = crypto.randomBytes(16).toString("hex");
-  await prisma.session.create({ data: { id, userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra } });
+  const id = await createTestSession({ userId, expiresAt: new Date(Date.now() + 3_600_000), ...extra });
   h.sessionId = id;
   return id;
 }

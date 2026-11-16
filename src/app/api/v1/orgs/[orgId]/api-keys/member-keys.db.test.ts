@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { createFixtureWorkItem, ensureFixtureStatuses } from "@/lib/testing/db-fixtures";
 
 // The request the route is answering. Each call below sets it first.
@@ -77,8 +78,7 @@ async function person(key: string, role: Role, opts: { org?: string; permissions
   const memberId = (await prisma.orgMember.create({
     data: { orgId: opts.org ?? orgId, userId, role, permissions: maskToDb(opts.permissions ?? 0n) },
   })).id;
-  const session = randomBytes(24).toString("hex");
-  await prisma.session.create({ data: { id: session, userId, expiresAt: new Date(Date.now() + DAY) } });
+  const session = await createTestSession({ userId, expiresAt: new Date(Date.now() + DAY) });
   people[key] = { userId, memberId, session, name, email };
   return people[key];
 }
@@ -792,10 +792,10 @@ describe("where the org requires single sign-on, a member's key works only if ma
     });
     await prisma.federatedIdentity.create({ data: { userId: member.userId, idpConnId: conn.id, subject: `s-${stamp}`, issuer: ISSUER } });
     // The admin looks at the key list through the org's IdP too: now nothing else opens it.
-    const adminSso = { ...admin, session: randomBytes(24).toString("hex") };
-    await prisma.session.create({
-      data: { id: adminSso.session, userId: admin.userId, expiresAt: new Date(Date.now() + DAY), authMethod: "oidc", idpConnId: conn.id },
-    });
+    const adminSso = {
+      ...admin,
+      session: await createTestSession({ userId: admin.userId, expiresAt: new Date(Date.now() + DAY), authMethod: "oidc", idpConnId: conn.id }),
+    };
 
     // The member's own (non-SSO) session is refused here, and now so is the key it made.
     asSession(member);
@@ -810,7 +810,7 @@ describe("where the org requires single sign-on, a member's key works only if ma
     const login = await completeSsoLogin(gov.slug, conn, claims(`s-${stamp}`), {});
     expect(login.ok).toBe(true);
     if (!login.ok) return;
-    h.headers = new Headers({ cookie: `session=${login.sessionId}` });
+    h.headers = new Headers({ cookie: `session=${login.token}` });
     const minted = await mintKey(req("POST", { name: "via sso", scopes: ["read"], expiresAt: inDays(30) }), govParams());
     expect(minted.status).toBe(201);
     const viaSso = (await minted.json()) as Minted;

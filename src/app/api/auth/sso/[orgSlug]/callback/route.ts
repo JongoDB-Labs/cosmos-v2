@@ -145,7 +145,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // 5. Set the session cookie (identical to the Google path) + clear the tx.
   //    Straight to the org: an SSO session opens this org and no other.
   const response = NextResponse.redirect(new URL(`/${encodeURIComponent(orgSlug)}`, origin));
-  response.cookies.set(SESSION_COOKIE, result.sessionId, {
+  response.cookies.set(SESSION_COOKIE, result.token, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",

@@ -26,6 +26,8 @@ import path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
+import { sessionRowId } from "@/lib/auth/session-id";
+import { createTestSession } from "@/lib/testing/sessions";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { newFeedToken } from "@/lib/calendar/feed-token";
@@ -308,10 +310,7 @@ export async function seedWorld(): Promise<World> {
     data: { ...by, projectId: project.id, fromType: "milestone", fromId: milestone.id, toType: "work_item", toId: item.id },
   });
 
-  const sessionId = randomBytes(32).toString("hex");
-  await prisma.session.create({
-    data: { id: sessionId, userId: owner.id, expiresAt: new Date(Date.now() + 3_600_000) },
-  });
+  const sessionId = await createTestSession({ userId: owner.id, expiresAt: new Date(Date.now() + 3_600_000) });
 
   const ids: Record<string, string> = {
     orgId: org.id,
@@ -485,8 +484,8 @@ export async function callHandler(
     // A handler earlier in the sweep may have ended the session (sign-out
     // does): the control needs it live every time.
     await prisma.session.upsert({
-      where: { id: world.ownerSession },
-      create: { id: world.ownerSession, userId: world.ownerId, expiresAt: new Date(Date.now() + 3_600_000) },
+      where: { id: sessionRowId(world.ownerSession) },
+      create: { id: sessionRowId(world.ownerSession), userId: world.ownerId, expiresAt: new Date(Date.now() + 3_600_000) },
       update: { expiresAt: new Date(Date.now() + 3_600_000), lastActivityAt: new Date() },
     });
   }

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "./client";
+import { sessionRowId } from "./session-id";
 import { consumePendingInvitations } from "./consume-invitations";
 import { setRememberedOrgCookie } from "./remembered-org";
 
@@ -9,17 +10,18 @@ import { setRememberedOrgCookie } from "./remembered-org";
  * Mint a session for a password (local) login, byte-identical to the
  * google/sso tail plus the assurance columns. `mfaSatisfied` reflects whether
  * a TOTP/recovery step completed this login — the existing assurance gate uses
- * it to enforce an org's `mfaRequired` floor.
+ * it to enforce an org's `mfaRequired` floor. Returns the token for the
+ * cookie; the row is stored under its hash (`sessionRowId`).
  */
 export async function createLocalSession(
   userId: string,
   opts: { mfaSatisfied: boolean },
-): Promise<{ sessionId: string }> {
-  const sessionId = randomBytes(32).toString("hex");
+): Promise<{ token: string }> {
+  const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000);
   await prisma.session.create({
     data: {
-      id: sessionId,
+      id: sessionRowId(token),
       userId,
       expiresAt,
       authMethod: "password",
@@ -27,7 +29,7 @@ export async function createLocalSession(
       mfaSatisfied: opts.mfaSatisfied,
     },
   });
-  return { sessionId };
+  return { token };
 }
 
 /**
@@ -43,10 +45,10 @@ export async function finishPasswordLogin(
   res: NextResponse,
   opts: { userId: string; email: string; mfaSatisfied: boolean },
 ): Promise<NextResponse> {
-  const { sessionId } = await createLocalSession(opts.userId, {
+  const { token } = await createLocalSession(opts.userId, {
     mfaSatisfied: opts.mfaSatisfied,
   });
-  res.cookies.set(SESSION_COOKIE, sessionId, SESSION_COOKIE_OPTIONS);
+  res.cookies.set(SESSION_COOKIE, token, SESSION_COOKIE_OPTIONS);
 
   // Grant membership from any pending invitations (invites are stored lowercased;
   // normalize the entered email so a case difference still matches).

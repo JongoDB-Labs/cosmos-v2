@@ -327,16 +327,21 @@ describe("CQL routes (e2e DB)", () => {
 
   it("query is rate-limited per user (30 per 10 s)", async () => {
     limiter.on = true;
+    // Frozen, like the search test's clock above. The bucket refills with
+    // Date.now() at 3/s, so on a loaded box 40 slow requests earned their
+    // tokens back and the 429s never came.
+    vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const statuses: number[] = [];
       for (let i = 0; i < 40; i++) {
         statuses.push((await queryRoute(post("work-items/query", { cql: "priority = HIGH" }), { params: params() })).status);
       }
-      // A burst of 30 passes; the bucket refills at 3/s, so what follows is
-      // mostly, not only, 429.
+      // A burst of 30 passes; with no time passing nothing refills, so the
+      // rest are refused.
       expect(statuses.slice(0, 30).every((s) => s === 200)).toBe(true);
-      expect(statuses.slice(30).filter((s) => s === 429).length).toBeGreaterThanOrEqual(5);
+      expect(statuses.slice(30).filter((s) => s === 429).length).toBe(10);
     } finally {
+      vi.useRealTimers();
       limiter.on = false;
     }
   });

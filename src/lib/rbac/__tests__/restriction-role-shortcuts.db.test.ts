@@ -17,6 +17,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { NextRequest } from "next/server";
 import { createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db/client";
+import { createTestSession } from "@/lib/testing/sessions";
 import { maskToDb } from "@/lib/rbac/permissions";
 import { seedBoardColumns } from "@/lib/workflow/provision.server";
 
@@ -58,11 +59,8 @@ const userIds: Record<"owner" | "admin" | "member", string> = { owner: "", admin
 const as: Record<"ownerSession" | "adminSession" | "ownerKey" | "adminKey", Headers> = {} as never;
 
 async function sessionFor(userId: string) {
-  const id = randomBytes(24).toString("hex");
-  await prisma.session.create({
-    data: { id, userId, expiresAt: new Date(Date.now() + 60 * 60_000), authMethod: "password", mfaSatisfied: true },
-  });
-  return new Headers({ cookie: `${SESSION_COOKIE}=${id}` });
+  const token = await createTestSession({ userId, expiresAt: new Date(Date.now() + 60 * 60_000), authMethod: "password", mfaSatisfied: true });
+  return new Headers({ cookie: `${SESSION_COOKIE}=${token}` });
 }
 
 /** An owner's or admin's key with every scope these doors take. */
