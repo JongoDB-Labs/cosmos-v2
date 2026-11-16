@@ -16,6 +16,19 @@ interface ProviderStatus {
   /** Non-secret, returned so the form can prefill. The secret never comes back. */
   clientId: string | null;
   tenant: string | null;
+  /** Microsoft only: the domains saved here, and the ones the server's
+   *  environment adds (read-only in this form). */
+  trustedDomains?: string[];
+  envTrustedDomains?: string[];
+}
+
+/** "example.com, example.org" → ["example.com", "example.org"]. The server
+ *  checks each one and says which it rejects. */
+function parseDomains(text: string): string[] {
+  return text
+    .split(/[\s,]+/)
+    .map((d) => d.trim())
+    .filter(Boolean);
 }
 
 const CARD = "rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5";
@@ -30,6 +43,10 @@ export function SignInProvidersManager() {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [tenant, setTenant] = useState("");
+  const [trustedDomains, setTrustedDomains] = useState("");
+  // Whether the stored list reached the form. Until it has, an empty field
+  // means "unknown", and saving must not send [] (which clears the list).
+  const [domainsLoaded, setDomainsLoaded] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -56,6 +73,8 @@ export function SignInProvidersManager() {
         // editing just the tenant silently sent nothing at all.
         setClientId(m?.clientId ?? "");
         setTenant(m?.tenant ?? "");
+        setTrustedDomains((m?.trustedDomains ?? []).join(", "));
+        setDomainsLoaded(true);
         const g = j.providers?.google;
         setGEnabled(g?.configured ? (g.enabled ?? true) : true);
         setGClientId(g?.clientId ?? "");
@@ -112,6 +131,10 @@ export function SignInProvidersManager() {
           ? "Enter the client secret Value."
           : null;
   const canSave = !saving && missingReason === null;
+  const envDomains = ms?.envTrustedDomains ?? [];
+  // Saved state, not the input: the warning says what sign-in does right now.
+  const noTrustedDomains =
+    !!ms?.configured && ms.enabled && (ms.trustedDomains ?? []).length === 0 && envDomains.length === 0;
 
   async function save() {
     setSaving(true);
@@ -124,6 +147,7 @@ export function SignInProvidersManager() {
           clientId: clientId.trim(),
           clientSecret: clientSecret.trim() || undefined,
           tenant: tenant.trim() || null,
+          ...((domainsLoaded || trustedDomains.trim() !== "") && { trustedDomains: parseDomains(trustedDomains) }),
           enabled,
         }),
       });
@@ -218,10 +242,44 @@ export function SignInProvidersManager() {
               creates an account by address only when Microsoft vouches for it: add the{" "}
               <span className="font-mono">email</span> and{" "}
               <span className="font-mono">xms_edov</span> optional claims under Token
-              configuration, or list your own domains in{" "}
-              <span className="font-mono">MICROSOFT_TRUSTED_DOMAINS</span>. Without either,
-              people connect Microsoft from their profile instead.
+              configuration, or list your own domains under Trusted email domains. Without
+              either, people connect Microsoft from their profile instead.
             </p>
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="ms-trusted-domains">Trusted email domains</Label>
+            <Input
+              id="ms-trusted-domains"
+              value={trustedDomains}
+              onChange={(e) => setTrustedDomains(e.target.value)}
+              placeholder="example.com, example.org"
+              aria-describedby="ms-trusted-domains-help"
+            />
+            <p id="ms-trusted-domains-help" className="text-[11px] text-[var(--text-muted)]">
+              Your organization&apos;s own email domains, separated by commas. When a member
+              of your tenant signs in with Microsoft for the first time, sign-in matches them
+              to the existing account with the same address on one of these domains. A
+              domain matches exactly, so list each one people sign in with:{" "}
+              <span className="font-mono">example.com</span> doesn&apos;t cover{" "}
+              <span className="font-mono">corp.example.com</span>. Leave out any domain where
+              people outside your organization can hold addresses.
+            </p>
+            {envDomains.length > 0 && (
+              <p className="text-[11px] text-[var(--text-muted)]">
+                The server also trusts{" "}
+                <span className="font-mono">{envDomains.join(", ")}</span>, set in{" "}
+                <span className="font-mono">MICROSOFT_TRUSTED_DOMAINS</span>.
+              </p>
+            )}
+            {noTrustedDomains && (
+              <p role="status" className="text-[11px] font-medium text-[var(--status-warning-text,#b45309)]">
+                No trusted domains are set. Unless your app registration sends the{" "}
+                <span className="font-mono">xms_edov</span> claim, people who already have
+                an account here can&apos;t sign in with Microsoft until they connect it from
+                their profile.
+              </p>
+            )}
           </div>
 
           <label className="flex items-center gap-2 text-sm">

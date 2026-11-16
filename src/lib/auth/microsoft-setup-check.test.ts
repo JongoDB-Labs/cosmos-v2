@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { microsoftSetupWarnings } from "./microsoft-setup-check";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const h = vi.hoisted(() => ({
+  cfg: null as { enabled: boolean; tenant?: string | null; trustedDomains?: string[] } | null,
+}));
+vi.mock("@/lib/auth/provider-config", () => ({ getProviderConfig: async () => h.cfg }));
+
+import { microsoftSetupWarnings, warnMicrosoftSetup } from "./microsoft-setup-check";
 
 describe("microsoftSetupWarnings", () => {
   it("says nothing when Microsoft sign-in is off", () => {
@@ -23,7 +29,8 @@ describe("microsoftSetupWarnings", () => {
     const lines = microsoftSetupWarnings({ enabled: true, tenant: "11111111-1111-4111-8111-111111111111" }, []);
     expect(lines).toHaveLength(1);
     const [line] = lines;
-    expect(line).toMatch(/^MICROSOFT_TRUSTED_DOMAINS is not set\b/);
+    expect(line).toMatch(/^No trusted email domains are set\b/);
+    expect(line).toMatch(/Admin → Sign-in providers/);
     expect(line).toMatch(/xms_edov/);
     expect(line).toMatch(/can't see whether the app registration sends/);
     const sentences = line.split(/(?<=\.)\s+/);
@@ -37,5 +44,33 @@ describe("microsoftSetupWarnings", () => {
 
   it("is quiet for a pinned tenant with trusted domains", () => {
     expect(microsoftSetupWarnings({ enabled: true, tenant: "11111111-1111-4111-8111-111111111111" }, ["example.com"])).toEqual([]);
+  });
+});
+
+// The domains an admin saves in Sign-in providers count as much as the env
+// var: a server with only the saved list must not tell its operator nothing is
+// set.
+describe("warnMicrosoftSetup", () => {
+  const PINNED = "11111111-1111-4111-8111-111111111111";
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("counts the domains saved in Sign-in providers", async () => {
+    vi.stubEnv("MICROSOFT_TRUSTED_DOMAINS", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.cfg = { enabled: true, tenant: PINNED, trustedDomains: ["example.com"] };
+    await warnMicrosoftSetup();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("warns when neither the saved list nor the env var has a domain", async () => {
+    vi.stubEnv("MICROSOFT_TRUSTED_DOMAINS", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    h.cfg = { enabled: true, tenant: PINNED, trustedDomains: [] };
+    await warnMicrosoftSetup();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toMatch(/No trusted email domains are set/);
   });
 });
