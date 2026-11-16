@@ -6,6 +6,7 @@ import { applySecurityHeaders, applyTeamsTabFraming, routeSetsOwnCsp } from "@/l
 import { isTabPath } from "@/lib/integrations/microsoft/teams-app/tab-paths";
 import { classifyBearer, parseKeyToken } from "@/lib/auth/bearer";
 import { signedOutMayReach } from "@/lib/auth/signed-out-api";
+import { RESET_PASSWORD_PATH } from "@/lib/auth/reset-link";
 import { REQUEST_ID_HEADER, requestIdFor } from "@/lib/openapi/request-id";
 import { problem } from "@/lib/openapi/problem";
 import { isMutatingMethod, isPathOrgFrozen } from "@/lib/cutover/freeze";
@@ -86,6 +87,15 @@ const PUBLIC_PAGE_PREFIXES = [
   "/manifest.webmanifest",
 ];
 
+// Pages a visitor with no session may open at exactly this path, with nothing
+// below it.
+const PUBLIC_PAGES = new Set([
+  // The password-reset email's link: opened signed out by definition. The
+  // page is only a form; the emailed token is the credential, and the API it
+  // posts to checks it (signed-out-api.ts).
+  RESET_PASSWORD_PATH,
+]);
+
 // Static asset extensions served from /public — bypass auth so Next.js's
 // image optimizer (which does internal HTTP fetches) and unauth'd pages
 // like /login can load their images. Never under /api: there a final segment
@@ -95,6 +105,7 @@ const STATIC_ASSET_EXT = /\.(?:png|svg|ico|jpe?g|webp|gif|woff2?|ttf|otf|js)$/i;
 function isPublic(method: string, pathname: string): boolean {
   if (pathname.startsWith("/api/")) return signedOutMayReach(method, pathname);
   if (STATIC_ASSET_EXT.test(pathname)) return true;
+  if (PUBLIC_PAGES.has(pathname)) return true;
   return PUBLIC_PAGE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
@@ -118,6 +129,10 @@ export async function proxy(request: NextRequest) {
   // Stored files carry the CSP their route chose; the page CSP set above would
   // replace it (see routeSetsOwnCsp).
   if (routeSetsOwnCsp(request.nextUrl.pathname)) res.headers.delete("Content-Security-Policy");
+  // The reset page's URL carries the emailed token. Send no part of it on in a
+  // Referer, even to this site. Its form posts with fetch(), which still sends
+  // Origin under this policy, so the CSRF check is unaffected.
+  if (request.nextUrl.pathname === RESET_PASSWORD_PATH) res.headers.set("Referrer-Policy", "no-referrer");
   return res;
 }
 
