@@ -6,7 +6,9 @@ import { orgContext } from "@/lib/openapi/org-context";
 import { listEventCategories as listContract, createEventCategory as createContract } from "./route.contract";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
+import { parseRequest } from "@/lib/openapi/respond";
 import { listCategories, categoryCounts } from "@/lib/program-calendar/service";
+import { eventFiltersFromQuery } from "@/lib/program-calendar/filters";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -20,8 +22,10 @@ const createSchema = z.object({
   textColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
 });
 
-/** The org's categories, with counts for the window when one is given.
- *  Seeds the nine defaults the first time an org asks. */
+/** The org's categories, with counts for the window when one is given, under
+ *  the calendar's own filters (a picked project, owners, the custom filters),
+ *  read by the same `eventFiltersFromQuery` as the events list. Seeds the nine
+ *  defaults the first time an org asks. */
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { orgId } = await params;
@@ -30,15 +34,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { ctx } = await orgContext(orgId, listContract);
     requirePermission(ctx, Permission.BOARD_READ);
 
+    const { query } = await parseRequest(listContract, request, params);
     const categories = await listCategories(orgId);
-    const from = request.nextUrl.searchParams.get("from");
-    const to = request.nextUrl.searchParams.get("to");
     const counts =
-      from && to ? await categoryCounts(ctx, new Date(from), new Date(to)) : {};
+      query.from && query.to
+        ? await categoryCounts(ctx, new Date(query.from), new Date(query.to), eventFiltersFromQuery(query))
+        : {};
 
     return success(categories.map((c) => ({ ...c, count: counts[c.id] ?? 0 })));
   } catch (error) {
-    return handleApiError(error);
+    return handleApiError(error, request);
   }
 }
 

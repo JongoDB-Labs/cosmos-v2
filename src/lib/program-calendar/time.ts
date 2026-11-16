@@ -23,6 +23,16 @@
  *  a single comparison with no off-by-one at the boundary. */
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Today on the READER's calendar, as that date's UTC midnight: the grid's clock
+ * of UTC dates, read off the reader's own wall clock. At 20:00 in Los Angeles
+ * the UTC date is already tomorrow, and an event is drawn on the date it is
+ * held (`drawnRange`), so "today" is the reader's date too.
+ */
+export function localToday(now: Date = new Date()): Date {
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
 /** UTC midnight of the day `d` falls on, read in UTC. */
 export function utcMidnight(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -53,6 +63,173 @@ export function normalizeRange(input: {
   else end = new Date(end.getTime() + DAY_MS); // the end date is inclusive to the user
   return { startsAt: start, endsAt: end };
 }
+
+// ── A timed event's own clock ────────────────────────────────────────────────
+
+/** Formatters by a zone's canonical name: building an `Intl.DateTimeFormat` is
+ *  the slow part, and the grid reads every event once per week it might fall
+ *  in. Only zones that resolve are kept, so the map is bounded by the zones
+ *  `Intl` knows, however many strings that are not zones it is asked about. */
+const zoneFormatters = new Map<string, Intl.DateTimeFormat>();
+/** Each spelling seen ("america/chicago", "US/Central") to its canonical name.
+ *  Again only ones that resolve; capped, because spellings are not bounded. */
+const zoneSpellings = new Map<string, string>();
+const MAX_SPELLINGS = 512;
+
+function buildFormatter(timeZone: string): Intl.DateTimeFormat | null {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+  } catch {
+    return null;
+  }
+}
+
+function resolveZone(value: string): { name: string; formatter: Intl.DateTimeFormat } | null {
+  if (!value) return null;
+  const seen = zoneSpellings.get(value);
+  if (seen !== undefined) return { name: seen, formatter: zoneFormatters.get(seen)! };
+  const built = buildFormatter(value);
+  if (!built) return null;
+  const name = built.resolvedOptions().timeZone;
+  // A bare UTC offset ("+05:30") builds in Node but resolves to itself, not to
+  // a named zone, and not every browser takes one: a stored offset could take
+  // the chip down in the reader's browser. Named zones start with a letter.
+  if (!/^[A-Za-z]/.test(name)) return null;
+  if (!zoneFormatters.has(name)) zoneFormatters.set(name, built);
+  if (zoneSpellings.size >= MAX_SPELLINGS) zoneSpellings.clear();
+  zoneSpellings.set(value, name);
+  zoneSpellings.set(name, name);
+  return { name, formatter: zoneFormatters.get(name)! };
+}
+
+/** Is this a named zone `Intl` will accept? */
+export function isIanaZone(value: string): boolean {
+  return resolveZone(value) !== null;
+}
+
+/** The runtime's listed zones by lower-cased name, plus UTC, which the list
+ *  leaves out. Built once, on first use. */
+let listedZones: Map<string, string> | null = null;
+function listedSpelling(value: string): string | undefined {
+  if (!listedZones) {
+    listedZones = new Map([["utc", "UTC"]]);
+    try {
+      for (const name of Intl.supportedValuesOf("timeZone")) listedZones.set(name.toLowerCase(), name);
+    } catch {
+      /* a runtime without the list: every spelling is kept as given */
+    }
+  }
+  return listedZones.get(value.toLowerCase());
+}
+
+/**
+ * The zone to store: the name as the user gave it, trimmed, or null when it is
+ * not a named zone (`Intl` refuses it, or it is a bare UTC offset).
+ *
+ * Not the name `Intl` resolves it to: that depends on the runtime. Node 22
+ * resolves Asia/Kolkata to Asia/Calcutta and EST to America/Panama, newer
+ * engines keep the name they were given, and the reader's browser can differ
+ * again. Only the case is fixed, and only where the runtime lists the zone
+ * ("america/chicago" is stored as America/Chicago). Zone names are matched
+ * without regard to case everywhere, so a spelling the list does not have is
+ * kept as given.
+ */
+export function storedZoneName(value: string): string | null {
+  const name = value.trim();
+  if (!resolveZone(name)) return null;
+  return listedSpelling(name) ?? name;
+}
+
+/** The cache sizes, for the tests that hold them bounded. */
+export function zoneCacheSizes(): { formatters: number; spellings: number } {
+  return { formatters: zoneFormatters.size, spellings: zoneSpellings.size };
+}
+
+/**
+ * Milliseconds `timeZone` is ahead of UTC at `at` (DST included).
+ *
+ * A zone `Intl` does not know reads as UTC, which is what the chips already
+ * fall back to: one stored typo must not take down every calendar it is on.
+ */
+export function zoneOffsetMs(at: Date, timeZone: string): number {
+  const zone = timeZone ? resolveZone(timeZone) : null;
+  if (!zone) return 0;
+  const parts = zone.formatter.formatToParts(at);
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? "0");
+  const asUtc = Date.UTC(
+    part("year"), part("month") - 1, part("day"),
+    // Some environments render midnight as hour 24 even under h23.
+    part("hour") % 24, part("minute"), part("second"),
+  );
+  // The parts carry whole seconds, so compare against whole seconds too.
+  return asUtc - Math.floor(at.getTime() / 1000) * 1000;
+}
+
+/**
+ * The instant at which it is `y-m-d hh:mm` in `timeZone`.
+ *
+ * Offset-then-correct: the zone's offset is itself a function of the instant,
+ * so the first guess is measured at the wrong moment near a DST boundary. The
+ * second measurement settles it (and for a wall clock inside a spring-forward
+ * gap, which does not exist, it lands on the instant just after the jump).
+ */
+export function zonedInstant(
+  y: number, m: number, d: number, hh: number, mm: number, timeZone: string,
+): Date {
+  const wall = Date.UTC(y, m - 1, d, hh, mm);
+  const first = zoneOffsetMs(new Date(wall), timeZone);
+  let t = wall - first;
+  const second = zoneOffsetMs(new Date(t), timeZone);
+  if (second !== first) t = wall - second;
+  return new Date(t);
+}
+
+/**
+ * An instant as its wall-clock reading in `timeZone`, expressed as that same
+ * reading in UTC.
+ *
+ * The grid lays days out as UTC dates. A meeting at 17:00 in Los Angeles is
+ * 01:00 UTC the NEXT day, so drawn as an instant it lands in the wrong column.
+ * Moving the instant onto the clock it belongs to, once, and then reading it as
+ * UTC puts the day and the hour on the same clock.
+ */
+export function wallClock(instant: Date, timeZone: string): Date {
+  return new Date(instant.getTime() + zoneOffsetMs(instant, timeZone));
+}
+
+/**
+ * Where the grid draws an event, on its clock of UTC dates.
+ *
+ * An all-day event is stored as UTC-midnight dates and is drawn as stored. A
+ * timed event is drawn on the clock of the zone it was entered in, the zone its
+ * chip shows its time in, so a 19:00 review in Los Angeles is on the evening it
+ * is held and not on the next UTC day. The month grid's column, the week grid's
+ * column AND hour offset, and the server's window all read this one
+ * conversion, so they cannot disagree about the day.
+ *
+ * Overlay items are already on the grid's clock and say `timeZone: "UTC"`.
+ */
+export function drawnRange(e: {
+  startsAt: Date;
+  endsAt: Date;
+  allDay?: boolean;
+  timeZone?: string;
+}): { startsAt: Date; endsAt: Date } {
+  if (e.allDay || !e.timeZone || e.timeZone === "UTC") return { startsAt: e.startsAt, endsAt: e.endsAt };
+  return { startsAt: wallClock(e.startsAt, e.timeZone), endsAt: wallClock(e.endsAt, e.timeZone) };
+}
+
+/**
+ * How far an event's instants can sit outside the dates it is drawn on. No
+ * zone is more than 14 hours from UTC, so a day either side holds every event
+ * drawn in a window: read the padded window, then cut back with `drawnRange`.
+ */
+export const DRAWN_PAD_MS = DAY_MS;
 
 /** The calendar dates an all-day event covers, as UTC y/m/d parts. */
 export function allDayParts(startsAt: Date, endsAt: Date): { y: number; m: number; d: number }[] {

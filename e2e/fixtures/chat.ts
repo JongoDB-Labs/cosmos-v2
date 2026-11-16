@@ -13,7 +13,7 @@ export function chatDrawer(page: Page): Locator {
 /**
  * Open the Chat drawer's conversation list on the org home, then pick #general
  * from it, the way a person does. Resolves once the conversation is on screen
- * (its "Back to channels" header replaces the list).
+ * (its "general, back to channels" header replaces the list).
  *
  * `base` is "" for specs that rely on Playwright's baseURL, or the full origin
  * for specs that build absolute URLs.
@@ -25,7 +25,9 @@ export async function openGeneralInDrawer(
   await page.goto(`${base}/${org}?chat=`);
   const drawer = chatDrawer(page);
   await drawer.getByRole("button", { name: "general", exact: true }).click({ timeout: 20_000 });
-  await expect(drawer.getByRole("button", { name: /Back to channels/ })).toBeVisible({
+  // The header button is named by the conversation it shows, then the action
+  // ("general, back to channels"), so a voice user can say what they see.
+  await expect(drawer.getByRole("button", { name: /^general, back to channels$/ })).toBeVisible({
     timeout: 10_000,
   });
   return drawer;

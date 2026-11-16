@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/* Composed plugins (scripts/plugins/sync.mjs) copy their files into
+ * src/plugins/<slug>/ and list every one in .git/info/exclude, so they can
+ * never be committed to this repo. Tailwind's automatic scan honours that list,
+ * so in a composed checkout every class only a plugin uses was missing from the
+ * dev CSS. The image build has no .git, so it scanned them and production was
+ * right; with this line the two compile the same CSS. The file extensions are
+ * what make it work: a bare directory (`@source "../plugins"`), or a glob that
+ * matches every file, is still filtered by git's ignore rules (measured on
+ * Tailwind 4.3). No plugin class lives anywhere else: their route shims under
+ * src/app carry none. */
+@source "../plugins/**/*.{ts,tsx}";
+
 /* Re-key the `dark:` variant from the OS media query to the APP's theme model:
  * explicit `.dark`/`.light` root classes with a system-preference fallback when
  * neither is set (same gating as the background layers below — see the
@@ -109,7 +121,10 @@
   --status-progress-text: #1D4ED8;
   --status-review-text:   #0E7490;
   --status-done-text:     #047857;
-  --status-blocked-text:  #B45309;
+  /* #92400E, not #B45309: a Badge sits on a 12% tint of its own colour, and
+     #B45309 on the amber tint over --surface is 4.37:1, under AA. The badge
+     contrast test (src/lib/theme/badge-contrast.test.ts) holds every variant. */
+  --status-blocked-text:  #92400E;
   --status-critical-text: #B91C1C;
   --status-strategic-text:#BE185D;
   --status-discovery-text:#6D28D9;
@@ -426,6 +441,24 @@
 }
 ::view-transition-new(page) {
   animation: cosmos-fade-in 180ms ease-out forwards;
+}
+/* Clicks during a transition. For about 250 ms after every navigation a click
+ * on anything, sidebar included, reached <html> and did nothing. Two rules,
+ * and each alone changes nothing (measured in Chromium):
+ *   - The browser hit-tests the ::view-transition overlay, not the page under
+ *     it. The overlay is only a picture; let the pointer through.
+ *   - An element captured in a transition is not hit-tested at all while it
+ *     runs, and by default the whole document is captured as `root`, with the
+ *     browser's own 250 ms fade. Nothing here asked for that fade: the design
+ *     is the `page` fade above. Uncaptured, the sidebar and top bar stay live.
+ * The `page` region itself is still captured, so a click inside it during its
+ * 180 ms fade is still lost. e2e/page-transition-clicks.spec.ts clicks the
+ * sidebar while a transition runs. */
+:root {
+  view-transition-name: none;
+}
+::view-transition {
+  pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(page),

@@ -1,14 +1,19 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { utcMidnight } from "@/lib/program-calendar/time";
+import { localToday } from "@/lib/program-calendar/time";
 
 /** Nothing to subscribe to; module-level so the reference is stable. */
 const NO_SUBSCRIBE = () => () => {};
 
 /**
- * Today's UTC midnight in ms, read from the READER's clock. Null on the server
- * and on the client's first (hydrating) render.
+ * Today's date on the READER's calendar, as that date's UTC midnight in ms
+ * (`localToday`). Null on the server and on the client's first (hydrating)
+ * render.
+ *
+ * It is the reader's date and not UTC's, because events are drawn on the date
+ * they are held (`drawnRange`): at 20:00 in Los Angeles the UTC date is already
+ * tomorrow, and the tint sat on tomorrow's column.
  *
  * The month and time grids used to read `new Date()` straight in render. The
  * server rendered the today tint on ITS day, and when the browser's day was
@@ -24,12 +29,12 @@ const NO_SUBSCRIBE = () => () => {};
  * agree (no column is today). The client then re-renders with its own day,
  * the same pattern `useMounted` in `ui/local-timestamp.tsx` uses. The value is
  * a number, so it compares equal between renders and only changes when the
- * UTC day does.
+ * reader's day does.
  */
-export function useUtcToday(): number | null {
+export function useToday(): number | null {
   return useSyncExternalStore(
     NO_SUBSCRIBE,
-    () => utcMidnight(new Date()).getTime(),
+    () => localToday().getTime(),
     () => null,
   );
 }

@@ -178,7 +178,12 @@ export function SearchableSelect({
                   // the name instead broke every `getByRole("option", { name })`
                   // selector and made the row read as one long run-on to a
                   // screen reader.
-                  aria-label={item.description ? item.label : undefined}
+                  //
+                  // Done by hiding the description from the name, not by an
+                  // aria-label of the label: that label left visible text out
+                  // of the name, which fails WCAG 2.5.3 Label in Name (axe
+                  // label-content-name-mismatch). A description reached through
+                  // aria-describedby is read even when it is aria-hidden.
                   aria-describedby={item.description ? `${descId}-${item.value}` : undefined}
                   className="relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 >
@@ -187,6 +192,7 @@ export function SearchableSelect({
                     {item.description ? (
                       <span
                         id={`${descId}-${item.value}`}
+                        aria-hidden="true"
                         className="line-clamp-2 text-xs text-muted-foreground"
                       >
                         {item.description}

@@ -401,8 +401,12 @@ export function TeamTable({
             type="button"
             className="cursor-pointer rounded-sm text-left transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-[var(--primary)]"
             onClick={() => openRoleDialog(row.original)}
-            aria-label={`Manage roles for ${row.original.name}`}
           >
+            {/* Named by what it shows, after a lead-in saying what it does
+                and for whom: "Manage roles for Alice: ADMIN Developer". An
+                aria-label of the lead-in alone left the chips out of the name
+                (WCAG 2.5.3 Label in Name), so saying "Admin" reached nothing. */}
+            <span className="sr-only">{`Manage roles for ${row.original.name}:`}</span>
             {chips}
           </button>
         );

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "@/lib/openapi/contract";
+import { ProgramEventFilterQuery } from "@/lib/openapi/schemas/program-calendar";
 
 // The program calendar's events.
 //
@@ -17,7 +18,10 @@ export const listProgramEvents = defineRoute({
   operationId: "listProgramEvents",
   summary: "List program events in a window",
   description:
-    "Events overlapping the half-open window [from, to). A multi-day event is "
+    "Events drawn in the half-open window [from, to) of calendar dates: an "
+    + "all-day event by its dates, a timed event by its wall clock in its own "
+    + "`timeZone`, so a 19:00 event in Los Angeles is in the window holding that "
+    + "evening although it is 03:00 UTC the next day. A multi-day event is "
     + "returned for every window it crosses, not only the one it starts in. "
     + "`projectId` alone returns only that project's events; add "
     + "`includeOrgEvents=true` to also return the org-level events, which have no project.",
@@ -30,12 +34,7 @@ export const listProgramEvents = defineRoute({
       from: z.string().datetime(),
       to: z.string().datetime(),
       categoryIds: z.string().optional(),
-      ownerKeys: z.string().optional(),
-      projectId: z.string().uuid().optional(),
-      includeOrgEvents: z.enum(["true", "false"]).optional(),
-      showOnDashboardOnly: z.enum(["true", "false"]).optional(),
-      customerAttending: z.enum(["true", "false"]).optional(),
-      hasDeliverable: z.enum(["true", "false"]).optional(),
+      ...ProgramEventFilterQuery,
     }),
   },
   responses: { 200: z.string() },

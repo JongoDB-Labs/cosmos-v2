@@ -80,6 +80,107 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.562.7",
+    date: "2026-11-16",
+    title: "Password reset links work again",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The link in a password reset email now opens the page for choosing a new password. Before, it went to the sign-in page, so a signed-out person had no way to reset.",
+      },
+    ],
+  },
+  {
+    version: "2.562.6",
+    date: "2026-11-16",
+    title: "Clearer for screen readers and easier to read",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Screen readers now say what a board card\u2019s number and picture mean: \u201c5 points\u201d and \u201cassigned to\u201d the person\u2019s name.",
+      },
+      {
+        kind: "fix",
+        text: "When a board card has more than one assignee, screen readers now say \u201c1 more assignee\u201d and the other person\u2019s name, instead of \u201cplus 1\u201d.",
+      },
+      {
+        kind: "fix",
+        text: "In the Work Items list, a status, priority or assignee cell is read as one phrase, such as \u201cTo Do, change status\u201d, without a stray pause in the middle.",
+      },
+      {
+        kind: "fix",
+        text: "The edit and delete buttons in the reports list now say which report they act on.",
+      },
+      {
+        kind: "fix",
+        text: "Buttons whose spoken name left out the words they show now include them, so people who control the app by voice can say what they see. This covers the role chips on the Team page, the Program Increment buttons on the sprint board, a workflow move\u2019s Rules button, the chat channel header, the payroll supervisors button and the options in searchable pickers.",
+      },
+      {
+        kind: "fix",
+        text: "Form error messages and the Blocked badge in the light theme use a darker colour, so they are easier to read.",
+      },
+      {
+        kind: "fix",
+        text: "Small grey text in the default theme is easier to read: a little darker in light mode and a little lighter in dark mode. This includes the item counts on calendar days, the tags on RAID cards, the selected file in the files list and the scopes in the Create API key dialog.",
+      },
+      {
+        kind: "fix",
+        text: "In Payroll, a person\u2019s Supervisor button no longer says \u201c\u2014 none \u2014\u201d before their supervisors have loaded. It says \u201cEdit\u201d until you open it, then who supervises them.",
+      },
+      {
+        kind: "fix",
+        text: "A click made just after moving to another page now works. Before, the page change ignored clicks for about a quarter of a second.",
+      },
+      {
+        kind: "fix",
+        text: "On the Security settings page, the Active Sessions heading now sits at the right level, so screen reader users can move through the page by heading.",
+      },
+    ],
+  },
+  {
+    version: "2.562.5",
+    date: "2026-11-16",
+    title: "Program calendar events on the right day",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A timed event on the program calendar now shows on the day it is held in its own time zone. Before, an evening event in a zone west of UTC, such as 7 PM in Los Angeles, showed on the next day in the week and month views, and could be missing from the day view.",
+      },
+      {
+        kind: "fix",
+        text: "Opening and saving a timed event now keeps its date and time in the event\u2019s own time zone, as the form says. Before, the date could move by a day and the time could shift by your computer\u2019s offset.",
+      },
+      {
+        kind: "fix",
+        text: "With a project picked, the category counts on the calendar now count that project\u2019s events under the same filters as the calendar, not the whole organization\u2019s.",
+      },
+      {
+        kind: "fix",
+        text: "If you can see a project but can\u2019t add events to it, a new event now goes on the organization\u2019s calendar and the form says so, instead of failing with an error when you save.",
+      },
+      {
+        kind: "fix",
+        text: "Saving an event with a time zone the calendar doesn\u2019t recognize is now refused, and the message names the time zone. Before, it was saved, and one such event could stop the calendar from loading for everyone.",
+      },
+      {
+        kind: "fix",
+        text: "The program calendar now marks today, and opens on, your own date. Before, in the evening in a time zone west of UTC, it marked tomorrow, and on the last evening of a month it opened on the next month.",
+      },
+      {
+        kind: "fix",
+        text: "An event saved earlier with a time zone the calendar doesn\u2019t recognize can be edited and saved again. It is shown in UTC, and is now saved in UTC. Before, saving it failed every time, and an all-day event had no way to change its time zone.",
+      },
+      {
+        kind: "fix",
+        text: "A time zone is saved as you entered it, trimmed and with its capitalization fixed, so \u201camerica/chicago\u201d is saved as America/Chicago. A bare UTC offset such as +05:30 is refused, and the message names it, because not every browser can show one.",
+      },
+      {
+        kind: "fix",
+        text: "Through the API, clearing the person who leads an event no longer clears the team that leads it, and clearing the team no longer clears the person.",
+      },
+    ],
+  },
+  {
     version: "2.562.4",
     date: "2026-11-16",
     title: "Table board item count",
