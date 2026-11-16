@@ -202,7 +202,7 @@ export interface Objective {
   /** Target/end date for health (FR a94ff583); null = no dated signal. */
   targetDate?: string | null;
   /** Server-derived stoplight: progress vs. time toward targetDate. */
-  health?: "done" | "on_track" | "at_risk" | "behind" | "no_date";
+  health?: "done" | "on_track" | "at_risk" | "behind" | "no_date" | "cancelled";
   /** Past the end of its target day and neither completed nor cancelled. */
   overdue?: boolean;
   /** What this objective needs done first; only those the reader can see. */

@@ -119,6 +119,27 @@ function canonical(v: unknown): string {
 const sha256 = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
 
 /**
+ * The ids a single-item call acts on, from its arguments: the ones the tool
+ * declares as its targets (`confirmTargets`), or, for a tool that declares
+ * none, every `…Id` / `…Ids` argument.
+ *
+ * The fallback is what every tool got before the declaration, and it counted
+ * the WHERE with the WHAT: `delete_board({ projectId, boardId })` was
+ * previewed as two targets, `add_team_member` as three. Only a plugin's
+ * confirm-class tool should still reach it.
+ */
+export function namedTargetIds(args: Record<string, unknown>, targets?: readonly string[]): string[] {
+  const ids = new Set<string>();
+  for (const [k, v] of Object.entries(args)) {
+    const named = targets ? targets.includes(k) : /(^id|Id)$/.test(k) || /(^ids|Ids)$/.test(k);
+    if (!named) continue;
+    if (typeof v === "string") ids.add(v);
+    if (Array.isArray(v)) for (const x of v) if (typeof x === "string") ids.add(x);
+  }
+  return [...ids].sort();
+}
+
+/**
  * The ids a call would act on. A bulk change resolves its selection exactly as
  * its executor does; any other confirm-class tool acts on the ids it names.
  * `refusal` is the executor's own answer for an input it would refuse.
@@ -127,14 +148,10 @@ async function resolveTargets(
   toolName: string,
   execArgs: Record<string, unknown>,
   ctx: ToolContext,
+  targets: readonly string[] | undefined,
 ): Promise<{ ids: string[] } | { refusal: Record<string, unknown> }> {
   if (toolName === "bulk_update_work_items") return bulkTargetIds(execArgs, ctx);
-  const ids = new Set<string>();
-  for (const [k, v] of Object.entries(execArgs)) {
-    if (/(^id|Id)$/.test(k) && typeof v === "string") ids.add(v);
-    if (/(^ids|Ids)$/.test(k) && Array.isArray(v)) for (const x of v) if (typeof x === "string") ids.add(x);
-  }
-  return { ids: [...ids].sort() };
+  return { ids: namedTargetIds(execArgs, targets) };
 }
 
 interface MacFields {
@@ -173,6 +190,8 @@ export interface GateInput {
   /** The arguments the executor would receive (handles resolved, policy applied). */
   execInput: Record<string, unknown>;
   ctx: ToolContext;
+  /** The tool's `confirmTargets`: which arguments name what it acts on. */
+  targets?: readonly string[];
 }
 
 /**
@@ -200,7 +219,7 @@ export async function confirmationGate(g: GateInput): Promise<GateDecision> {
 const notice = (forModel: Record<string, unknown>): GateDecision => ({ kind: "notice", forModel, forUser: forModel });
 
 async function issuePreview(g: GateInput, args: Record<string, unknown>, execArgs: Record<string, unknown>): Promise<GateDecision> {
-  const targets = await resolveTargets(g.toolName, execArgs, g.ctx);
+  const targets = await resolveTargets(g.toolName, execArgs, g.ctx, g.targets);
   if ("refusal" in targets) return { kind: "result", output: targets.refusal };
   if (targets.ids.length === 0) {
     return { kind: "result", output: { matched: 0, updated: 0, items: [], skipped: [], note: "Nothing matches that selection, so nothing was changed." } };
@@ -333,7 +352,7 @@ async function redeem(g: GateInput, token: unknown, args: Record<string, unknown
       error: "The user has not answered the preview yet. Show it to them, ask them to confirm, and wait for their reply. Nothing was changed.",
     });
   }
-  const targets = await resolveTargets(g.toolName, execArgs, g.ctx);
+  const targets = await resolveTargets(g.toolName, execArgs, g.ctx, g.targets);
   if ("refusal" in targets) return { kind: "result", output: targets.refusal };
   if (sha256(canonical(targets.ids)) !== row.idsHash) {
     return notice({

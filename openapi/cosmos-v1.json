@@ -2047,7 +2047,8 @@
               "AT_RISK",
               "ON_TRACK",
               "DONE"
-            ]
+            ],
+            "description": "With linked work items it follows them: `DONE` exactly when they bring it to its target, and not `NOT_STARTED` once it has moved. A check-in's `ON_TRACK` or `AT_RISK` stands until then. Without links, the status as set."
           },
           "ownerId": {
             "type": [
@@ -2856,7 +2857,8 @@
                     "AT_RISK",
                     "ON_TRACK",
                     "DONE"
-                  ]
+                  ],
+                  "description": "With linked work items it follows them: `DONE` exactly when they bring it to its target, and not `NOT_STARTED` once it has moved. A check-in's `ON_TRACK` or `AT_RISK` stands until then. Without links, the status as set."
                 },
                 "ownerId": {
                   "type": [
@@ -3017,12 +3019,13 @@
           },
           "health": {
             "type": "string",
-            "enum": [
+            "x-extensible-enum": [
               "done",
               "on_track",
               "at_risk",
               "behind",
-              "no_date"
+              "no_date",
+              "cancelled"
             ],
             "description": "Progress against the time elapsed toward `targetDate`."
           },
@@ -3099,12 +3102,13 @@
           },
           "health": {
             "type": "string",
-            "enum": [
+            "x-extensible-enum": [
               "done",
               "on_track",
               "at_risk",
               "behind",
-              "no_date"
+              "no_date",
+              "cancelled"
             ]
           },
           "overdue": {

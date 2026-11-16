@@ -100,6 +100,7 @@ export const boardTools: ToolDefinition[] = [
   {
     name: "delete_board",
     confirm: true,
+    confirmTargets: ["boardId"],
     description:
       "Delete a board. Boards cannot be archived; deleting removes only the board, never its work items. Confirm with the user first.",
     input_schema: {
