@@ -107,20 +107,42 @@ function resolveZone(value: string): { name: string; formatter: Intl.DateTimeFor
   return { name, formatter: zoneFormatters.get(name)! };
 }
 
-/**
- * The name `Intl` resolves a zone to ("america/chicago" and "US/Central" are
- * both America/Chicago), or null for a value that is not a named zone. This is
- * what the service stores. Which name a renamed zone resolves to depends on
- * the runtime's ICU data: Node 22 gives Asia/Calcutta for Asia/Kolkata. Both
- * are names every browser takes.
- */
-export function canonicalZone(value: string): string | null {
-  return resolveZone(value)?.name ?? null;
-}
-
 /** Is this a named zone `Intl` will accept? */
 export function isIanaZone(value: string): boolean {
-  return canonicalZone(value) !== null;
+  return resolveZone(value) !== null;
+}
+
+/** The runtime's listed zones by lower-cased name, plus UTC, which the list
+ *  leaves out. Built once, on first use. */
+let listedZones: Map<string, string> | null = null;
+function listedSpelling(value: string): string | undefined {
+  if (!listedZones) {
+    listedZones = new Map([["utc", "UTC"]]);
+    try {
+      for (const name of Intl.supportedValuesOf("timeZone")) listedZones.set(name.toLowerCase(), name);
+    } catch {
+      /* a runtime without the list: every spelling is kept as given */
+    }
+  }
+  return listedZones.get(value.toLowerCase());
+}
+
+/**
+ * The zone to store: the name as the user gave it, trimmed, or null when it is
+ * not a named zone (`Intl` refuses it, or it is a bare UTC offset).
+ *
+ * Not the name `Intl` resolves it to: that depends on the runtime. Node 22
+ * resolves Asia/Kolkata to Asia/Calcutta and EST to America/Panama, newer
+ * engines keep the name they were given, and the reader's browser can differ
+ * again. Only the case is fixed, and only where the runtime lists the zone
+ * ("america/chicago" is stored as America/Chicago). Zone names are matched
+ * without regard to case everywhere, so a spelling the list does not have is
+ * kept as given.
+ */
+export function storedZoneName(value: string): string | null {
+  const name = value.trim();
+  if (!resolveZone(name)) return null;
+  return listedSpelling(name) ?? name;
 }
 
 /** The cache sizes, for the tests that hold them bounded. */

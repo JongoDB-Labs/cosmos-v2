@@ -20,7 +20,6 @@ vi.mock("@/lib/openapi/org-context", () => ({
 import { GET, POST } from "./route";
 import { PATCH } from "./[eventId]/route";
 import { createProgramEvent, listCategories } from "@/lib/program-calendar/service";
-import { canonicalZone } from "@/lib/program-calendar/time";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let orgId = "", userId = "", memberId = "", teamId = "", catId = "", eventId = "";
@@ -80,9 +79,7 @@ describe("a time zone Intl cannot build is refused, and the refusal names it", (
   it("control: a real zone is taken, on create and on update", async () => {
     const created = await post(body("Kolkata review", "Asia/Kolkata"));
     expect(created.status).toBe(201);
-    // Stored by its canonical name, which for Asia/Kolkata depends on the
-    // runtime's ICU (Node 22 resolves it to Asia/Calcutta).
-    expect(await prisma.programEvent.count({ where: { orgId, title: "Kolkata review", timeZone: canonicalZone("Asia/Kolkata")! } })).toBe(1);
+    expect(await prisma.programEvent.count({ where: { orgId, title: "Kolkata review", timeZone: "Asia/Kolkata" } })).toBe(1);
 
     expect((await patch(body("Existing review", "Europe/Berlin"))).status).toBe(200);
     const row = await prisma.programEvent.findUniqueOrThrow({ where: { id: eventId }, select: { timeZone: true } });
@@ -119,11 +116,7 @@ describe("an update leaves alone what it does not send", () => {
   it("a title change keeps the zone, and every other field it did not send", async () => {
     const res = await patchEvent(id, { title: "Kolkata standup, renamed", categoryId: catId, allDay: false, ...range });
     expect(res.status).toBe(200);
-    // The zone as create stored it: its canonical name, which for Asia/Kolkata
-    // depends on the runtime's ICU.
-    expect(await stored()).toEqual({
-      ...FULL, timeZone: canonicalZone(FULL.timeZone), title: "Kolkata standup, renamed", ownerMemberId: memberId,
-    });
+    expect(await stored()).toEqual({ ...FULL, title: "Kolkata standup, renamed", ownerMemberId: memberId });
   });
 
   it("an all-day event stays all-day when the update does not say", async () => {
@@ -155,13 +148,28 @@ describe("an update leaves alone what it does not send", () => {
   });
 });
 
-describe("a zone is stored by its canonical name", () => {
-  it("a spelling Intl takes is stored as the name it resolves to", async () => {
-    const res = await post(body("Lower-case zone", "america/los_angeles"));
-    expect(res.status).toBe(201);
-    const row = await prisma.programEvent.findFirstOrThrow({ where: { orgId, title: "Lower-case zone" }, select: { timeZone: true } });
-    expect(row.timeZone).toBe("America/Los_Angeles");
-    expect(row.timeZone).toBe(canonicalZone("america/los_angeles"));
+describe("a zone is stored as the user gave it", () => {
+  // Not as Intl resolves it, which depends on the runtime: Node 22 would store
+  // Asia/Calcutta and America/Los_Angeles for the first two.
+  const zoneOf = async (title: string) =>
+    (await prisma.programEvent.findFirstOrThrow({ where: { orgId, title }, select: { timeZone: true } })).timeZone;
+
+  it("a renamed or linked zone keeps its name", async () => {
+    expect((await post(body("Kept Kolkata", "Asia/Kolkata"))).status).toBe(201);
+    expect(await zoneOf("Kept Kolkata")).toBe("Asia/Kolkata");
+    expect((await post(body("Kept link", "US/Pacific"))).status).toBe(201);
+    expect(await zoneOf("Kept link")).toBe("US/Pacific");
+  });
+
+  it("a mis-cased name is stored with its case fixed, and a padded one trimmed, on create and on update", async () => {
+    expect((await post(body("Lower-case zone", "america/los_angeles"))).status).toBe(201);
+    expect(await zoneOf("Lower-case zone")).toBe("America/Los_Angeles");
+    expect((await post(body("Padded zone", " Asia/Tokyo "))).status).toBe(201);
+    expect(await zoneOf("Padded zone")).toBe("Asia/Tokyo");
+
+    expect((await patch(body("Existing review", "europe/berlin"))).status).toBe(200);
+    const row = await prisma.programEvent.findUniqueOrThrow({ where: { id: eventId }, select: { timeZone: true } });
+    expect(row.timeZone).toBe("Europe/Berlin");
   });
 
   it("a bare UTC offset is refused, naming it", async () => {

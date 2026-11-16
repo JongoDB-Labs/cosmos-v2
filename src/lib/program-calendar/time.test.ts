@@ -9,7 +9,7 @@ import {
   dayWindow,
   rollingWindow,
   DAY_MS,
-  canonicalZone,
+  storedZoneName,
   isIanaZone,
   zoneOffsetMs,
   zoneCacheSizes,
@@ -118,33 +118,38 @@ describe("the view windows", () => {
   });
 });
 
-describe("a zone's canonical name", () => {
-  // What `Intl` resolves a spelling to. Which name that is for a renamed zone
-  // depends on the runtime's ICU (Node 22 gives Asia/Calcutta for
-  // Asia/Kolkata), so the expectations are read from Intl where they vary.
-  const resolved = (z: string) => new Intl.DateTimeFormat("en-US", { timeZone: z }).resolvedOptions().timeZone;
+describe("the zone to store is the name the user gave", () => {
+  // Not the name Intl resolves it to: that depends on the runtime (Node 22
+  // resolves Asia/Kolkata to Asia/Calcutta, newer engines keep Asia/Kolkata),
+  // so these expectations hold on every runtime.
+  it("keeps a renamed or linked zone as given", () => {
+    expect(storedZoneName("Asia/Kolkata")).toBe("Asia/Kolkata");
+    expect(storedZoneName("US/Pacific")).toBe("US/Pacific");
+    expect(storedZoneName("EST")).toBe("EST");
+  });
 
-  it("fixes the case of a name, and resolves an alias to the name Intl uses", () => {
-    expect(canonicalZone("america/new_york")).toBe("America/New_York");
-    expect(canonicalZone("US/Pacific")).toBe(resolved("US/Pacific"));
-    expect(canonicalZone("EST")).toBe(resolved("EST"));
+  it("trims it, and fixes only the case of a listed zone", () => {
+    expect(storedZoneName(" Asia/Tokyo ")).toBe("Asia/Tokyo");
+    expect(storedZoneName("america/chicago")).toBe("America/Chicago");
+    expect(storedZoneName("utc")).toBe("UTC");
   });
 
   it("refuses a bare UTC offset, which is not a named zone and not every browser takes", () => {
     expect(() => new Intl.DateTimeFormat("en-US", { timeZone: "+05:30" })).not.toThrow(); // Node takes it
-    expect(canonicalZone("+05:30")).toBeNull();
-    expect(canonicalZone("-0800")).toBeNull();
+    expect(storedZoneName("+05:30")).toBeNull();
+    expect(storedZoneName("-0800")).toBeNull();
     expect(isIanaZone("+05:30")).toBe(false);
   });
 
   it("refuses what is not a zone at all", () => {
-    expect(canonicalZone("Mars/Olympus_Mons")).toBeNull();
-    expect(canonicalZone("")).toBeNull();
+    expect(storedZoneName("Mars/Olympus_Mons")).toBeNull();
+    expect(storedZoneName("")).toBeNull();
+    expect(storedZoneName("   ")).toBeNull();
   });
 
-  it("control: a canonical name is its own", () => {
-    expect(canonicalZone("America/Los_Angeles")).toBe("America/Los_Angeles");
-    expect(canonicalZone("UTC")).toBe("UTC");
+  it("control: a listed name is its own", () => {
+    expect(storedZoneName("America/Los_Angeles")).toBe("America/Los_Angeles");
+    expect(storedZoneName("UTC")).toBe("UTC");
   });
 });
 

@@ -7,7 +7,7 @@ import { canManageProject } from "@/lib/rbac/scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { ProblemError } from "@/lib/openapi/problem";
 import { DEFAULT_CATEGORIES } from "./categories";
-import { DRAWN_PAD_MS, canonicalZone, drawnRange, normalizeRange, overlaps } from "./time";
+import { DRAWN_PAD_MS, drawnRange, normalizeRange, overlaps, storedZoneName } from "./time";
 
 /**
  * Reading and writing the program calendar.
@@ -259,11 +259,11 @@ function ownerChange(input: EventUpdate): { ownerTeamId?: string | null; ownerMe
   return { ownerTeamId: input.ownerTeamId, ownerMemberId: input.ownerMemberId };
 }
 
-/** The zone as stored: the name `Intl` resolves it to, so "EST" or
- *  "america/chicago" is kept as a name every browser takes.
- *  `assertReferencesInOrg` has already refused a value with none. */
+/** The zone as stored: as the user gave it, trimmed, with its case fixed
+ *  where the runtime lists it (see `storedZoneName`).
+ *  `assertReferencesInOrg` has already refused one that is not a named zone. */
 const storedZone = (value: string | undefined) =>
-  value === undefined ? undefined : (canonicalZone(value) ?? value);
+  value === undefined ? undefined : (storedZoneName(value) ?? value);
 
 
 /**
@@ -290,7 +290,7 @@ async function assertReferencesInOrg(ctx: AuthContext, input: EventInput): Promi
   // everyone; refused here, the caller is told which value it sent. A bare
   // offset ("+05:30") builds in Node but is not a named zone, and not every
   // browser takes one, so it is refused the same way.
-  if (input.timeZone !== undefined && canonicalZone(input.timeZone) === null) {
+  if (input.timeZone !== undefined && storedZoneName(input.timeZone) === null) {
     throw bad(`time zone ${JSON.stringify(input.timeZone)}`);
   }
 

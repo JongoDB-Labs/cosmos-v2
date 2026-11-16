@@ -33,9 +33,12 @@ describe("time zones", () => {
     expect(resolveTimeZone("Eastern (ET)")).toBe("America/New_York");
     expect(resolveTimeZone("ET")).toBe("America/New_York");
     expect(resolveTimeZone("Pacific Time")).toBe("America/Los_Angeles");
-    // "GMT" needs no translation: Intl accepts it as a zone, and it is stored
-    // as the name Intl resolves it to, which ECMA-402 fixes as "UTC".
-    expect(resolveTimeZone("GMT")).toBe("UTC");
+    // "GMT" needs no translation: Intl accepts it as a zone, so it passes
+    // through — the rule is "something Intl will take", not "an Area/City name".
+    // It is kept as written, not as the name the runtime resolves it to.
+    expect(resolveTimeZone("GMT")).toBe("GMT");
+    expect(resolveTimeZone("US/Pacific")).toBe("US/Pacific");
+    // Only the case of a listed zone is fixed.
     expect(resolveTimeZone("america/chicago")).toBe("America/Chicago");
   });
 

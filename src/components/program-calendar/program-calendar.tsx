@@ -21,7 +21,7 @@ import {
   utcMidnight,
   wallClock,
   zonedInstant,
-  canonicalZone,
+  isIanaZone,
 } from "@/lib/program-calendar/time";
 import { weekDays } from "@/lib/program-calendar/layout";
 import {
@@ -486,10 +486,11 @@ export function ProgramCalendar({
       startTime: e.allDay ? "09:00" : hhmm(start),
       endTime: e.allDay ? "10:00" : hhmm(end),
       allDay: e.allDay,
-      // The zone it was drawn in. A stored one `Intl` does not know was drawn
-      // as UTC, and sent back as it was, the service refuses it: an all-day
-      // event, which has no zone picker, could then never be saved.
-      timeZone: canonicalZone(e.timeZone) ?? "UTC",
+      // The zone it was drawn in, as stored. A stored one `Intl` does not
+      // know was drawn as UTC, and sent back as it was, the service refuses
+      // it: an all-day event, which has no zone picker, could then never be
+      // saved.
+      timeZone: isIanaZone(e.timeZone) ? e.timeZone : "UTC",
       location: e.location ?? "",
       ownerKey: e.ownerTeam ? `team:${e.ownerTeam.id}` : e.ownerMember ? `member:${e.ownerMember.id}` : "",
       attendees: e.attendees,

@@ -83,7 +83,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "A time zone is now saved under its standard name, so \u201camerica/chicago\u201d is saved as America/Chicago. A bare UTC offset such as +05:30 is refused, and the message names it, because not every browser can show one.",
+        text: "A time zone is saved as you entered it, trimmed and with its capitalization fixed, so \u201camerica/chicago\u201d is saved as America/Chicago. A bare UTC offset such as +05:30 is refused, and the message names it, because not every browser can show one.",
       },
       {
         kind: "fix",

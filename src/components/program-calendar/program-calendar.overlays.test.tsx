@@ -661,8 +661,8 @@ describe("a stored zone Intl does not know is not sent back", () => {
     expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ timeZone: "UTC" });
   });
 
-  it("control: a good zone is sent back as it is", async () => {
-    eventsResponse = () => [{ ...EVENT, id: "ok", title: "Good zone review", allDay: false, timeZone: "America/Chicago",
+  it("control: a good zone is sent back as stored, not as the runtime would rename it", async () => {
+    eventsResponse = () => [{ ...EVENT, id: "ok", title: "Good zone review", allDay: false, timeZone: "Asia/Kolkata",
       startsAt: "2027-01-12T15:00:00.000Z", endsAt: "2027-01-12T16:00:00.000Z" }];
     const user = userEvent.setup();
     mount(overlays(), { canCreate: true });
@@ -670,6 +670,6 @@ describe("a stored zone Intl does not know is not sent back", () => {
     await user.click(screen.getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(vi.mocked(jsonFetch).mock.calls.some(([, i]) => i?.method === "PATCH")).toBe(true));
     const patch = vi.mocked(jsonFetch).mock.calls.find(([, i]) => i?.method === "PATCH")!;
-    expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ timeZone: "America/Chicago" });
+    expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ timeZone: "Asia/Kolkata" });
   });
 });

@@ -27,7 +27,7 @@ import { requirePermission, type AuthContext } from "@/lib/rbac/check";
 import { hasPermission, Permission } from "@/lib/rbac/permissions";
 import { hiddenProjectIds } from "@/lib/rbac/project-access";
 import { DEFAULT_CATEGORIES } from "./categories";
-import { canonicalZone, normalizeRange, isIanaZone, zonedInstant } from "./time";
+import { normalizeRange, isIanaZone, storedZoneName, zonedInstant } from "./time";
 import { escapeLike } from "@/lib/query/like";
 
 // The wall-clock conversion is the calendar's, shared with the grid and the
@@ -139,7 +139,7 @@ const ZONE_ALIASES: Record<string, string> = {
 export function resolveTimeZone(raw: string): string | null {
   const value = raw.trim();
   if (!value) return null;
-  return canonicalZone(value) ?? ZONE_ALIASES[zoneKey(value)] ?? null;
+  return storedZoneName(value) ?? ZONE_ALIASES[zoneKey(value)] ?? null;
 }
 
 // ── Reading a sheet's dates and times ────────────────────────────────────────
