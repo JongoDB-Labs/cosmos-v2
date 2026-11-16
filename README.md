@@ -236,7 +236,7 @@ is permission-gated; the groups below mirror the in-app navigation.
   Microsoft identity that first signs in to it; an email address only finds the
   account on that first sign-in, and only when the provider vouches for it
   (Microsoft: the `xms_edov` optional claim, or a member's sign-in name on a
-  domain in `MICROSOFT_TRUSTED_DOMAINS`). Anyone can also connect Google or
+  trusted domain set in Admin → Sign-in providers). Anyone can also connect Google or
   Microsoft from **Profile → Sign-in methods**. A deployment for a single
   organization should set the Microsoft **tenant** (its directory ID or domain)
   rather than `common`. A session from an organization's single sign-on opens
