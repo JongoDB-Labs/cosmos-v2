@@ -5,6 +5,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { canReadMeeting, readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { SYNCED_MEETING_FIELDS, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { createSyncMeeting, meetingRefusalMessage } from "@/lib/meetings/create-meeting.server";
 import { refsError } from "@/lib/rbac/foreign-refs";
 
 /**
@@ -76,6 +77,10 @@ const createSchema = z.object({
   sprintId: z.string().uuid().nullish(),
   meetingType: z.nativeEnum(MeetingType).optional(),
   notes: z.string().max(10000).nullish(),
+  // Who gets it in Outlook, as in the app: its attendees, and a Teams
+  // meeting's host (the requester). Nobody is added who wasn't asked for.
+  attendeeIds: z.array(z.string().uuid()).max(500).optional(),
+  teamsMeeting: z.boolean().optional(),
 });
 
 export async function createMeeting(input: Record<string, unknown>, ctx: ToolContext) {
@@ -100,20 +105,30 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
   );
   if (foreignSprint) return { error: foreignSprint };
 
-  const created = await prisma.syncMeeting.create({
-    data: {
-      orgId: ctx.orgId,
-      title: data.title,
-      meetingDate: new Date(data.meetingDate),
-      projectId: data.projectId ?? null,
-      sprintId: data.sprintId ?? null,
-      meetingType: data.meetingType ?? MeetingType.STANDUP,
-      notes: data.notes ?? "",
-      createdById: ctx.userId,
+  // The app's create path: the same attendee and Teams rules, and the same
+  // push, queued for the same people's Outlook.
+  const made = await createSyncMeeting(
+    {
+      data: {
+        orgId: ctx.orgId,
+        title: data.title,
+        meetingDate: new Date(data.meetingDate),
+        projectId: data.projectId ?? null,
+        sprintId: data.sprintId ?? null,
+        meetingType: data.meetingType ?? MeetingType.STANDUP,
+        notes: data.notes ?? "",
+        createdById: ctx.userId,
+      },
+      attendeeIds: data.attendeeIds,
+      teamsMeeting: data.teamsMeeting,
+      isApiKey: !!ctx.auth.isApiKey,
     },
-    select: MEETING_SELECT,
-  });
-  return { created: true, id: created.id, meeting: created };
+    { select: MEETING_SELECT },
+  );
+  if (made.refused) return { error: meetingRefusalMessage(made.refused) };
+  // `calendarCopies` says the Outlook copies are queued, not delivered: the
+  // push runs after this reply, and a failed one is retried later.
+  return { created: true, id: made.meeting.id, calendarCopies: made.calendarCopies, meeting: made.meeting };
 }
 
 // ── update_meeting ─────────────────────────────────────────────────────────

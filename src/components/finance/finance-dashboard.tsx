@@ -955,7 +955,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
                         },
                       ];
                       return (
-                        <div className="flex justify-end group/action">
+                        <div className="flex justify-end">
                           <ActionMenu groups={groups}>
                             <span />
                           </ActionMenu>
@@ -1302,7 +1302,7 @@ export function FinanceDashboard({ orgId, userId }: FinanceDashboardProps) {
                         },
                       ];
                       return (
-                        <div className="flex justify-end group/action">
+                        <div className="flex justify-end">
                           <ActionMenu groups={groups}>
                             <span />
                           </ActionMenu>

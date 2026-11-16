@@ -76,6 +76,29 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.563.2",
+    date: "2026-11-16",
+    title: "Cosmo invites people to meetings, an Upcoming section, and menus on hover",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Cosmo can now invite people when it schedules a meeting, and can make it a Teams meeting. The meeting is sent right away to the Outlook calendar of each invited person who has connected Outlook, and a Teams meeting also to yours, as its host. Cosmo tells you the copies are on their way. Before, Cosmo couldn\u2019t invite anyone, so a meeting it made reached no one\u2019s Outlook until someone added attendees in the app.",
+      },
+      {
+        kind: "fix",
+        text: "Adding a Google Meet to a meeting now updates its copies in attendees\u2019 Outlook calendars right away, with the Meet link.",
+      },
+      {
+        kind: "fix",
+        text: "The meetings list has a new Upcoming section for meetings after this week. They used to be listed under Past. Today, This Week and Upcoming follow your own time zone and list the soonest meeting first. Past lists the most recent first.",
+      },
+      {
+        kind: "fix",
+        text: "The ⋯ menu on meeting, project, board, RAID and contact cards, and on the hidden board tabs, now appears when you point at the card. Before, it showed only when you tabbed to it or right-clicked. In the team, contracts and finance tables it appears when you point anywhere on the row, not only at its last cell.",
+      },
+    ],
+  },
+  {
     version: "2.563.1",
     date: "2026-11-16",
     title: "Signing in takes you back to the page you opened",

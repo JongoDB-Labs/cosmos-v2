@@ -508,8 +508,10 @@ export function DataTable<T>({
                         }
                       : undefined
                   }
+                  // `group/action` too: an ActionMenu in a column's cell shows its ⋯
+                  // when the pointer is anywhere on the row, not only on that cell.
                   className={cn(
-                    "group block space-y-2 border-b border-[var(--border)]/40 p-4 transition-colors last:border-0 hover:bg-[var(--bg)] md:table-row md:space-y-0 md:p-0",
+                    "group group/action block space-y-2 border-b border-[var(--border)]/40 p-4 transition-colors last:border-0 hover:bg-[var(--bg)] md:table-row md:space-y-0 md:p-0",
                     row.getIsSelected() && "bg-[var(--primary-tint)]/40",
                     onRowClick && "cursor-pointer",
                   )}

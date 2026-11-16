@@ -30,7 +30,12 @@ export const meetingTools: ToolDefinition[] = [
   },
   {
     name: "create_meeting",
-    description: "Schedule a meeting.",
+    description:
+      "Schedule a meeting. Each person in attendeeIds who has connected their Outlook Calendar gets a copy in their own calendar " +
+      "shortly after, as does the requester for a Teams meeting, which they host in their own Outlook. The result's calendarCopies " +
+      "is \"queued\" when copies are on their way and \"none\" when nobody gets one: say the copies are on their way, never that " +
+      "they have arrived; a delivery that fails is retried. Nobody else is added, the requester included: to put it in their own " +
+      "calendar, list their user id. Use list_org_members to find other people's ids.",
     input_schema: {
       type: "object",
       properties: {
@@ -44,6 +49,15 @@ export const meetingTools: ToolDefinition[] = [
           description: "Default STANDUP",
         },
         notes: { type: "string", description: "Optional notes" },
+        attendeeIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "User ids of the people attending; each must be in this organization",
+        },
+        teamsMeeting: {
+          type: "boolean",
+          description: "Make it a Teams meeting, hosted in the requester's own Outlook (it must be connected)",
+        },
       },
       required: ["title", "meetingDate"],
     },
