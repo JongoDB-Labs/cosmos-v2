@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { requireAccess } from "@/lib/abac/require-access";
 import { handleApiError } from "@/lib/api-helpers";
-import { recomputeObjectiveProgress } from "@/lib/okr/rollup.server";
+import { liveKeyResult, recomputeObjectiveProgress } from "@/lib/okr/rollup.server";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
 import { orgContext } from "@/lib/openapi/org-context";
@@ -35,7 +35,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       objectiveId: kr.objectiveId,
     });
 
-    const updated = await prisma.keyResult.update({
+    await prisma.keyResult.update({
       where: { id: krId },
       data: {
         ...(data.currentValue !== undefined && { currentValue: data.currentValue }),
@@ -52,6 +52,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     // OKR board shows (linked work items included).
     await recomputeObjectiveProgress(kr.objectiveId);
 
+    // The numbers and status a read shows: one with linked work items is
+    // measured by them, not by what was just stored (lib/okr/progress).
+    const updated = await liveKeyResult(krId);
+    if (!updated) return problem(404, "not_found", undefined, { request });
     return respond(updateKeyResult, 200, updated);
   } catch (e) {
     return handleApiError(e, request);

@@ -132,7 +132,8 @@ export function KeyResultRow({
       <div className="flex-1 min-w-0">
         <p className="text-sm truncate">{keyResult.title}</p>
         <div className="flex items-center gap-2 mt-1">
-          <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+          {/* A visible track, so 0% still reads as a bar (objective-card.tsx). */}
+          <div className="flex-1 h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
             <div
               className={cn("h-full rounded-full transition-all", getProgressColor(progress))}
               style={{ width: `${progress}%` }}
@@ -218,7 +219,8 @@ export function KeyResultRow({
 
         <DropdownMenu>
           <DropdownMenuTrigger
-            render={<Button variant="ghost" size="icon-xs" />}
+            // An icon alone has no name: axe's critical button-name, once a card is open.
+            render={<Button variant="ghost" size="icon-xs" aria-label="Key result actions" />}
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
           </DropdownMenuTrigger>

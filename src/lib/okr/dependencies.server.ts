@@ -97,6 +97,11 @@ export async function createObjectiveDependency(
 
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DEPENDENCY_LOCK_NAMESPACE}::int, hashtext(${orgId}))`;
+    // Every edge in the org, including those through objectives this caller
+    // can't read. Deliberate: a loop through a hidden objective can never be
+    // finished either, and accepting it to keep that edge secret would break
+    // the plan for everyone who can see it. The refusal gives away only that
+    // some path exists; it names, counts and links no objective.
     const edges = await tx.objectiveDependency.findMany({
       where: { orgId },
       select: { objectiveId: true, dependsOnId: true },

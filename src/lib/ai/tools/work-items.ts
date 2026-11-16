@@ -76,6 +76,7 @@ export const workItemTools: ToolDefinition[] = [
   {
     name: "delete_work_item",
     confirm: true,
+    confirmTargets: ["itemId"],
     description:
       "PERMANENTLY delete a work item by id. Cascades to its activities + comments and CANNOT be undone. " +
       "Only an org OWNER or ADMIN may do this, whatever permissions a work role has granted. " +

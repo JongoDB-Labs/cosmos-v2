@@ -60,3 +60,29 @@ export function finalizeToolCalls<T extends ToolCallLike>(
 export function hasRunningToolCall(tcs: readonly ToolCallLike[]): boolean {
   return tcs.some(isToolCallRunning);
 }
+
+/**
+ * What a call came to, for its chip.
+ *
+ *   - `running`  : still executing (see `isToolCallRunning`).
+ *   - `proposed` : a confirm-class call made without its token. Nothing ran:
+ *                  the loop answered with a preview and is waiting for the
+ *                  user's yes (lib/ai/confirmation.ts).
+ *   - `refused`  : the answer is a refusal, `{ error }`. Nothing was done.
+ *   - `done`     : anything else.
+ *
+ * The chip used to say "Deleted work item" (or "Ran delete_board") for every
+ * finished call, so a preview read as the change it was only asking about.
+ */
+export type ToolCallOutcome = "running" | "proposed" | "refused" | "done";
+
+export function toolCallOutcome(tc: ToolCallLike): ToolCallOutcome {
+  if (isToolCallRunning(tc)) return "running";
+  const r = tc.result;
+  if (r !== null && typeof r === "object" && !Array.isArray(r)) {
+    const rec = r as Record<string, unknown>;
+    if (rec.status === "confirmation_required") return "proposed";
+    if (typeof rec.error === "string") return "refused";
+  }
+  return "done";
+}

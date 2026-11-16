@@ -60,6 +60,56 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.562.2",
+    date: "2026-11-16",
+    title: "Cosmo is clearer about what it did",
+    highlights: [
+      {
+        kind: "fix",
+        text: "When Cosmo asks for your yes before a change, its chip now reads \u201cProposed\u201d instead of \u201cRan\u201d, because nothing has changed yet. A call that was refused reads \u201cNot done\u201d.",
+      },
+      {
+        kind: "fix",
+        text: "A preview of a single change, such as adding someone to a team, now counts the one thing it changes, not the project and team it names as well.",
+      },
+      {
+        kind: "fix",
+        text: "In a chat where results are withheld from Cosmo, it is now told when a tool refused, and why when the reason is safe to show, instead of being handed an empty result.",
+      },
+      {
+        kind: "fix",
+        text: "Asking Cosmo for the saved views of a project you can\u2019t see now gives an empty list, the same as the app, instead of saying the project doesn\u2019t exist.",
+      },
+      {
+        kind: "fix",
+        text: "The label on a deleted item\u2019s card in Cosmo\u2019s chat is easier to read.",
+      },
+    ],
+  },
+  {
+    version: "2.562.1",
+    date: "2026-11-16",
+    title: "OKRs show where the work really is",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A key result whose linked work items are all done now shows Done, on the OKR board, through the API and to Cosmo. It used to keep showing In Progress. A key result without linked items keeps the status you set.",
+      },
+      {
+        kind: "fix",
+        text: "Saving an objective now answers with its real progress. It used to answer with an old number after a linked item finished or a key result was added, deleted, linked or unlinked.",
+      },
+      {
+        kind: "fix",
+        text: "A cancelled objective past its due date shows as Cancelled, not Behind, on its card, in what depends on it, and to Cosmo.",
+      },
+      {
+        kind: "fix",
+        text: "An OKR progress bar at 0% now shows its empty track, in light and dark themes, and a key result\u2019s actions menu has a name screen readers can announce.",
+      },
+    ],
+  },
+  {
     version: "2.562.0",
     date: "2026-11-16",
     title: "Trusted domains for Microsoft sign-in",
