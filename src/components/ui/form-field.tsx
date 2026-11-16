@@ -70,8 +70,11 @@ export function FormField({
           {hint}
         </p>
       )}
+      {/* The same text token as the required star. `text-destructive` is the
+          saturated red meant for fills, about 3.8:1 on white: under the 4.5:1
+          small text needs, on the one line that says what went wrong. */}
       {error && (
-        <p id={errorId} className="text-xs text-destructive">
+        <p id={errorId} className="text-xs text-[var(--status-critical-text,var(--status-critical))]">
           {error}
         </p>
       )}

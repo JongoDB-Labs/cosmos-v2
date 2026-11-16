@@ -163,15 +163,16 @@ export function SearchableMultiSelect({
                   // As in <SearchableSelect>: the row's accessible NAME stays the
                   // label, and a description under it is attached as a
                   // description, so `getByRole("option", { name })` and a
-                  // screen reader both still get the label alone.
-                  aria-label={item.description ? item.label : undefined}
+                  // screen reader both still get the label alone. Also as
+                  // there: the description is hidden from the name rather than
+                  // the label repeated in an aria-label (WCAG 2.5.3).
                   aria-describedby={item.description ? `${descId}-${item.value}` : undefined}
                   className="relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 >
                   {item.description ? (
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="line-clamp-1">{item.label}</span>
-                      <span id={`${descId}-${item.value}`} className="line-clamp-2 text-xs text-muted-foreground">
+                      <span id={`${descId}-${item.value}`} aria-hidden="true" className="line-clamp-2 text-xs text-muted-foreground">
                         {item.description}
                       </span>
                     </span>

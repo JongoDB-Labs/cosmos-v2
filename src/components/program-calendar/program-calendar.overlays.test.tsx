@@ -5,7 +5,9 @@
 // silent when it fails. And the project tab, which passes no overlays, must
 // render the calendar it always did.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -73,7 +75,7 @@ function overlays(storageKey = "cosmos:pm-calendar-overlays:o1:u1", outlook: Out
 
 function mount(
   o?: CalendarOverlays,
-  extra: { projectId?: string; includeOrgEvents?: boolean; canCreate?: boolean } = {},
+  extra: { projectId?: string; projectName?: string; canAttach?: boolean; includeOrgEvents?: boolean; canCreate?: boolean } = {},
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -85,6 +87,8 @@ function mount(
         deliverables={[]}
         overlays={o}
         projectId={extra.projectId}
+        projectName={extra.projectName}
+        canAttach={extra.canAttach}
         includeOrgEvents={extra.includeOrgEvents}
       />
     </QueryClientProvider>,
@@ -329,14 +333,58 @@ describe("a picked project", () => {
 
   it("a new event is filed under the picked project, so it stays in the view it was made in", async () => {
     const user = userEvent.setup();
-    mount(overlays(), { projectId: PROJECT, includeOrgEvents: true, canCreate: true });
+    mount(overlays(), { projectId: PROJECT, projectName: "Website", canAttach: true, includeOrgEvents: true, canCreate: true });
     await screen.findByText("Program review");
     await user.click(screen.getByRole("button", { name: "New event" }));
     await user.type(await screen.findByLabelText("Event title"), "Planning call");
+    // Nothing to explain: it goes where the reader is looking.
+    expect(screen.queryByRole("note")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(saved("POST")).not.toBeNull());
     expect(saved("POST")!.url).toBe("/api/v1/orgs/o1/program-events");
     expect(saved("POST")!.body).toMatchObject({ title: "Planning call", projectId: PROJECT });
+  });
+
+  it("a reader the project will not take an event from files it at org level, and is told so first", async () => {
+    // The server refuses an event on a project the caller cannot attach to
+    // (canAttachToProject), and the form used to send it anyway: a 400 on
+    // every save. Now it is not sent there, and the form says where it goes.
+    const user = userEvent.setup();
+    mount(overlays(), { projectId: PROJECT, projectName: "Website", canAttach: false, includeOrgEvents: true, canCreate: true });
+    await screen.findByText("Program review");
+    await user.click(screen.getByRole("button", { name: "New event" }));
+    await user.type(await screen.findByLabelText("Event title"), "Planning call");
+    expect(screen.getByRole("note").textContent).toBe(
+      "You can't add events to Website, so this event goes on the organization's calendar, where everyone in the organization can see it.",
+    );
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(saved("POST")).not.toBeNull());
+    expect(saved("POST")!.body).toMatchObject({ title: "Planning call" });
+    expect(saved("POST")!.body).not.toHaveProperty("projectId");
+  });
+
+  it("editing says nothing about where it goes: an edit never moves an event", async () => {
+    const user = userEvent.setup();
+    mount(overlays(), { projectId: PROJECT, projectName: "Website", canAttach: false, includeOrgEvents: true, canCreate: true });
+    await user.click(await screen.findByText("Program review"));
+    await screen.findByRole("button", { name: "Save event" });
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("the category counts are asked for under the same project and filters as the events", async () => {
+    mount(overlays(), { projectId: PROJECT, includeOrgEvents: true });
+    await screen.findByText("Program review");
+    const categoriesUrl = new URL(
+      String(vi.mocked(jsonFetch).mock.calls.find(([u]) => String(u).includes("/event-categories?"))![0]),
+      "http://x",
+    );
+    expect(categoriesUrl.searchParams.get("projectId")).toBe(PROJECT);
+    expect(categoriesUrl.searchParams.get("includeOrgEvents")).toBe("true");
+    // Every filter the events list is read with, but the categories themselves,
+    // which the counts ignore by design.
+    const events = [...eventsUrl().searchParams].filter(([k]) => k !== "categoryIds");
+    expect([...categoriesUrl.searchParams]).toEqual(events);
+    expect(events.length).toBeGreaterThanOrEqual(4);
   });
 
   it("control: with no project picked, a new event is org-level", async () => {
@@ -358,6 +406,41 @@ describe("a picked project", () => {
     await waitFor(() => expect(saved("PATCH")).not.toBeNull());
     expect(saved("PATCH")!.url).toBe("/api/v1/orgs/o1/program-events/e1");
     expect(saved("PATCH")!.body).not.toHaveProperty("projectId");
+  });
+});
+
+describe("a timed event opens and saves on its own clock", () => {
+  // 19:00 on Tuesday 12 Jan in Los Angeles is 03:00 UTC on the 13th. The grid
+  // draws it on the 12th; the form must open on the 12th too, and saving it
+  // unchanged must not move it. CI runs in UTC, so the zone is forced here.
+  const original = process.env.TZ;
+  afterEach(() => {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  });
+  const LA_EVENING = {
+    ...EVENT, id: "la", title: "West coast review", allDay: false, timeZone: "America/Los_Angeles",
+    startsAt: "2027-01-13T03:00:00.000Z", endsAt: "2027-01-13T04:00:00.000Z",
+  };
+
+  it.each(["America/New_York", "Asia/Kolkata"])("under TZ=%s", async (zone) => {
+    process.env.TZ = zone;
+    expect(new Date(2026, 0, 1).toISOString()).not.toBe("2026-01-01T00:00:00.000Z");
+    eventsResponse = () => [LA_EVENING];
+    const user = userEvent.setup();
+    mount(overlays(), { canCreate: true });
+    await user.click(await screen.findByText("West coast review"));
+
+    expect((screen.getByLabelText("Start date") as HTMLInputElement).value).toBe("2027-01-12");
+    expect((screen.getByLabelText("End date") as HTMLInputElement).value).toBe("2027-01-12");
+    expect((screen.getByLabelText("Start time") as HTMLInputElement).value).toBe("19:00");
+    expect((screen.getByLabelText("End time") as HTMLInputElement).value).toBe("20:00");
+
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(vi.mocked(jsonFetch).mock.calls.some(([, i]) => i?.method === "PATCH")).toBe(true));
+    const patch = vi.mocked(jsonFetch).mock.calls.find(([, i]) => i?.method === "PATCH")!;
+    const body = JSON.parse(String(patch[1]!.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({ startsAt: LA_EVENING.startsAt, endsAt: LA_EVENING.endsAt, timeZone: "America/Los_Angeles" });
   });
 });
 
@@ -484,5 +567,109 @@ describe("the Outlook overlay is the viewer's own calendar, and never silent", (
     await screen.findByText("Program review");
     fireEvent.click(toggle("Outlook"));
     expect(await screen.findByText(/Only the first 500 of your Outlook events in this period are shown/)).toBeTruthy();
+  });
+});
+
+describe("the calendar opens on the reader's today", () => {
+  // 20:00 on Monday 30 Nov in Los Angeles is 04:00 UTC on 1 Dec. Opened then,
+  // the calendar showed December, and "Today" went back to December.
+  const original = process.env.TZ;
+  afterEach(() => {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  });
+  const windowFrom = () => {
+    const url = vi.mocked(jsonFetch).mock.calls.map(([u]) => String(u)).filter((u) => u.includes("/program-events?")).at(-1)!;
+    return new URL(url, "http://x").searchParams.get("from");
+  };
+
+  it("in a Los Angeles evening on the last day of a month, that month, and Today returns to it", async () => {
+    process.env.TZ = "America/Los_Angeles";
+    expect(new Date(2026, 0, 1).toISOString()).not.toBe("2026-01-01T00:00:00.000Z");
+    vi.setSystemTime(new Date("2026-12-01T04:00:00.000Z"));
+    const user = userEvent.setup();
+    mount(overlays());
+    expect(await screen.findByText("November 2026")).toBeTruthy();
+    await waitFor(() => expect(windowFrom()).toBe("2026-11-01T00:00:00.000Z"));
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("December 2026")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Today" }));
+    expect(await screen.findByText("November 2026")).toBeTruthy();
+  });
+
+  it("the server's HTML does not depend on the server's zone, and hydrating it agrees", async () => {
+    // The server has no reader's date, so it renders the UTC one; the render
+    // that hydrates that HTML must match it, or React throws the HTML away.
+    // The reader's date takes over after.
+    process.env.TZ = "America/Los_Angeles";
+    vi.setSystemTime(new Date("2026-12-01T04:00:00.000Z"));
+    const tree = () => (
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ProgramCalendar orgId="o1" canCreate={false} owners={[]} deliverables={[]} overlays={overlays()} />
+      </QueryClientProvider>
+    );
+    const html = renderToString(tree());
+    expect(html).toContain("December 2026");
+
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    document.body.appendChild(host);
+    const mismatch = vi.fn();
+    const root = await act(async () => hydrateRoot(host, tree(), { onRecoverableError: mismatch }));
+    try {
+      await waitFor(() => expect(host.textContent).toContain("November 2026"));
+      expect(mismatch).not.toHaveBeenCalled();
+      // The UTC month is drawn for a moment, but only the reader's is fetched.
+      await waitFor(() => expect(calls("/program-events?")).toBeGreaterThan(0));
+      const froms = vi.mocked(jsonFetch).mock.calls
+        .map(([u]) => String(u))
+        .filter((u) => u.includes("/program-events?") || u.includes("/event-categories?"))
+        .map((u) => new URL(u, "http://x").searchParams.get("from"));
+      expect(new Set(froms)).toEqual(new Set(["2026-11-01T00:00:00.000Z"]));
+    } finally {
+      // Testing Library's cleanup does not know this root; left behind, its
+      // text would answer the next test's queries.
+      act(() => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("control: at the same instant in UTC, it is December", async () => {
+    process.env.TZ = "UTC";
+    vi.setSystemTime(new Date("2026-12-01T04:00:00.000Z"));
+    mount(overlays());
+    expect(await screen.findByText("December 2026")).toBeTruthy();
+  });
+});
+
+describe("a stored zone Intl does not know is not sent back", () => {
+  // The dialog copied the stored zone and always sent it, and the service now
+  // refuses one Intl cannot build. An all-day event has no zone picker, so
+  // nothing on screen could fix it: the save failed every time.
+  it.each([
+    ["an all-day event", { allDay: true, startsAt: "2027-01-12T00:00:00.000Z", endsAt: "2027-01-13T00:00:00.000Z" }],
+    ["a timed event", { allDay: false, startsAt: "2027-01-12T15:00:00.000Z", endsAt: "2027-01-12T16:00:00.000Z" }],
+  ])("%s saves with UTC, the zone it was drawn in", async (_, shape) => {
+    eventsResponse = () => [{ ...EVENT, id: "bad", title: "Bad zone review", timeZone: "Mars/Olympus_Mons", ...shape }];
+    const user = userEvent.setup();
+    mount(overlays(), { canCreate: true });
+    await user.click(await screen.findByText("Bad zone review"));
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(vi.mocked(jsonFetch).mock.calls.some(([, i]) => i?.method === "PATCH")).toBe(true));
+    const patch = vi.mocked(jsonFetch).mock.calls.find(([, i]) => i?.method === "PATCH")!;
+    expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ timeZone: "UTC" });
+  });
+
+  it("control: a good zone is sent back as stored, not as the runtime would rename it", async () => {
+    eventsResponse = () => [{ ...EVENT, id: "ok", title: "Good zone review", allDay: false, timeZone: "Asia/Kolkata",
+      startsAt: "2027-01-12T15:00:00.000Z", endsAt: "2027-01-12T16:00:00.000Z" }];
+    const user = userEvent.setup();
+    mount(overlays(), { canCreate: true });
+    await user.click(await screen.findByText("Good zone review"));
+    await user.click(screen.getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(vi.mocked(jsonFetch).mock.calls.some(([, i]) => i?.method === "PATCH")).toBe(true));
+    const patch = vi.mocked(jsonFetch).mock.calls.find(([, i]) => i?.method === "PATCH")!;
+    expect(JSON.parse(String(patch[1]!.body))).toMatchObject({ timeZone: "Asia/Kolkata" });
   });
 });

@@ -291,3 +291,70 @@ describe("WorkItemsView — inline-edit triggers are named by what they show (WC
     expect(squash(name).startsWith(squash(shown))).toBe(true);
   });
 });
+
+// "To Do , change status": the value sat in a Badge (`inline-flex`) and the
+// action in a separate sr-only span, and a name computed from content puts a
+// space around every child that is not `display: inline`. So the comma was
+// spoken after a pause, as its own word. jsdom loads no Tailwind, so the badge
+// is plain inline here and the old markup read correctly; the two utility rules
+// the cell's content really uses are supplied below so the test sees what the
+// browser sees.
+describe("WorkItemsView — an inline-edit trigger's name is one run of words", () => {
+  let style: HTMLStyleElement;
+  beforeEach(() => {
+    style = document.createElement("style");
+    style.textContent = ".inline-flex { display: inline-flex; } .flex { display: flex; }";
+    document.head.appendChild(style);
+  });
+  afterEach(() => style.remove());
+
+  /** The trigger whose name ends with `change <field>`, and that name. */
+  function trigger(field: string) {
+    let name = "";
+    const el = screen.getByRole("button", {
+      name: (computed) => {
+        if (!computed.endsWith(`change ${field}`)) return false;
+        name = computed;
+        return true;
+      },
+    });
+    return { el, name };
+  }
+
+  it.each([
+    ["status", "To Do, change status"],
+    ["priority", "MEDIUM, change priority"],
+    ["assignee", "Unassigned, change assignee"],
+  ])("the %s trigger is named %j", async (field, expected) => {
+    renderView();
+    await screen.findByText("ENG-1");
+    const { el, name } = trigger(field);
+    if (field !== "assignee") {
+      // Positive control: the badge really is inline-flex here, so the old
+      // markup's stray space would show up in this name.
+      const badge = Array.from(el.querySelectorAll("span")).find((s) => s.className.includes("inline-flex"));
+      expect(badge && getComputedStyle(badge).display).toBe("inline-flex");
+    }
+    expect(name).toBe(expected);
+  });
+
+  it("an assigned row's trigger says the person's name, not their avatar initial", async () => {
+    const ada = { id: "u1", displayName: "Ada Lovelace", avatarUrl: null };
+    vi.mocked(jsonFetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/work-items/facets")) return Promise.resolve(FACETS);
+      if (url.includes("/work-items/search")) {
+        return Promise.resolve({ data: [{ ...ROW, assignee: ada, assignees: [ada] }], total: 1 });
+      }
+      if (url.includes("/saved-views")) return Promise.resolve([]);
+      return Promise.resolve({});
+    });
+    renderView();
+    await screen.findByText("ENG-1");
+    const { el, name } = trigger("assignee");
+    // Positive control: the cell shows the initial as well as the name.
+    expect(el.textContent).toContain("A");
+    expect(el.querySelector('[data-slot="avatar-fallback"]')?.textContent).toBe("A");
+    expect(name).toBe("Ada Lovelace, change assignee");
+  });
+});

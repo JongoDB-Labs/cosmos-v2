@@ -7,7 +7,7 @@ import { canManageProject } from "@/lib/rbac/scope";
 import { Permission } from "@/lib/rbac/permissions";
 import { ProblemError } from "@/lib/openapi/problem";
 import { DEFAULT_CATEGORIES } from "./categories";
-import { normalizeRange } from "./time";
+import { DRAWN_PAD_MS, drawnRange, normalizeRange, overlaps, storedZoneName } from "./time";
 
 /**
  * Reading and writing the program calendar.
@@ -118,13 +118,36 @@ async function scopeWhere(
 }
 
 /**
- * Events touching the half-open window [from, to).
+ * The window's rows as the database can find them: the instants a day either
+ * side of [from, to), because a timed event is drawn on its own zone's clock
+ * and can sit up to 14 hours off the UTC dates it is drawn on. `drawnIn` cuts
+ * the extra back.
+ */
+function paddedWindow(from: Date, to: Date): Prisma.ProgramEventWhereInput {
+  return {
+    startsAt: { lt: new Date(to.getTime() + DRAWN_PAD_MS) },
+    endsAt: { gt: new Date(from.getTime() - DRAWN_PAD_MS) },
+  };
+}
+
+/** Is the event drawn in [from, to)? The grid's own rule (`drawnRange`). */
+const drawnIn = (from: Date, to: Date) => (e: { startsAt: Date; endsAt: Date; allDay: boolean; timeZone: string }) =>
+  overlaps(drawnRange(e), from, to);
+
+/**
+ * Events drawn in the half-open window [from, to) of calendar dates.
  *
  * The overlap test is `startsAt < to AND endsAt > from`, which is what makes a
  * multi-day event appear in every window it crosses. The naive
  * `startsAt BETWEEN from AND to` drops an event that began last month and
  * is still running — the single most common way a program calendar loses the
  * events that matter most.
+ *
+ * It is tested on the dates the event is DRAWN on (`drawnRange`): a timed
+ * event's in its own zone, so a 19:00 review in Los Angeles on the 31st (03:00
+ * UTC on the 1st) is listed for the month it is drawn in. Tested on raw
+ * instants, it was fetched only for the next month's grid, which then did not
+ * draw it, and so it was on neither.
  */
 export async function listProgramEvents(
   ctx: AuthContext,
@@ -132,11 +155,12 @@ export async function listProgramEvents(
   to: Date,
   f: EventFilters = {},
 ): Promise<ProgramEventRow[]> {
-  return prisma.programEvent.findMany({
-    where: { ...(await scopeWhere(ctx, f)), startsAt: { lt: to }, endsAt: { gt: from } },
+  const rows = await prisma.programEvent.findMany({
+    where: { ...(await scopeWhere(ctx, f)), ...paddedWindow(from, to) },
     select: eventSelect,
     orderBy: [{ startsAt: "asc" }, { title: "asc" }],
   });
+  return rows.filter(drawnIn(from, to));
 }
 
 /** Per-category totals for the same window and filters, for the overlay menu's
@@ -148,16 +172,18 @@ export async function categoryCounts(
   to: Date,
   f: EventFilters = {},
 ): Promise<Record<string, number>> {
-  const rows = await prisma.programEvent.groupBy({
-    by: ["categoryId"],
+  // Counted here rather than grouped in SQL: which window a timed event falls
+  // in depends on its own zone, which the list reads the same way (`drawnIn`).
+  const rows = await prisma.programEvent.findMany({
     where: {
       ...(await scopeWhere(ctx, { ...f, categoryIds: undefined })),
-      startsAt: { lt: to },
-      endsAt: { gt: from },
+      ...paddedWindow(from, to),
     },
-    _count: { _all: true },
+    select: { categoryId: true, startsAt: true, endsAt: true, allDay: true, timeZone: true },
   });
-  return Object.fromEntries(rows.map((r) => [r.categoryId, r._count._all]));
+  const counts: Record<string, number> = {};
+  for (const r of rows.filter(drawnIn(from, to))) counts[r.categoryId] = (counts[r.categoryId] ?? 0) + 1;
+  return counts;
 }
 
 /** The org's categories, seeding the defaults the first time one is asked for.
@@ -209,12 +235,35 @@ export interface EventInput {
   externalId?: string | null;
 }
 
+/**
+ * An update. As `EventInput`, except that `allDay` may be left out too, and
+ * every optional field left out keeps its stored value. Only create fills in
+ * defaults: an update that wrote them moved a renamed event to New York and
+ * cleared its location, owner and notes.
+ */
+export type EventUpdate = Omit<EventInput, "allDay"> & { allDay?: boolean };
+
 /** An event is owned by a team OR a person, never both — two owners means two
  *  lanes and the swimlane view would have to pick one arbitrarily. */
 function oneOwner(input: EventInput): { ownerTeamId: string | null; ownerMemberId: string | null } {
   if (input.ownerTeamId) return { ownerTeamId: input.ownerTeamId, ownerMemberId: null };
   return { ownerTeamId: null, ownerMemberId: input.ownerMemberId ?? null };
 }
+
+/** The owner on an update. Naming a team or a person is a new choice, and
+ *  clears the other side. `null` clears only its own side: clearing the person
+ *  on a team-owned event used to clear the team too. Left out, a side stays. */
+function ownerChange(input: EventUpdate): { ownerTeamId?: string | null; ownerMemberId?: string | null } {
+  if (input.ownerTeamId) return { ownerTeamId: input.ownerTeamId, ownerMemberId: null };
+  if (input.ownerMemberId) return { ownerTeamId: null, ownerMemberId: input.ownerMemberId };
+  return { ownerTeamId: input.ownerTeamId, ownerMemberId: input.ownerMemberId };
+}
+
+/** The zone as stored: as the user gave it, trimmed, with its case fixed
+ *  where the runtime lists it (see `storedZoneName`).
+ *  `assertReferencesInOrg` has already refused one that is not a named zone. */
+const storedZone = (value: string | undefined) =>
+  value === undefined ? undefined : (storedZoneName(value) ?? value);
 
 
 /**
@@ -235,6 +284,15 @@ function oneOwner(input: EventInput): { ownerTeamId: string | null; ownerMemberI
  */
 async function assertReferencesInOrg(ctx: AuthContext, input: EventInput): Promise<void> {
   const bad = (what: string) => new ProblemError(400, "invalid_request", `Unknown ${what}`);
+
+  // A zone `Intl` cannot build is not a time zone. Stored, it reads as UTC on
+  // the grid and the chip, so the event would show at the wrong hour for
+  // everyone; refused here, the caller is told which value it sent. A bare
+  // offset ("+05:30") builds in Node but is not a named zone, and not every
+  // browser takes one, so it is refused the same way.
+  if (input.timeZone !== undefined && storedZoneName(input.timeZone) === null) {
+    throw bad(`time zone ${JSON.stringify(input.timeZone)}`);
+  }
 
   const category = await prisma.eventCategory.findFirst({
     where: { id: input.categoryId, orgId: ctx.orgId, archivedAt: null },
@@ -306,7 +364,7 @@ export async function createProgramEvent(ctx: AuthContext, createdById: string, 
       categoryId: input.categoryId,
       ...range,
       allDay: input.allDay,
-      timeZone: input.timeZone ?? "America/New_York",
+      timeZone: storedZone(input.timeZone) ?? "America/New_York",
       location: input.location ?? null,
       ...oneOwner(input),
       attendees: input.attendees ?? "",
@@ -335,9 +393,11 @@ export async function visibleEvent(ctx: AuthContext, eventId: string) {
   });
 }
 
-export async function updateProgramEvent(ctx: AuthContext, eventId: string, input: EventInput) {
+export async function updateProgramEvent(ctx: AuthContext, eventId: string, update: EventUpdate) {
   const current = await visibleEvent(ctx, eventId);
   if (!current) return null;
+  // Left out, it is what it was: the range below is read the way it is stored.
+  const input: EventInput = { ...update, allDay: update.allDay ?? current.allDay };
 
   // `undefined` means "leave the project alone"; `null` means "move it to
   // org-level". See EventInput.projectId.
@@ -371,15 +431,17 @@ export async function updateProgramEvent(ctx: AuthContext, eventId: string, inpu
       categoryId: input.categoryId,
       ...range,
       allDay: input.allDay,
-      timeZone: input.timeZone ?? "America/New_York",
-      location: input.location ?? null,
-      ...oneOwner(input),
-      attendees: input.attendees ?? "",
-      recurrence: input.recurrence ?? "NONE",
-      deliverableId: input.deliverableId ?? null,
-      customerAttending: input.customerAttending ?? false,
-      description: input.description ?? "",
-      showOnDashboard: input.showOnDashboard ?? false,
+      // A field left out is `undefined`, which Prisma leaves as stored; `null`
+      // still clears a nullable one. No defaults here: those are create's.
+      timeZone: storedZone(input.timeZone),
+      location: input.location,
+      ...ownerChange(update),
+      attendees: input.attendees,
+      recurrence: input.recurrence,
+      deliverableId: input.deliverableId,
+      customerAttending: input.customerAttending,
+      description: input.description,
+      showOnDashboard: input.showOnDashboard,
       projectId: nextProjectId,
     },
     select: eventSelect,

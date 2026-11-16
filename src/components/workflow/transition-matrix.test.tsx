@@ -54,11 +54,36 @@ describe("TransitionMatrix", () => {
 
   it("opens a transition with rules from its cell", () => {
     const { onEdit } = setup();
-    fireEvent.click(screen.getByRole("button", { name: "Edit transition Start" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit transition Start, has rules" }));
     expect(onEdit).toHaveBeenCalledWith("start");
     // A move from any status is edited from its own row.
     fireEvent.click(screen.getByRole("button", { name: "Edit transition Done" }));
     expect(onEdit).toHaveBeenLastCalledWith("done");
+  });
+
+  // WCAG 2.5.3 Label in Name (axe label-content-name-mismatch, found by the
+  // e2e gate once it ran the 2.1 rules): a ruled transition's button shows
+  // "Rules", and its aria-label "Edit transition Start" left that word out.
+  it("names each edit button with the word it shows", () => {
+    setup();
+    const ruled = screen.getByRole("button", { name: /^Edit transition Start/ });
+    const plain = screen.getByRole("button", { name: /^Edit transition Done/ });
+    // Positive control: only the ruled one shows a word.
+    expect(ruled.textContent).toBe("Rules");
+    expect(plain.textContent).toBe("");
+    expect(ruled).toHaveAccessibleName(/rules/i);
+    expect(plain).toHaveAccessibleName("Edit transition Done");
+  });
+
+  // A title becomes the description when an aria-label gives the name, so a
+  // title of "Start: has rules" made a screen reader say "has rules" twice.
+  it("says that a transition has rules once", () => {
+    setup();
+    const ruled = screen.getByRole("button", { name: /^Edit transition Start/ });
+    // Positive control: the tooltip is still there.
+    expect(ruled).toHaveAttribute("title");
+    expect(ruled).toHaveAccessibleName("Edit transition Start, has rules");
+    expect(ruled).toHaveAccessibleDescription("Start");
   });
 
   it("is a table a screen reader can walk, and changes nothing read-only", () => {

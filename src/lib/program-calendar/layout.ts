@@ -1,4 +1,4 @@
-import { DAY_MS, utcMidnight } from "./time";
+import { DAY_MS, drawnRange, utcMidnight } from "./time";
 
 /**
  * Packing a week's events into lanes.
@@ -27,6 +27,11 @@ export interface PackableEvent {
    * events alone packs exactly as it always has.
    */
   rank?: number;
+  /** With `timeZone`, a timed event is placed on that zone's clock, the one
+   *  its chip shows its time on (see `drawnRange`). Absent, or all-day, or
+   *  "UTC": placed as stored. */
+  allDay?: boolean;
+  timeZone?: string;
 }
 
 export interface PlacedEvent<T extends PackableEvent> {
@@ -68,12 +73,23 @@ export function packWeek<T extends PackableEvent>(
   const weekFrom = utcMidnight(weekStart).getTime();
   const weekTo = weekFrom + 7 * DAY_MS;
 
-  type Span = { event: T; from: number; to: number; startCol: number; span: number };
+  type Span = {
+    event: T;
+    before: boolean;
+    after: boolean;
+    from: number;
+    to: number;
+    startCol: number;
+    span: number;
+  };
   const spans: Span[] = [];
 
   for (const e of events) {
-    const s = e.startsAt.getTime();
-    const en = e.endsAt.getTime();
+    // On the clock the event is drawn on, not its raw instants: a 19:00 review
+    // in Los Angeles is 03:00 UTC the next day, and is held the day before.
+    const drawn = drawnRange(e);
+    const s = drawn.startsAt.getTime();
+    const en = drawn.endsAt.getTime();
     // Half-open on both sides, matching the service's overlap test.
     if (s >= weekTo || en <= weekFrom) continue;
     const clampedFrom = Math.max(s, weekFrom);
@@ -84,6 +100,8 @@ export function packWeek<T extends PackableEvent>(
     const span = Math.max(1, endDayExclusive - startDay);
     spans.push({
       event: e,
+      before: s < weekFrom,
+      after: en > weekTo,
       from: startDay,
       to: startDay + span,
       startCol: startDay + 1,
@@ -135,8 +153,8 @@ export function packWeek<T extends PackableEvent>(
       startCol: s.startCol,
       span: s.span,
       lane,
-      continuesBefore: s.event.startsAt.getTime() < weekFrom,
-      continuesAfter: s.event.endsAt.getTime() > weekTo,
+      continuesBefore: s.before,
+      continuesAfter: s.after,
     });
   }
 

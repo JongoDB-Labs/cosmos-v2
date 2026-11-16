@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineRoute } from "@/lib/openapi/contract";
+import { AgilePayload } from "@/lib/openapi/schemas/program-calendar";
 
 // The Agile overlay on Program Management's calendar: Program Increments,
 // sprints, releases and work-item due dates in one window.
@@ -32,6 +33,6 @@ export const listAgileOverlay = defineRoute({
       projectId: z.string().uuid().optional(),
     }),
   },
-  responses: { 200: z.string() },
+  responses: { 200: AgilePayload },
   errors: [400, 401, 403, 404],
 });
