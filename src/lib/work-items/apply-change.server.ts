@@ -336,21 +336,40 @@ export async function assertAssigneesInOrg(
 }
 
 /**
- * The assignee a copy may carry over: `id` when creating an item could name
- * them (the rule above), else null. For Duplicate, which takes its assignee
- * from the source item rather than from the request, so nothing else checks
- * it: the source can name someone who has left the org, or, on a row older
- * than work_items.assignee_id's foreign key (added NOT VALID, so those rows
- * stay), an id that is no user at all. Copying that broke the copy on the
- * foreign key, and before the key it spread the bad id to a new item.
+ * The assignees a copy (Duplicate) or a merge carries over from a source item:
+ * its primary, then the rest of its set in order, keeping only the people
+ * creating an item could name (the rule above). Nothing else checks them, as
+ * they come from the source rather than a request, and the source can name
+ * someone who has left the org or, on a row older than
+ * work_items.assignee_id's foreign key (added NOT VALID, so those rows stay),
+ * an id that is no user at all. Those are dropped, not refused: the copy or
+ * the merge loses that assignee instead of failing on it.
  */
-export async function assigneeToCarry(
+export async function assigneesToCarry(
   tx: Pick<Prisma.TransactionClient, "orgMember">,
   orgId: string,
-  id: string | null,
-): Promise<string | null> {
-  if (!id) return null;
-  return (await membersAmong(tx, orgId, [id])) ? id : null;
+  source: { assigneeId: string | null; assignees: readonly { userId: string; sortOrder: number }[] },
+): Promise<string[]> {
+  const ordered = [
+    ...new Set([
+      ...(source.assigneeId ? [source.assigneeId] : []),
+      ...[...source.assignees].sort((a, b) => a.sortOrder - b.sortOrder).map((a) => a.userId),
+    ]),
+  ];
+  if (ordered.length === 0) return [];
+  const members = await tx.orgMember.findMany({ where: assignableMembersWhere(orgId, ordered), select: { userId: true } });
+  const ok = new Set(members.map((m) => m.userId));
+  return ordered.filter((id) => ok.has(id));
+}
+
+/**
+ * A new item's assignees as Create writes them: the first is the primary
+ * (`assigneeId`) and each one is a row of the set, in order, so the card
+ * (which shows the set) and the primary agree. Create and Duplicate's copies
+ * both write through this.
+ */
+export function assigneeSetData(ids: readonly string[]) {
+  return { assigneeId: ids[0] ?? null, assignees: { create: ids.map((userId, i) => ({ userId, sortOrder: i })) } };
 }
 
 /**

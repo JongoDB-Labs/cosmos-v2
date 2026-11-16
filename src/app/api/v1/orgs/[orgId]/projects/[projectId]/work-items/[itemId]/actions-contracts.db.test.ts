@@ -57,6 +57,24 @@ const byId = (itemId: string) => ({ params: Promise.resolve({ orgId, itemId }) }
 const onComment = (itemId: string, commentId: string) => ({ params: Promise.resolve({ orgId, projectId, itemId, commentId }) });
 const item = (title = "t") => createFixtureWorkItem({ orgId, projectId, workItemTypeId: typeId, createdById: owner, title, columnKey: "todo" });
 const keysOf = (schema: { shape: Record<string, unknown> }) => Object.keys(schema.shape).sort();
+/** A member (not the owner, whom policy doesn't bind) under these ABAC rules. */
+const member = (abacRules: AuthContext["abacRules"] = []): AuthContext => ({ ...session(), orgRole: "MEMBER", abacRules });
+/** An item's primary assignee and its assignee set, in order. */
+const assigned = async (itemId: string) => {
+  const row = await prisma.workItem.findUniqueOrThrow({ where: { id: itemId }, include: { assignees: { orderBy: { sortOrder: "asc" } } } });
+  return { primary: row.assigneeId, set: row.assignees.map((a) => a.userId) };
+};
+/** Gives an item this primary assignee and assignee set. */
+const assign = async (itemId: string, primary: string | null, set: string[]) => {
+  await prisma.workItem.update({ where: { id: itemId }, data: { assigneeId: primary } });
+  await prisma.workItemAssignee.createMany({ data: set.map((userId, sortOrder) => ({ workItemId: itemId, userId, sortOrder })) });
+};
+/** Someone who was a member and has left the org; delete the user afterwards. */
+const formerMember = async (name: string) => {
+  const id = (await prisma.user.create({ data: { email: `${name}-${stamp}@ac.test`, displayName: name } })).id;
+  await prisma.orgMember.create({ data: { orgId, userId: id, role: "MEMBER", permissions: "0", removedAt: new Date() } });
+  return id;
+};
 
 describe("comments", () => {
   it("an items:write key comments on both paths, and the answer names the key's owner as the author", async () => {
@@ -189,6 +207,63 @@ describe("duplicate", () => {
   });
 });
 
+describe("duplicate: assignees and access", () => {
+  const noBody = () => new NextRequest("http://localhost/x", { method: "POST" });
+
+  it("the copy carries the assignee set as Create writes it, for the item and each sub-item, leaving out anyone who has left", async () => {
+    h.ctx = session();
+    const former = await formerMember("former-dup");
+    try {
+      const parent = await item("Pair");
+      await assign(parent.id, owner, [owner, other]);
+      // A sub-item whose primary has left the org, with a current co-assignee.
+      const kid = await item("Kid");
+      await prisma.workItem.update({ where: { id: kid.id }, data: { parentId: parent.id } });
+      await assign(kid.id, former, [former, other]);
+
+      const res = await duplicate(req("POST", { withChildren: true }), onItem(parent.id));
+      expect(res.status).toBe(201);
+      const copy = await res.json();
+      expect(await assigned(copy.id)).toEqual({ primary: owner, set: [owner, other] });
+      expect(copy.children).toHaveLength(1);
+      expect(await assigned(copy.children[0].id)).toEqual({ primary: other, set: [other] });
+      // An item with a primary and no set rows (written before the set) gets one.
+      const single = await item("Single");
+      await assign(single.id, other, []);
+      const one = await duplicate(noBody(), onItem(single.id));
+      expect(await assigned((await one.json()).id)).toEqual({ primary: other, set: [other] });
+    } finally {
+      await prisma.user.deleteMany({ where: { id: former } });
+    }
+  });
+
+  it("copying needs the right to read the item: no read, a 403 and no copy", async () => {
+    const a = await item("Unreadable");
+    const before = await prisma.workItem.count({ where: { projectId } });
+    h.ctx = member([{ effect: "deny", actions: ["ITEM_READ"], conditions: [{ attr: "projectId", op: "eq", value: projectId }] }]);
+    expect((await duplicate(noBody(), onItem(a.id))).status).toBe(403);
+    expect(await prisma.workItem.count({ where: { projectId } })).toBe(before);
+    // Positive control: the same member without that rule copies it.
+    h.ctx = member();
+    expect((await duplicate(noBody(), onItem(a.id))).status).toBe(201);
+  });
+
+  it("each copied sub-item is a create the caller must be allowed, with its own assignee", async () => {
+    const parent = await item("Mine");
+    await assign(parent.id, owner, [owner]);
+    const kid = await item("Theirs");
+    await prisma.workItem.update({ where: { id: kid.id }, data: { parentId: parent.id } });
+    await assign(kid.id, other, [other]);
+    // This member may not create work assigned to `other`.
+    h.ctx = member([{ effect: "deny", actions: ["ITEM_CREATE"], conditions: [{ attr: "assigneeId", op: "eq", value: other }] }]);
+    const before = await prisma.workItem.count({ where: { projectId } });
+    expect((await duplicate(req("POST", { withChildren: true }), onItem(parent.id))).status).toBe(403);
+    expect(await prisma.workItem.count({ where: { projectId } })).toBe(before);
+    // Positive control: the parent alone is theirs to copy.
+    expect((await duplicate(noBody(), onItem(parent.id))).status).toBe(201);
+  });
+});
+
 describe("merge", () => {
   it("answers both items and what moved; merging an item into itself is a problem+json 400", async () => {
     h.ctx = session();
@@ -206,6 +281,42 @@ describe("merge", () => {
     expect(refused.status).toBe(400);
     expect(res.headers.get("content-type")).not.toContain("problem");
     expect(refused.headers.get("content-type")).toContain("application/problem+json");
+  });
+});
+
+describe("merge: the survivor's assignees", () => {
+  it("takes only assignees Create would accept: an id that is no user doesn't fail the merge, someone who has left is not kept", async () => {
+    h.ctx = session();
+    // A row older than work_items.assignee_id's foreign key (NOT VALID) can
+    // name an id that is no user beside a real assignee set.
+    const noUser = "6e2d3c4b-5f60-4b7c-9d8e-0f1a2b3c4d5e";
+    const legacy = await item("Legacy dup");
+    await assign(legacy.id, null, [other]);
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL session_replication_role = replica`;
+      await tx.$executeRaw`UPDATE work_items SET assignee_id = ${noUser}::uuid WHERE id = ${legacy.id}::uuid`;
+    });
+    const s1 = await item("Survivor 1");
+    expect((await merge(req("POST", { intoId: s1.id }), onItem(legacy.id))).status).toBe(200);
+    expect(await assigned(s1.id)).toEqual({ primary: other, set: [other] });
+
+    const former = await formerMember("former-merge");
+    try {
+      const left = await item("Left dup");
+      await assign(left.id, former, [former, other]);
+      const s2 = await item("Survivor 2");
+      expect((await merge(req("POST", { intoId: s2.id }), onItem(left.id))).status).toBe(200);
+      expect(await assigned(s2.id)).toEqual({ primary: other, set: [other] });
+    } finally {
+      await prisma.user.deleteMany({ where: { id: former } });
+    }
+
+    // Positive control: current members come across, primary first.
+    const ours = await item("Ours dup");
+    await assign(ours.id, owner, [owner, other]);
+    const s3 = await item("Survivor 3");
+    expect((await merge(req("POST", { intoId: s3.id }), onItem(ours.id))).status).toBe(200);
+    expect(await assigned(s3.id)).toEqual({ primary: owner, set: [owner, other] });
   });
 });
 

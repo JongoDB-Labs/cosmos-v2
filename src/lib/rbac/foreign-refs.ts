@@ -208,7 +208,7 @@ const RULES = {
     count: (db, ids, s) => db.orgMember.count({ where: { userId: inIds(ids), orgId: s.orgId, removedAt: null } }),
   },
   // A person the org has had as a member, removed or not: for a write that
-  // carries a row's history forward (a merge keeps a removed member's
+  // carries a row's history forward (a split keeps a removed member's
   // assignment, as removing them does), where `member` would refuse it. A
   // person a REQUEST names is a current member: `member`. Counted through the
   // user, because the default client hides a removed membership from every

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
-import { applyWorkItemChange } from "@/lib/work-items/apply-change.server";
+import { applyWorkItemChange, assigneesToCarry } from "@/lib/work-items/apply-change.server";
 import type { WriteMeta } from "@/lib/work-items/events.server";
 import { updateWorkItems } from "@/lib/work-items/write.server";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
@@ -106,13 +106,20 @@ export async function mergeWorkItems(
   const bCustom = (b.customFields ?? {}) as Record<string, unknown>;
   const missing = Object.entries(aCustom).filter(([k, v]) => isEmpty(bCustom[k]) && !isEmpty(v));
   if (missing.length) fill.customFields = { ...bCustom, ...Object.fromEntries(missing) } as Prisma.InputJsonValue;
-  // Assignees are one field (who owns it): taken only when the survivor has none.
+  // Assignees are one field (who owns it): taken only when the survivor has
+  // none, and only the people Create could name (assigneesToCarry, as
+  // Duplicate): the duplicate can name someone who has left, or an id from
+  // before the foreign key that is no user, which the writer refuses. They are
+  // left off, primary first as Create writes it, rather than fail the merge.
   if (b.assignees.length === 0 && a.assignees.length > 0) {
-    await tx.workItemAssignee.createMany({
-      data: a.assignees.map((x) => ({ workItemId: bId, userId: x.userId, sortOrder: x.sortOrder })),
-      skipDuplicates: true,
-    });
-    fill.assigneeId = a.assigneeId;
+    const carry = await assigneesToCarry(tx, orgId, a);
+    if (carry.length > 0) {
+      await tx.workItemAssignee.createMany({
+        data: carry.map((userId, sortOrder) => ({ workItemId: bId, userId, sortOrder })),
+        skipDuplicates: true,
+      });
+      fill.assigneeId = carry[0];
+    }
   }
   const tags = [...new Set([...b.tags, ...a.tags])];
   if (tags.length !== b.tags.length) {

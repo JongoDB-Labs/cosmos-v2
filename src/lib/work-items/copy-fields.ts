@@ -9,10 +9,10 @@ import type { Prisma, WorkItem } from "@prisma/client";
  * the run so far (actualStart, completedAt, cancel and merge state), and
  * external-sync ids, which name the ORIGINAL in another system.
  *
- * Nor the assignee: each caller decides it. Duplicate keeps the source's only
- * when the create route would accept them (assigneeToCarry), because the
- * source can name someone who has left, or an id that is no user; Split gives
- * each copy the person it splits off for.
+ * Nor the assignee: each caller decides it. Duplicate keeps the source's
+ * assignees only when the create route would accept them (assigneesToCarry),
+ * because the source can name someone who has left, or an id that is no user;
+ * Split gives each copy the person it splits off for.
  */
 export function copyFields(
   source: WorkItem,

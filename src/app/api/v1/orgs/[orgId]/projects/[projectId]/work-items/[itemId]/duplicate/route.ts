@@ -13,8 +13,8 @@ import { publishToOrg } from "@/lib/realtime/broker";
 import { storeEmbedding } from "@/lib/rag/embed";
 import { allocateTicketNumber } from "@/lib/work-items/allocate";
 import { copyFields } from "@/lib/work-items/copy-fields";
-import { requireProjectVisible } from "@/lib/rbac/require-project-read";
-import { assigneeToCarry } from "@/lib/work-items/apply-change.server";
+import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { assigneeSetData, assigneesToCarry } from "@/lib/work-items/apply-change.server";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -27,30 +27,34 @@ type RouteParams = {
  * obvious and immediately editable. Comments/activity/children are intentionally
  * NOT copied — a duplicate is a fresh ticket seeded from another, not a deep
  * clone. `parentId` IS carried so a duplicated sub-item stays under its parent.
- * Gated on ITEM_CREATE (you're creating a new item), mirroring the create route.
+ * Gated on reading the item (the copy shows what it says) and on ITEM_CREATE
+ * for the copy and each copied sub-item, as the create route asks it.
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { ctx } = await orgContext((await params).orgId, duplicateWorkItem);
     const { params: { orgId, projectId, itemId }, body } = await parseRequest(duplicateWorkItem, request, params);
-    await requireProjectVisible(ctx, projectId);
+    // The copy (and the response) carries what the item says, so copying
+    // needs reading it, as GET does.
+    await requireProjectRead(ctx, projectId, "ITEM_READ");
 
     const source = await prisma.workItem.findFirst({
       where: { id: itemId, orgId, projectId },
+      include: { assignees: { select: { userId: true, sortOrder: true } } },
     });
     if (!source) return problem(404, "not_found", undefined, { request });
 
-    // The copy is assigned only to someone the create route would accept; the
-    // source may name a person who has left, or an id from before the foreign
-    // key that is no user (assigneeToCarry). Anyone else, and the copy is
-    // unassigned rather than refused.
-    const assigneeId = await assigneeToCarry(prisma, orgId, source.assigneeId);
+    // The copy is assigned to the source's assignees whom the create route
+    // would accept, written as Create writes them (primary first, and the
+    // set); anyone who has left, or an id from before the foreign key that is
+    // no user, is left off rather than refused (assigneesToCarry).
+    const assigneeIds = await assigneesToCarry(prisma, orgId, source);
 
     // The actor becomes the creator of the new item — same authz model as POST
     // /work-items (ITEM_CREATE + any in-project deny policy).
     await requireAccess(ctx, "ITEM_CREATE", {
       createdById: ctx.userId,
-      assigneeId,
+      assigneeId: assigneeIds[0] ?? null,
       projectId,
     });
 
@@ -78,7 +82,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         omit: { searchVector: true },
         data: {
           ...copyFields(source),
-          assigneeId,
+          ...assigneeSetData(assigneeIds),
           orgId,
           projectId,
           title: `Copy of ${source.title}`,
@@ -117,12 +121,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const kids = await tx.workItem.findMany({
           where: { orgId, projectId, parentId: source.id },
           orderBy: { sortOrder: "asc" },
+          include: { assignees: { select: { userId: true, sortOrder: true } } },
         });
         for (const kid of kids) {
+          // Each copied sub-item is a create of its own, with its own
+          // assignee: the same gate as the copy above, so a policy on who the
+          // caller may create work for holds for sub-items too.
+          const kidAssignees = await assigneesToCarry(tx, orgId, kid);
+          await requireAccess(ctx, "ITEM_CREATE", {
+            createdById: ctx.userId,
+            assigneeId: kidAssignees[0] ?? null,
+            projectId,
+          });
           const child = await createWorkItemRow(tx, {
             data: {
               ...copyFields(kid),
-              assigneeId: await assigneeToCarry(tx, orgId, kid.assigneeId),
+              ...assigneeSetData(kidAssignees),
               orgId,
               projectId,
               title: kid.title,
