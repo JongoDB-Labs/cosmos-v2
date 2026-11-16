@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.563.2",
+    date: "2026-11-16",
+    title: "Upcoming meetings, and card menus that show on hover",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A meeting Cosmo creates now appears in Outlook right away, the same as one you create yourself. Before, it waited for the next calendar sync.",
+      },
+      {
+        kind: "fix",
+        text: "The meetings list has a new Upcoming section for meetings after this week. They used to be listed under Past. Today, This Week and Upcoming now follow your own time zone.",
+      },
+      {
+        kind: "fix",
+        text: "The ⋯ menu on meeting, project, board, RAID and contact cards, and on the hidden board tabs, now appears when you point at the card. Before, it showed only when you tabbed to it or right-clicked.",
+      },
+    ],
+  },
+  {
     version: "2.562.4",
     date: "2026-11-16",
     title: "Table board item count",

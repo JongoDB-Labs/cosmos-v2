@@ -5,6 +5,7 @@ import { Permission } from "@/lib/rbac/permissions";
 import { assertPermission, assertProjectRead, loadAuthContext, type ToolContext } from "./_ctx";
 import { canReadMeeting, readableMeetingsWhere } from "@/lib/meetings/meeting-reader";
 import { SYNCED_MEETING_FIELDS, syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { createSyncMeeting } from "@/lib/meetings/create-meeting.server";
 import { refsError } from "@/lib/rbac/foreign-refs";
 
 /**
@@ -100,8 +101,9 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
   );
   if (foreignSprint) return { error: foreignSprint };
 
-  const created = await prisma.syncMeeting.create({
-    data: {
+  // The app's create path, so it reaches Outlook at once, as a meeting made in the app does.
+  const created = await createSyncMeeting(
+    {
       orgId: ctx.orgId,
       title: data.title,
       meetingDate: new Date(data.meetingDate),
@@ -111,8 +113,8 @@ export async function createMeeting(input: Record<string, unknown>, ctx: ToolCon
       notes: data.notes ?? "",
       createdById: ctx.userId,
     },
-    select: MEETING_SELECT,
-  });
+    { select: MEETING_SELECT },
+  );
   return { created: true, id: created.id, meeting: created };
 }
 

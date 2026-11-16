@@ -242,7 +242,11 @@ export function KanbanCard({
 
   return (
     <>
-      <ActionMenu groups={menuGroups}>
+      {/* `group/action` on a box AROUND the menu: ActionMenu's ⋯ trigger is a
+          sibling of the card, not inside it, so only an ancestor reveals it on
+          hover; the box also pins it over the card's corner. */}
+      <div className="group/action relative">
+      <ActionMenu groups={menuGroups} triggerClassName="absolute right-1.5 top-1.5 z-10">
       <div
         ref={setNodeRef}
         // Stable hook for driving a real drag in e2e. dnd-kit needs a genuine
@@ -290,14 +294,14 @@ export function KanbanCard({
         )}
         data-archived={archivedAt ? "true" : undefined}
         className={cn(
-          "group/action relative rounded-lg border bg-card p-3 transition-colors",
+          "relative rounded-lg border bg-card p-3 transition-colors",
           // An archived card is normally filtered out entirely; when a surface
           // deliberately shows one, it should not look like live work.
           archivedAt && "opacity-60",
           selectMode
             ? "cursor-pointer pl-8"
             : "cursor-grab active:cursor-grabbing",
-          "hover:border-primary/50",
+          "group-hover/action:border-primary/50",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           selected && "border-primary ring-2 ring-primary/40 bg-primary/5",
           isDragging && "opacity-50 shadow-lg ring-2 ring-primary/20"
@@ -316,7 +320,8 @@ export function KanbanCard({
             {selected && <Check className="h-3 w-3" />}
           </span>
         )}
-        <div className="flex items-start gap-2 mb-2">
+        {/* pr-5 leaves room for the hover ⋯ menu button */}
+        <div className="flex items-start gap-2 mb-2 pr-5">
           <span className="text-[11px] font-mono text-muted-foreground shrink-0">
             {ticketLabel}
           </span>
@@ -375,6 +380,7 @@ export function KanbanCard({
         </div>
       </div>
       </ActionMenu>
+      </div>
 
       <DeleteWorkItemDialog
         open={confirmDelete}

@@ -6,7 +6,8 @@ import { canReadMeeting, readableMeetingsWhere } from "@/lib/meetings/meeting-re
 import { Permission } from "@/lib/rbac/permissions";
 import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { pullSoonIfStale, syncMeetingSoon, teamsRefusalForNew } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { pullSoonIfStale, teamsRefusalForNew } from "@/lib/integrations/microsoft/calendar-sync.server";
+import { createSyncMeeting } from "@/lib/meetings/create-meeting.server";
 import { TEAMS_REFUSED } from "@/lib/meetings/teams-messages";
 import { z } from "zod";
 import { MeetingType } from "@prisma/client";
@@ -140,8 +141,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const meeting = await prisma.syncMeeting.create({
-      data: {
+    // Saved and pushed to Outlook in one step, the same path Cosmo's create takes.
+    const meeting = await createSyncMeeting(
+      {
         orgId,
         title: data.title,
         projectId: data.projectId ?? null,
@@ -161,10 +163,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             }
           : {}),
       },
-      include: {
-        attendees: true,
+      {
+        include: {
+          attendees: true,
+        },
       },
-    });
+    );
 
     await logAudit({
       orgId,
@@ -180,7 +184,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ipAddress: getIpAddress(request),
     });
 
-    syncMeetingSoon(orgId, meeting.id);
     return created(meeting);
   } catch (error) {
     return handleApiError(error);

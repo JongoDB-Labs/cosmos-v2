@@ -1,9 +1,10 @@
 // Cosmo's list_meetings gives a meeting's Teams join link to exactly the
 // people the REST list gives it to: those who can see the meeting. A meeting
 // under a team-scoped project the actor isn't on is left out, link and all.
+// And Cosmo's creates and edits reach Outlook when REST's do.
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { prisma } from "@/lib/db/client";
-import { listMeetings, updateMeeting, deleteMeeting } from "./meetings";
+import { listMeetings, createMeeting, updateMeeting, deleteMeeting } from "./meetings";
 import { memberToolCtx } from "@/lib/testing/tool-auth";
 
 // Only the push is replaced: the test asks whether Cosmo's edits reach
@@ -16,7 +17,7 @@ vi.mock("@/lib/integrations/microsoft/calendar-sync.server", async (orig) => ({
 
 const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const joinOf = (t: string) => `https://teams.microsoft.com/l/meetup-join/cosmo-${stamp}-${t}`;
-let orgId = "", insider = "", outsider = "", hidden = "", open = "";
+let orgId = "", insider = "", outsider = "", hidden = "", open = "", restricted = "";
 
 beforeAll(async () => {
   insider = (await prisma.user.create({ data: { email: `in-${stamp}@cmt.test`, displayName: "Insider" } })).id;
@@ -26,6 +27,7 @@ beforeAll(async () => {
   await prisma.orgMember.create({ data: { orgId, userId: outsider, role: "MEMBER" } });
   const project = await prisma.project.create({ data: { orgId, name: "R", key: `CM${stamp.slice(-3).toUpperCase()}`, teamScopedAccess: true } });
   await prisma.projectMember.create({ data: { projectId: project.id, orgMemberId: m.id, role: "MEMBER" } });
+  restricted = project.id;
   const meeting = async (projectId: string | null, t: string) =>
     (await prisma.syncMeeting.create({
       data: { orgId, projectId, title: t, meetingDate: new Date(), createdById: insider, teamsHostId: insider, teamsJoinUrl: joinOf(t) },
@@ -57,8 +59,29 @@ describe("list_meetings and Teams join links (e2e DB)", () => {
   });
 });
 
-describe("update_meeting and delete_meeting reach Outlook, as REST's edits do (e2e DB)", () => {
+describe("create_meeting, update_meeting and delete_meeting reach Outlook, as REST's do (e2e DB)", () => {
   beforeEach(() => void pushed.splice(0));
+
+  it("a meeting Cosmo creates is pushed to Outlook at once, as one made in the app is", async () => {
+    const res = (await createMeeting(
+      { title: `made by Cosmo ${stamp}`, meetingDate: "2026-12-01T10:00:00.000Z", projectId: restricted },
+      await memberToolCtx(orgId, insider),
+    )) as { created?: boolean; id?: string };
+    expect(res.created).toBe(true);
+    const saved = await prisma.syncMeeting.findFirst({ where: { orgId, title: `made by Cosmo ${stamp}` }, select: { id: true } });
+    expect(saved?.id).toBe(res.id); // the row is real
+    expect(pushed).toEqual([res.id]);
+  });
+
+  it("a refused create saves and pushes nothing (the outsider can't file under the hidden project)", async () => {
+    const res = (await createMeeting(
+      { title: `refused ${stamp}`, meetingDate: "2026-12-01T10:00:00.000Z", projectId: restricted },
+      await memberToolCtx(orgId, outsider),
+    )) as { error?: string };
+    expect(res.error).toBeTruthy();
+    expect(await prisma.syncMeeting.count({ where: { orgId, title: `refused ${stamp}` } })).toBe(0);
+    expect(pushed).toEqual([]);
+  });
 
   it("a title change pushes the meeting to Outlook; a notes-only change doesn't", async () => {
     const ctx = await memberToolCtx(orgId, insider);

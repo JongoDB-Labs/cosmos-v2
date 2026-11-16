@@ -685,18 +685,26 @@ function RaidCard({
 
   return (
     <>
-    <ActionMenu groups={menuGroups}>
+    {/* `group/action` on a box AROUND the menu: ActionMenu's ⋯ trigger is a
+        sibling of the card, not inside it, so only an ancestor reveals it on
+        hover. The box is also what drags, so the ⋯ moves with its card. */}
+    <div
+      ref={setNodeRef}
+      style={dragStyle}
+      className={cn("group/action relative", isDragging && "z-20")}
+    >
+    <ActionMenu groups={menuGroups} triggerClassName="absolute right-1.5 top-1.5 z-10">
       <div
-        ref={setNodeRef}
         data-highlight={highlight ?? undefined}
-        style={{ ...dragStyle, ...highlightStyle(highlight) }}
+        style={highlightStyle(highlight)}
         title={highlightLabel(highlight) ?? undefined}
         className={cn(
-          "group/action relative rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 transition-colors hover:border-[var(--primary)]/50",
-          isDragging && "z-20 opacity-80 shadow-lg",
+          "relative rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 transition-colors group-hover/action:border-[var(--primary)]/50",
+          isDragging && "opacity-80 shadow-lg",
         )}
       >
-        <div className="flex items-start gap-2 mb-2">
+        {/* pr-5 leaves room for the hover ⋯ menu button */}
+        <div className="flex items-start gap-2 mb-2 pr-5">
           {/* Drag handle — grab to move the card into another RAID column. */}
           <button
             type="button"
@@ -757,6 +765,7 @@ function RaidCard({
         </div>
       </div>
     </ActionMenu>
+    </div>
 
     <DeleteWorkItemDialog
       open={confirmDelete}

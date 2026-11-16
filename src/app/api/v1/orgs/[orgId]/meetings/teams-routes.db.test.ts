@@ -13,6 +13,7 @@ import type { AuthContext } from "@/lib/rbac/check";
 import { apiKeyAuthContext } from "@/lib/auth/api-key";
 import { API_KEY_SCOPES } from "@/lib/auth/api-key-scopes";
 import { MS_CALENDAR } from "@/lib/integrations/microsoft/calendar-connect";
+import { syncMeetingSoon } from "@/lib/integrations/microsoft/calendar-sync.server";
 
 const h = vi.hoisted(() => ({ ctx: null as unknown }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext: async () => h.ctx, getCurrentUser: async () => null }));
@@ -105,13 +106,17 @@ describe("creating a Teams meeting", () => {
 
   it("is refused before anything is saved without Outlook Calendar, and says why", async () => {
     h.ctx = member(insider);
+    vi.mocked(syncMeetingSoon).mockClear();
     const res = await create(`no-outlook-${stamp}`, true);
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ reason: "not_available" });
     expect(await titled(`no-outlook-${stamp}`)).toBe(0);
-    // The same meeting without Teams is made as always.
-    expect((await create(`plain-${stamp}`)).status).toBe(201);
+    expect(syncMeetingSoon).not.toHaveBeenCalled();
+    // The same meeting without Teams is made as always, and pushed to Outlook at once.
+    const plain = await create(`plain-${stamp}`);
+    expect(plain.status).toBe(201);
     expect(await titled(`plain-${stamp}`)).toBe(1);
+    expect(vi.mocked(syncMeetingSoon).mock.calls).toEqual([[orgId, (await plain.json()).id]]);
   });
 
   it("is refused for someone whose Outlook isn't connected", async () => {

@@ -769,7 +769,10 @@ export function ProjectBoardTabs({
       })()}
 
       {/* Hidden tabs (boards + feature views) — anyone can restore their own. */}
+      {/* Wrapped like a tab: ActionMenu's ⋯ is a sibling of the label, so
+          only this box's `group/action` reveals it on hover. */}
       {hiddenTabs.length > 0 && (
+        <div className="group/action relative flex items-center">
         <ActionMenu
           triggerLabel="Show hidden tabs"
           groups={[
@@ -790,6 +793,7 @@ export function ProjectBoardTabs({
             <EyeOff className="h-3.5 w-3.5" /> Hidden ({hiddenTabs.length})
           </span>
         </ActionMenu>
+        </div>
       )}
 
       {canCreateBoards && (
