@@ -20,6 +20,8 @@ import type { AbacRule } from "@/lib/abac/engine";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { loadAgileOverlay } from "./agile.server";
+import { respond } from "@/lib/openapi/respond";
+import { listAgileOverlay } from "@/app/api/v1/orgs/[orgId]/program-calendar/agile/route.contract";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 const N = {
@@ -239,5 +241,16 @@ describe("what the window holds", () => {
     expect(byTitle).not.toHaveProperty(N.opnArchived);
     expect(byTitle).not.toHaveProperty(N.opnLate);
     expect(p.dueCapped).toBe(false);
+  });
+
+  it("the real rows are exactly the shape the route declares, no field more or less", async () => {
+    const p = await loadAgileOverlay(ctxFor("admin"), { ...WINDOW, projectId: opn });
+    expect(p.intervals.length).toBeGreaterThan(0);
+    expect(p.due.length).toBeGreaterThan(0);
+    // `respond` throws on a field the contract does not declare and on one it
+    // declares that is missing, so a 200 here is the route's answer for these rows.
+    const res = respond(listAgileOverlay, 200, p);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(JSON.parse(JSON.stringify(p)));
   });
 });

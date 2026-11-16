@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   normalizeRange,
   allDayParts,
@@ -9,6 +9,10 @@ import {
   dayWindow,
   rollingWindow,
   DAY_MS,
+  storedZoneName,
+  isIanaZone,
+  zoneOffsetMs,
+  zoneCacheSizes,
 } from "./time";
 
 const utc = (y: number, m: number, d: number, h = 0, min = 0) =>
@@ -112,4 +116,69 @@ describe("the view windows", () => {
     const r = rollingWindow(utc(2026, 11, 10, 9, 0), 90);
     expect((r.to.getTime() - r.from.getTime()) / DAY_MS).toBe(90);
   });
+});
+
+describe("the zone to store is the name the user gave", () => {
+  // Not the name Intl resolves it to: that depends on the runtime (Node 22
+  // resolves Asia/Kolkata to Asia/Calcutta, newer engines keep Asia/Kolkata),
+  // so these expectations hold on every runtime.
+  it("keeps a renamed or linked zone as given", () => {
+    expect(storedZoneName("Asia/Kolkata")).toBe("Asia/Kolkata");
+    expect(storedZoneName("US/Pacific")).toBe("US/Pacific");
+    expect(storedZoneName("EST")).toBe("EST");
+  });
+
+  it("trims it, and fixes only the case of a listed zone", () => {
+    expect(storedZoneName(" Asia/Tokyo ")).toBe("Asia/Tokyo");
+    expect(storedZoneName("america/chicago")).toBe("America/Chicago");
+    expect(storedZoneName("utc")).toBe("UTC");
+  });
+
+  it("refuses a bare UTC offset, which is not a named zone and not every browser takes", () => {
+    expect(() => new Intl.DateTimeFormat("en-US", { timeZone: "+05:30" })).not.toThrow(); // Node takes it
+    expect(storedZoneName("+05:30")).toBeNull();
+    expect(storedZoneName("-0800")).toBeNull();
+    expect(isIanaZone("+05:30")).toBe(false);
+  });
+
+  it("refuses what is not a zone at all", () => {
+    expect(storedZoneName("Mars/Olympus_Mons")).toBeNull();
+    expect(storedZoneName("")).toBeNull();
+    expect(storedZoneName("   ")).toBeNull();
+  });
+
+  it("control: a listed name is its own", () => {
+    expect(storedZoneName("America/Los_Angeles")).toBe("America/Los_Angeles");
+    expect(storedZoneName("UTC")).toBe("UTC");
+  });
+});
+
+describe("the formatter cache", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("does not grow with strings that are not zones", () => {
+    const before = zoneCacheSizes();
+    for (let i = 0; i < 500; i++) zoneOffsetMs(new Date(0), `Nowhere/Place_${i}`);
+    expect(zoneCacheSizes()).toEqual(before);
+  });
+
+  it("keeps one formatter per zone, whatever it was spelled as", () => {
+    zoneOffsetMs(new Date(0), "America/Chicago");
+    const before = zoneCacheSizes().formatters;
+    for (const spelling of ["america/chicago", "AMERICA/CHICAGO", "US/Central", "CST6CDT"]) {
+      if (resolved(spelling) === "America/Chicago") zoneOffsetMs(new Date(0), spelling);
+    }
+    expect(zoneCacheSizes().formatters).toBe(before);
+  });
+
+  it("control: a spelling seen once is not rebuilt", () => {
+    const canonical = resolved("us/mountain");
+    zoneOffsetMs(new Date(0), "us/mountain");
+    const built = vi.spyOn(Intl, "DateTimeFormat");
+    zoneOffsetMs(new Date(0), "us/mountain");
+    zoneOffsetMs(new Date(0), canonical);
+    expect(built).not.toHaveBeenCalled();
+  });
+
+  const resolved = (z: string) => new Intl.DateTimeFormat("en-US", { timeZone: z }).resolvedOptions().timeZone;
 });

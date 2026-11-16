@@ -68,6 +68,11 @@ vi.mock("@/lib/pm/burn", () => ({ loadClinsWithBurn: loaders.clins }));
 // viewer's Outlook status is about the viewer, not about any project.
 const outlookStatus = vi.hoisted(() => vi.fn(async (): Promise<string> => "not_connected"));
 vi.mock("@/lib/program-calendar/outlook.server", () => ({ outlookOverlayStatus: outlookStatus }));
+// The server's attach rule reads the database; here it answers what each test
+// says, so the page's own job is what is tested: asking it, about the picked
+// project, and handing on the answer.
+const canAttach = vi.hoisted(() => vi.fn(async (): Promise<boolean> => true));
+vi.mock("@/lib/program-calendar/visibility", () => ({ canAttachToProject: canAttach }));
 vi.mock("next/headers", () => ({ headers: async () => requestHeaders.value }));
 vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
@@ -469,6 +474,8 @@ describe("Program Management — the calendar view", () => {
 
   type CalendarProps = {
     projectId?: string;
+    projectName?: string;
+    canAttach?: boolean;
     canCreate: boolean;
     deliverables: { id: string; name: string }[];
     overlays: {
@@ -507,6 +514,24 @@ describe("Program Management — the calendar view", () => {
     const props = await calendarProps(calendarFor("OPEN"));
     expect(props.projectId).toBe("p-open");
     expect(loaders.milestones).toHaveBeenCalledWith("o1", ["p-open"]);
+  });
+
+  it("files new events under the picked project only when the server's rule says it may", async () => {
+    signedInWith(PROGRAM_ONLY);
+    canAttach.mockResolvedValueOnce(false);
+    const refused = await calendarProps(calendarFor("OPEN"));
+    expect(canAttach).toHaveBeenCalledWith(expect.objectContaining({ userId: "u1", orgId: "o1" }), "p-open");
+    expect(refused).toMatchObject({ projectId: "p-open", projectName: "Open project", canAttach: false });
+
+    canAttach.mockResolvedValueOnce(true);
+    expect(await calendarProps(calendarFor("OPEN"))).toMatchObject({ projectId: "p-open", canAttach: true });
+  });
+
+  it("control: with no project picked there is nothing to attach to, and the rule is not asked", async () => {
+    signedInWith(PROGRAM_ONLY);
+    const props = await calendarProps(calendar);
+    expect(props.canAttach).toBe(false);
+    expect(canAttach).not.toHaveBeenCalled();
   });
 
   it("ignores ?project= naming a project the viewer may NOT see", async () => {

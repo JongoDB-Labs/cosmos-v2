@@ -20,6 +20,7 @@ import {
   updateProgramEvent,
   listCategories,
 } from "./service";
+import { canAttachToProject } from "./visibility";
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let orgId = "";
@@ -174,6 +175,59 @@ describe("writing obeys the same rule as reading", () => {
     // assertion above while making the feature unusable.
     await expect(attempt(alice, projA)).resolves.toBeTruthy();
     await expect(attempt(bob, projOpen)).resolves.toBeTruthy();
+  });
+
+  // The calendar offers to file a new event under the picked project only when
+  // `canAttachToProject` says yes (the page asks it), and files it at org level
+  // otherwise. That offer is only honest if create takes exactly what it says.
+  it("what the calendar offers is what create accepts, for every reader and project", async () => {
+    const seen: string[] = [];
+    for (const [who, ctx] of [["alice", member(alice)], ["bob", member(bob)], ["admin", orgAdmin(admin)]] as const) {
+      for (const [name, projectId] of [["A", projA], ["B", projB], ["Open", projOpen]] as const) {
+        const offered = await canAttachToProject(ctx, projectId);
+        const accepted = await createProgramEvent(ctx, ctx.userId, {
+          title: "Offer", categoryId: catId, projectId,
+          startsAt: utc(2026, 11, 26), endsAt: utc(2026, 11, 26), allDay: true,
+        }).then(() => true, () => false);
+        expect(offered, `${who} on ${name}`).toBe(accepted);
+        seen.push(`${who}/${name}=${offered}`);
+      }
+    }
+    // Both answers occur, so agreement is not two checks that both say no. The
+    // reader the bug was about: a project member elsewhere, looking at a project
+    // they can open but whose events are its members' own.
+    expect(seen).toContain("alice/B=false");
+    expect(seen).toContain("alice/A=true");
+    expect(seen).toContain("bob/Open=true");
+  });
+});
+
+describe("moving an org-level event into a project obeys the same rule as creating it there", () => {
+  // Leaving a project takes PROJECT_MANAGE on the project left. Joining one
+  // takes what creating there takes: `canAttachToProject`, both answers present.
+  it("an update into a project is accepted exactly where create would be", async () => {
+    const seen: string[] = [];
+    for (const [who, ctx] of [["alice", member(alice)], ["bob", member(bob)]] as const) {
+      for (const [name, projectId] of [["A", projA], ["B", projB], ["Open", projOpen]] as const) {
+        const ev = await createProgramEvent(ctx, ctx.userId, {
+          title: "Org-level, to move", categoryId: catId, projectId: null,
+          startsAt: utc(2026, 11, 27), endsAt: utc(2026, 11, 27), allDay: true,
+        });
+        const offered = await canAttachToProject(ctx, projectId);
+        const moved = await updateProgramEvent(ctx, ev.id, {
+          title: "Org-level, to move", categoryId: catId, projectId,
+          startsAt: utc(2026, 11, 27), endsAt: utc(2026, 11, 27), allDay: true,
+        }).then((r) => r !== null, () => false);
+        expect(moved, `${who} into ${name}`).toBe(offered);
+        const stored = await prisma.programEvent.findUniqueOrThrow({ where: { id: ev.id }, select: { projectId: true } });
+        expect(stored.projectId, `${who} into ${name}: where it ended up`).toBe(offered ? projectId : null);
+        seen.push(`${who}/${name}=${offered}`);
+      }
+    }
+    expect(seen).toContain("alice/B=false");
+    expect(seen).toContain("bob/A=false");
+    expect(seen).toContain("alice/A=true");
+    expect(seen).toContain("bob/Open=true");
   });
 });
 

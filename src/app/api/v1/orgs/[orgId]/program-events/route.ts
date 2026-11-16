@@ -6,7 +6,9 @@ import { listProgramEvents as listContract, createProgramEvent as createContract
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, readJsonBody } from "@/lib/api-helpers";
 import { EventRecurrence } from "@prisma/client";
-import { listProgramEvents, createProgramEvent, type EventFilters } from "@/lib/program-calendar/service";
+import { listProgramEvents, createProgramEvent } from "@/lib/program-calendar/service";
+import { eventFiltersFromQuery } from "@/lib/program-calendar/filters";
+import { ProgramEventFilterQuery } from "@/lib/openapi/schemas/program-calendar";
 
 type RouteParams = { params: Promise<{ orgId: string }> };
 
@@ -26,12 +28,8 @@ const listQuery = z.object({
   from: z.string().datetime(),
   to: z.string().datetime(),
   categoryIds: z.string().optional(),
-  ownerKeys: z.string().optional(),
-  projectId: z.string().uuid().optional(),
-  includeOrgEvents: z.enum(["true", "false"]).optional(),
-  showOnDashboardOnly: z.enum(["true", "false"]).optional(),
-  customerAttending: z.enum(["true", "false"]).optional(),
-  hasDeliverable: z.enum(["true", "false"]).optional(),
+  // The same filters the category counts take (event-categories/route.ts).
+  ...ProgramEventFilterQuery,
 });
 
 const bodySchema = z.object({
@@ -66,18 +64,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const q = listQuery.safeParse(Object.fromEntries(request.nextUrl.searchParams));
     if (!q.success) return new Response("Bad request", { status: 400 });
 
-    const csv = (v?: string) => (v ? v.split(",").map((s) => s.trim()).filter(Boolean) : undefined);
-    const filters: EventFilters = {
-      categoryIds: csv(q.data.categoryIds),
-      ownerKeys: csv(q.data.ownerKeys),
-      projectId: q.data.projectId,
-      includeOrgEvents: q.data.includeOrgEvents === "true",
-      showOnDashboardOnly: q.data.showOnDashboardOnly === "true",
-      customerAttending: q.data.customerAttending === "true",
-      hasDeliverable: q.data.hasDeliverable === "true",
-    };
-
-    const rows = await listProgramEvents(ctx, new Date(q.data.from), new Date(q.data.to), filters);
+    const rows = await listProgramEvents(ctx, new Date(q.data.from), new Date(q.data.to), eventFiltersFromQuery(q.data));
     return success(rows);
   } catch (error) {
     return handleApiError(error);
