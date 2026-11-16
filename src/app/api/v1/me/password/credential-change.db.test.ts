@@ -138,7 +138,7 @@ describe("setting a first password on a Google or SSO account", () => {
 describe("turning off MFA", () => {
   it("ends your other sessions, keeps this one, and is audited", async () => {
     const [code] = generateRecoveryCodes(1);
-    const u = await userWithTwoSessions("mfa", {
+    const u = await userWithTwoSessions("factor-off", {
       passwordHash: hashPassword(OLD),
       mfaEnabled: true,
       mfaRecoveryCodes: [hashRecoveryCode(code)],
@@ -154,7 +154,7 @@ describe("turning off MFA", () => {
 
   it("positive control: a wrong code leaves MFA on and ends nothing", async () => {
     const [code] = generateRecoveryCodes(1);
-    const u = await userWithTwoSessions("mfa-wrong", {
+    const u = await userWithTwoSessions("factor-wrong", {
       mfaEnabled: true,
       mfaRecoveryCodes: [hashRecoveryCode(code)],
     });

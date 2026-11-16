@@ -13,6 +13,11 @@
 -- ONE statement, so it is one transaction however Prisma submits it: either
 -- both tables are hashed or neither is (see the 20261110200000 header).
 -- Nothing references sessions.id by foreign key.
+--
+-- Run it once. A second run hashes the hashes and signs everyone out, so once
+-- it has committed, never mark it rolled back and run it again. Rolling back
+-- to an image from before this migration also signs everyone out, because
+-- that code looks a session up by the cookie's own value.
 DO $$
 BEGIN
   UPDATE "sessions" SET "id" = encode(sha256(convert_to("id", 'UTF8')), 'hex');

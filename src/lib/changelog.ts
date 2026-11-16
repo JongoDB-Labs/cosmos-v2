@@ -55,7 +55,7 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "fix",
-        text: "Cosmos now stores only a one-way hash of each sign-in session, never the value your browser holds. Signing in, signing out, signing out your other sessions and an admin ending a session all work as before. Anyone who signs in during the few seconds the update takes to roll out may be asked to sign in once more.",
+        text: "Cosmos now stores only a one-way hash of each sign-in session, never the value your browser holds. Signing in, signing out, signing out your other sessions and an admin ending a session all work as before. Anyone who signs in during the few seconds the update takes to roll out may be asked to sign in once more, and going back to an earlier version after this update signs everyone out.",
       },
     ],
   },

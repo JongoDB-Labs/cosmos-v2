@@ -11,18 +11,17 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createHash, randomUUID } from "node:crypto";
-
-const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
-});
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const DEV_EMAIL = "dev-playwright@cosmos.local";
 
 // The row is stored under a hash of the cookie's value, as the app stores it:
 // a copy of src/lib/auth/session-id.ts, which a plain node script can't import.
-const sessionRowId = (token) => createHash("sha256").update(token, "utf8").digest("hex");
+// session-id.test.ts checks that the two agree.
+export const sessionRowId = (token) => createHash("sha256").update(token, "utf8").digest("hex");
 
-async function main() {
+async function main(prisma) {
   // Pick the first org. We need *some* org to slot the user into; we don't
   // want to invent a new one because the rest of the app's seed data lives
   // against existing orgs.
@@ -76,11 +75,17 @@ async function main() {
   }, null, 2));
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
+// Run only when invoked as a script, so a test can import the copy above.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const prisma = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
   });
+  main(prisma)
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}
