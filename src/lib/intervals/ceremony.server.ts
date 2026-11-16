@@ -19,7 +19,7 @@ import { nextPlannedSprint } from "@/lib/intervals/carry-forward-target";
 import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
 import { columnCategoryResolver } from "@/lib/workflow/column-categories.server";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
-import { assignableMembersWhere } from "@/lib/work-items/apply-change.server";
+import { assignableMembersWhere, assigneeSetData } from "@/lib/work-items/apply-change.server";
 import { itemCreateRows } from "@/lib/work-items/create-access";
 import { requirePolicy } from "@/lib/abac/require-access";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
@@ -1045,7 +1045,10 @@ export async function promoteCeremonyAction(ctx: AuthContext, scope: CeremonySco
         title: action.text.slice(0, 255),
         description: "",
         columnKey: target.key,
-        assigneeId,
+        // The assignee SET as well as the primary, as the create route writes
+        // it: the item's Assignees control reads the set, and an item with only
+        // the primary opened as "Unassigned".
+        ...assigneeSetData(assigneeId ? [assigneeId] : []),
         dueDate: action.dueDate,
         intervalId: nextInterval?.id ?? null,
         ticketNumber,

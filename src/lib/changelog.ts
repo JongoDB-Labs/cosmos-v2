@@ -71,7 +71,11 @@ const RELEASES: Release[] = [
       },
       {
         kind: "fix",
-        text: "Saving something that points at a record deleted a moment ago now says \"This refers to something that no longer exists.\" instead of showing a server error.",
+        text: "Saving something that points at a record deleted a moment ago now says \"This refers to something that no longer exists.\" instead of showing a server error. Deleting something other records still use says \"This is still in use by other records.\"",
+      },
+      {
+        kind: "fix",
+        text: "An item made from a retro action now shows the action's owner under Assignees. It used to open as unassigned.",
       },
     ],
   },

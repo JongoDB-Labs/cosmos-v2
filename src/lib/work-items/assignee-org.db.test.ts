@@ -230,5 +230,20 @@ describe("retro action owners, who become assignees on promote", () => {
     const { workItemId } = await prisma.retroActionItem.findUniqueOrThrow({ where: { id: a.id } });
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: workItemId! } })).assigneeId).toBe(colleague);
   });
+
+  it("the work lists its owner among its assignees, which is what the item's Assignees control reads", async () => {
+    h.ctx = ownerSession();
+    const assigneesOf = async (actionId: string) => {
+      const { workItemId } = await prisma.retroActionItem.findUniqueOrThrow({ where: { id: actionId } });
+      return (await prisma.workItemAssignee.findMany({ where: { workItemId: workItemId! }, select: { userId: true } })).map((r) => r.userId);
+    };
+    const mine = await action(colleague);
+    expect((await promoteAction(new NextRequest("http://localhost/x", { method: "POST" }), at(mine.id))).status).toBeLessThan(300);
+    expect(await assigneesOf(mine.id)).toEqual([colleague]);
+    // An owner who has left gets no assignee row either.
+    const gone = await action(leaver);
+    expect((await promoteAction(new NextRequest("http://localhost/x", { method: "POST" }), at(gone.id))).status).toBeLessThan(300);
+    expect(await assigneesOf(gone.id)).toEqual([]);
+  });
 });
 

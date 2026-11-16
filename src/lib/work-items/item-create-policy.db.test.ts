@@ -6,12 +6,19 @@
 // One row per assignee, each with the same creator and project; an unassigned
 // item is one row with no assignee.
 //
-// Every path that creates an item with assignees: the create route, Duplicate
-// (and the sub-items it copies), Split, the assistant's create_work_item, and
-// promoting a retro action. Against a real database: the rules are stored on
-// the member (org_members.abac_rules) and read back by the loader a request
-// uses, so the engine evaluates what an org would author. Own org and users
-// throughout; the seeded users are shared by every DB spec.
+// The paths covered here are the ones that create an item for named people:
+// the create route, Duplicate (and the sub-items it copies), Split, the
+// assistant's create_work_item, and promoting a retro action. Not covered: CSV
+// import, item ingest, document conversion and feedback remediation, which
+// write no assignee and ask ITEM_CREATE (or nothing) without one.
+//
+// The permission itself is asked whatever the assignees are: someone without
+// ITEM_CREATE is refused an unassigned item too.
+//
+// Against a real database: the rules are stored on the member
+// (org_members.abac_rules) and read back by the loader a request uses, so the
+// engine evaluates what an org would author. Own org and users throughout; the
+// seeded users are shared by every DB spec.
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
@@ -30,7 +37,7 @@ import { createWorkItem as aiCreateWorkItem } from "@/lib/ai/executors/work-item
 
 const stamp = Math.random().toString(36).slice(2, 8);
 let orgId = "", projectId = "", typeId = "";
-let owner = "", maker = "", picky = "", allowed = "", barred = "", third = "";
+let owner = "", maker = "", picky = "", allowed = "", barred = "", third = "", viewer = "";
 const users: string[] = [];
 
 beforeAll(async () => {
@@ -39,8 +46,8 @@ beforeAll(async () => {
     users.push(u.id);
     return u.id;
   };
-  [owner, maker, picky, allowed, barred, third] = await Promise.all(
-    ["owner", "maker", "picky", "allowed", "barred", "third"].map(mk),
+  [owner, maker, picky, allowed, barred, third, viewer] = await Promise.all(
+    ["owner", "maker", "picky", "allowed", "barred", "third", "viewer"].map(mk),
   );
   orgId = (await prisma.organization.create({ data: { name: `cp ${stamp}`, slug: `cp-${stamp}` } })).id;
   await prisma.orgMember.create({ data: { orgId, userId: owner, role: "OWNER", permissions: "0" } });
@@ -61,6 +68,8 @@ beforeAll(async () => {
   for (const userId of [allowed, barred, third]) {
     await prisma.orgMember.create({ data: { orgId, userId, role: "MEMBER", permissions: "0" } });
   }
+  // Can open the project and read its items, but holds no ITEM_CREATE.
+  await prisma.orgMember.create({ data: { orgId, userId: viewer, role: "VIEWER", permissions: "0" } });
   projectId = (await prisma.project.create({ data: { orgId, name: "Open", key: `CP${stamp.slice(0, 3).toUpperCase()}` } })).id;
   await ensureFixtureStatuses(projectId);
   typeId = (await prisma.workItemType.findFirstOrThrow({ where: { orgId: null, key: { endsWith: ".task" } } })).id;
@@ -163,6 +172,34 @@ describe("the create route asks about every assignee", () => {
   });
 });
 
+describe("creating needs ITEM_CREATE, whoever the item is for", () => {
+  // The rows asked about vary with the assignees, and an empty row list asks
+  // nothing. The permission must not ride on there being a row: these items
+  // are for nobody, and the caller has no ITEM_CREATE.
+  it("an unassigned create is refused without ITEM_CREATE, and nothing is written", async () => {
+    await as(viewer);
+    for (const body of [{}, { assigneeIds: [] }]) {
+      const { res, title } = await create(body);
+      expect(res.status, JSON.stringify(body)).toBe(403);
+      expect(await titled(title)).toBe(0);
+    }
+    // Control: the same request from a member who holds it.
+    await as(maker);
+    expect((await create({})).res.status).toBe(201);
+  });
+
+  it("an unassigned Duplicate is refused without ITEM_CREATE, and nothing is copied", async () => {
+    const src = await itemFor([]);
+    await as(viewer);
+    expect((await duplicateItem(post(), onItem(src.id))).status).toBe(403);
+    expect(await titled(`Copy of ${src.title}`)).toBe(0);
+    // Control: the same copy by a member who holds it.
+    await as(maker);
+    expect((await duplicateItem(post(), onItem(src.id))).status).toBe(201);
+    expect(await titled(`Copy of ${src.title}`)).toBe(1);
+  });
+});
+
 describe("Duplicate asks about every assignee the copy carries", () => {
   it("control: a copy of an item for people the rule allows is made with all of them", async () => {
     await as(maker);
@@ -227,7 +264,8 @@ describe("the assistant's create_work_item asks what the create route asks", () 
     const ctx = await memberToolCtx(orgId, maker);
     const res = (await aiCreateWorkItem(tool(`ai-b ${stamp}`, barred), ctx)) as { created?: boolean; error?: string };
     expect(res.created).toBeUndefined();
-    expect(res.error).toBeTruthy();
+    // The rule's refusal, not a project lookup that refuses everything.
+    expect(res.error).toBe("Access denied by policy");
     expect(await titled(`ai-b ${stamp}`)).toBe(0);
   });
 
@@ -235,6 +273,7 @@ describe("the assistant's create_work_item asks what the create route asks", () 
     const ctx = await memberToolCtx(orgId, picky);
     const res = (await aiCreateWorkItem(tool(`ai-p ${stamp}`), ctx)) as { created?: boolean; error?: string };
     expect(res.created).toBeUndefined();
+    expect(res.error).toBe("Access denied by policy");
     expect(await titled(`ai-p ${stamp}`)).toBe(0);
     const ok = (await aiCreateWorkItem(tool(`ai-pa ${stamp}`, allowed), ctx)) as { created?: boolean; error?: string };
     expect(ok.error).toBeUndefined();

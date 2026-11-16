@@ -126,10 +126,13 @@ export function handleApiError(error: unknown, request?: Request) {
     );
   }
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
-    // Any other foreign key: the request named a row that isn't there (deleted
-    // a moment ago, say). The caller's mistake, so a 400 rather than a
-    // reported 500. Says nothing about which table, constraint or column.
-    return problem(400, "invalid_request", "This refers to something that no longer exists.", opts);
+    // Any other foreign key. Usually the request's doing: it named a row that
+    // isn't there (deleted a moment ago, say), or asked to delete one other
+    // records still point at. So a 400 that says which, naming no table,
+    // constraint or column. But server code can write a bad reference too, so
+    // the detail is still logged at error level, never sent.
+    console.error("[api:400] foreign key refused", error.code, JSON.stringify(error.meta ?? {}));
+    return problem(400, "invalid_request", FOREIGN_KEY_MESSAGE[foreignKeySide(error.meta)], opts);
   }
   if (
     error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -158,6 +161,29 @@ export function handleApiError(error: unknown, request?: Request) {
   console.error("[api:500]", error);
   serverReportError(error, { scope: "api" });
   return problem(500, "internal_error", undefined, opts);
+}
+
+const FOREIGN_KEY_MESSAGE = {
+  missing: "This refers to something that no longer exists.",
+  in_use: "This is still in use by other records.",
+  unknown: "This conflicts with a related record.",
+} as const;
+
+/**
+ * Which way a foreign key broke, in Postgres's own words as Prisma's driver
+ * adapter passes them on: "insert or update on table" when the row written
+ * names one that isn't there, "update or delete on table" when other rows
+ * still point at the one being changed. Those words are the server's English
+ * messages; anything else (another language, no detail) is `unknown`, and gets
+ * the message true of both.
+ */
+function foreignKeySide(meta: unknown): keyof typeof FOREIGN_KEY_MESSAGE {
+  const said = (meta as { driverAdapterError?: { cause?: { originalMessage?: unknown } } } | undefined)
+    ?.driverAdapterError?.cause?.originalMessage;
+  if (typeof said !== "string") return "unknown";
+  if (said.startsWith("insert or update on table ")) return "missing";
+  if (said.startsWith("update or delete on table ")) return "in_use";
+  return "unknown";
 }
 
 /**
