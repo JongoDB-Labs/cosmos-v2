@@ -125,6 +125,12 @@ export function handleApiError(error: unknown, request?: Request) {
       { status: 400 }
     );
   }
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+    // Any other foreign key: the request named a row that isn't there (deleted
+    // a moment ago, say). The caller's mistake, so a 400 rather than a
+    // reported 500. Says nothing about which table, constraint or column.
+    return problem(400, "invalid_request", "This refers to something that no longer exists.", opts);
+  }
   if (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2028" &&

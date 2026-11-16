@@ -20,6 +20,8 @@ import { defaultCeremonyInterval } from "@/lib/intervals/ceremony-intervals";
 import { columnCategoryResolver } from "@/lib/workflow/column-categories.server";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { assignableMembersWhere } from "@/lib/work-items/apply-change.server";
+import { itemCreateRows } from "@/lib/work-items/create-access";
+import { requirePolicy } from "@/lib/abac/require-access";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
 
 /**
@@ -946,6 +948,21 @@ export async function promoteCeremonyAction(ctx: AuthContext, scope: CeremonySco
     if (existing) return { workItem: existing, created: false };
   }
 
+  // The owner becomes the assignee only while they are still in the org
+  // (someone who has left would be assigned work they can never see).
+  const ownerInOrg = action.ownerId
+    ? (await prisma.orgMember.count({ where: assignableMembersWhere(orgId, [action.ownerId]) })) > 0
+    : false;
+  const assigneeId = ownerInOrg ? action.ownerId : null;
+
+  // requireProjectManage above decides who may create work here (the org-wide
+  // bit, or managing this project) and applies no access rule. So the rules
+  // over ITEM_CREATE are asked here, about the person the work is for, as the
+  // create route asks them, without asking for the bit a manager may lack.
+  for (const row of itemCreateRows(ctx.userId, projectId, assigneeId ? [assigneeId] : [])) {
+    await requirePolicy(ctx, "ITEM_CREATE", row);
+  }
+
   // Land it on a DELIVERY board, never on the ceremony board that produced it.
   // A retro board's columns are Start / Stop / Continue, so taking "the first
   // TODO column of this board" would file real tracked work under "Start",
@@ -1020,12 +1037,6 @@ export async function promoteCeremonyAction(ctx: AuthContext, scope: CeremonySco
       columnKey: target.key,
     });
 
-    // The owner becomes the assignee only while they are still in the org
-    // (someone who has left would be assigned work they can never see).
-    const ownerInOrg = action.ownerId
-      ? (await tx.orgMember.count({ where: assignableMembersWhere(orgId, [action.ownerId]) })) > 0
-      : false;
-
     const item = await createWorkItemRow(tx, {
       data: {
         orgId,
@@ -1034,7 +1045,7 @@ export async function promoteCeremonyAction(ctx: AuthContext, scope: CeremonySco
         title: action.text.slice(0, 255),
         description: "",
         columnKey: target.key,
-        assigneeId: ownerInOrg ? action.ownerId : null,
+        assigneeId,
         dueDate: action.dueDate,
         intervalId: nextInterval?.id ?? null,
         ticketNumber,

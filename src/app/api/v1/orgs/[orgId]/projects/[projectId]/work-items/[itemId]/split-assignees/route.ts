@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
-import { requireAccess } from "@/lib/abac/require-access";
+import { requireAccess, requireAccessForEach } from "@/lib/abac/require-access";
+import { itemCreateRows } from "@/lib/work-items/create-access";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
@@ -47,16 +48,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       assigneeId: source.assigneeId,
       projectId,
     });
-    await requireAccess(ctx, "ITEM_CREATE", {
-      createdById: ctx.userId,
-      assigneeId: source.assigneeId,
-      projectId,
-    });
 
     const plan = planSplit(source.assignees.map((a) => a.userId));
     if (!plan) {
       return problem(400, "invalid_request", "Only an item with two or more assignees can be split", { request });
     }
+    // Each copy is a new item for one of the people split off, so ITEM_CREATE
+    // (and any deny policy over the assignee) is asked about each of them, as
+    // creating that item would ask it. Not the original's assignee: they keep
+    // the original and get no copy.
+    await requireAccessForEach(
+      ctx,
+      "ITEM_CREATE",
+      plan.splitOff.flatMap((userId) => itemCreateRows(ctx.userId, projectId, [userId])),
+    );
 
     const copies = await prisma.$transaction(async (tx) => {
       // The allocator's advisory lock holds until this transaction ends, so the

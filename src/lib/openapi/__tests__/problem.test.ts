@@ -116,6 +116,50 @@ describe("handleApiError keeps every legacy body", () => {
     expect(res.headers.get("retry-after")).toBeNull();
   });
 
+  // A foreign-key violation means the request named a row that isn't there (a
+  // parent deleted a moment ago, say): the caller's mistake, so a 400, never a
+  // 500 that reads as a server fault. The answer names no table, constraint or
+  // column. The status-column case keeps the message it has always had.
+  const p2003 = (meta: Record<string, unknown>) =>
+    new Prisma.PrismaClientKnownRequestError("Foreign key constraint violated", { code: "P2003", clientVersion: "x", meta });
+  // The shape Prisma's pg driver adapter reports one in, as read off a real violation.
+  const adapterMeta = (modelName: string, table: string, constraint: string) => ({
+    modelName,
+    driverAdapterError: {
+      name: "DriverAdapterError",
+      cause: {
+        originalCode: "23503",
+        originalMessage: `insert or update on table "${table}" violates foreign key constraint "${constraint}"`,
+        kind: "ForeignKeyConstraintViolation",
+        constraint: { index: constraint },
+      },
+    },
+  });
+
+  it.each([
+    ["a parent", adapterMeta("WorkItem", "work_items", "work_items_parent_id_fkey")],
+    ["another table's", adapterMeta("Comment", "comments", "comments_work_item_id_fkey")],
+    ["no detail at all", {}],
+  ])("a broken reference (%s) is a 400 that names nothing", async (_n, meta) => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = handleApiError(p2003(meta), withId("req-fk"));
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toBe(PROBLEM_CONTENT_TYPE);
+    const body = await res.json();
+    expect(body).toMatchObject({ status: 400, code: "invalid_request", error: "This refers to something that no longer exists." });
+    expect(body.detail).toBe(body.error);
+    const text = JSON.stringify(body);
+    for (const leak of ["fkey", "parent_id", "work_items", "comments", "Comment", "23503", "Foreign key"]) expect(text).not.toContain(leak);
+  });
+
+  it("a status the project doesn't have keeps its own message", async () => {
+    const res = handleApiError(p2003(adapterMeta("WorkItem", "work_items", "work_items_project_id_column_key_fkey")));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("That status doesn't exist in this project.");
+  });
+
   it("a workflow refusal is a problem with its code and what to ask for beside it", async () => {
     const res = handleApiError(
       new TransitionError({

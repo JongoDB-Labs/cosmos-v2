@@ -172,8 +172,12 @@ describe("agent tools cannot read past project scoping", () => {
   // `canReadMeeting` / `readableMeetingsWhere` (lib/meetings/meeting-reader)
   // are the one meeting-read rule: the project visible AND MEETING_READ passing
   // for it. Pinned in project-read-gate.arch.test.ts.
+  // `assertProjectVisible` is the visibility half of assertProjectRead, the
+  // question this file is about, for a write that asks its own action with the
+  // row's attributes (create_work_item: ITEM_CREATE per assignee), as the
+  // routes pair requireProjectVisible with requireAccess.
   const HAS_GATE =
-    /assertProjectRead|assertProjectManage|getReadableProjectIds|visibleProjectIdsForActor|visibleProjectRecordsWhere|canReadMeeting|readableMeetingsWhere/;
+    /assertProjectRead|assertProjectManage|assertProjectVisible|getReadableProjectIds|visibleProjectIdsForActor|visibleProjectRecordsWhere|canReadMeeting|readableMeetingsWhere/;
 
   /**
    * Writes that touch a project-scoped MODEL but never a project.

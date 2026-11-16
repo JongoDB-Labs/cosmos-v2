@@ -10,6 +10,7 @@ import { logAudit } from "@/lib/audit";
 import { publishToOrg } from "@/lib/realtime/broker";
 import { MergeError, mergeWorkItems } from "@/lib/work-items/merge.server";
 import { requireProjectVisible } from "@/lib/rbac/require-project-read";
+import { scopeItemLinks } from "@/lib/work-items/linked-scope.server";
 
 type RouteParams = {
   params: Promise<{ orgId: string; projectId: string; itemId: string }>;
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       /* never let a broker error break the response */
     }
 
-    const [merged, into] = await Promise.all(
+    const rows = await Promise.all(
       [itemId, intoId].map((id) =>
         prisma.workItem.findUniqueOrThrow({
           where: { id },
@@ -87,6 +88,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }),
       ),
     );
+    // As GET answers: a sub-item in a project the caller can't open reads as
+    // none (an older, unchecked write may have parented one under either item).
+    const [merged, into] = await scopeItemLinks(ctx, orgId, projectId, rows);
     return respond(mergeWorkItem, 200, { merged, into, moved: result.moved });
   } catch (error) {
     return handleApiError(error, request);

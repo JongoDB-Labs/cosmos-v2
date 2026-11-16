@@ -42,7 +42,7 @@ const BIT_HELPERS = [
  */
 const GATES = new Set([
   "requirePermission", "requireProjectManage", "canAdministerProject", "assertPermission",
-  "requireAccess", "requireProjectRead", "assertProjectRead", "readableItemProjectId", "cqlGate",
+  "requireAccess", "requireAccessForEach", "requireProjectRead", "assertProjectRead", "readableItemProjectId", "cqlGate",
   "requireKeyMay",
 ]);
 /**

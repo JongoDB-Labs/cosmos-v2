@@ -323,11 +323,11 @@ async function membersAmong(tx: Pick<Prisma.TransactionClient, "orgMember">, org
  * and a user from another org get the SAME 422 `assignee_not_in_org`, so the answer says nothing
  * about which users exist on the platform, and an item is never assigned
  * across tenants. (Before, an unknown id was a 500 and an outsider was
- * assigned.) Used for every write that names assignees: the change service
- * and work-item create.
+ * assigned.) Used for every write that names assignees: the change service,
+ * work-item create, and the assistant's create and update.
  */
 export async function assertAssigneesInOrg(
-  tx: Prisma.TransactionClient,
+  tx: Pick<Prisma.TransactionClient, "orgMember">,
   orgId: string,
   ids: readonly (string | null | undefined)[],
 ): Promise<void> {

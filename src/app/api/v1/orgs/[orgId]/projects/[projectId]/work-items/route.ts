@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { assertAssigneesInOrg, assigneeSetData } from "@/lib/work-items/apply-change.server";
-import { requireAccess } from "@/lib/abac/require-access";
+import { requireAccessForEach } from "@/lib/abac/require-access";
+import { itemCreateRows } from "@/lib/work-items/create-access";
 import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
@@ -116,15 +117,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const project = await prisma.project.findFirst({ where: { id: projectId, orgId } });
     if (!project) return problem(404, "not_found", undefined, { request });
 
+    // Full assignee set: explicit list wins; a legacy single assigneeId
+    // becomes a one-member set. First member is the primary. The check below
+    // and the write both use this one set.
+    const assigneeIds = data.assigneeIds ?? (data.assigneeId ? [data.assigneeId] : []);
+
     // Resource-aware authz: checks ITEM_CREATE in the bitfield AND applies any
-    // deny policy that references it. On create the actor is the creator, so
-    // ownership binds trivially — this mainly enables in_project deny policies
-    // via projectId. Identical to requirePermission until a policy exists.
-    await requireAccess(ctx, "ITEM_CREATE", {
-      createdById: ctx.userId,
-      assigneeId: data.assigneeId ?? null,
-      projectId,
-    });
+    // deny policy that references it, once for each person the item will be
+    // assigned to (itemCreateRows), so a rule over the assignee holds for all
+    // of them. On create the actor is the creator, so ownership binds
+    // trivially. Identical to requirePermission until a policy exists.
+    await requireAccessForEach(ctx, "ITEM_CREATE", itemCreateRows(ctx.userId, projectId, assigneeIds));
 
     // Every row the body names must be this project's (a type: this org's or
     // built in). The foreign keys alone accept another tenant's ids, and the
@@ -189,10 +192,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         columnKey: data.columnKey,
       });
 
-      // Full assignee set: explicit list wins; a legacy single assigneeId
-      // becomes a one-member set. First member is the primary.
-      const assigneeIds =
-        data.assigneeIds ?? (data.assigneeId ? [data.assigneeId] : []);
       // Every assignee must be in this org: the same 422 for an unknown id and
       // for a user elsewhere (no 500, no cross-tenant assignment).
       await assertAssigneesInOrg(tx, orgId, assigneeIds);

@@ -1,7 +1,15 @@
 import { prisma, prismaUnfiltered } from "@/lib/db/client";
 import { Permission } from "@/lib/rbac/permissions";
 import { storeEmbedding } from "@/lib/rag/embed";
-import { applyWorkItemChange, type WorkItemPatch } from "@/lib/work-items/apply-change.server";
+import {
+  applyWorkItemChange,
+  assertAssigneesInOrg,
+  assigneeSetData,
+  type WorkItemPatch,
+} from "@/lib/work-items/apply-change.server";
+import { itemCreateRows } from "@/lib/work-items/create-access";
+import { requireAccessForEach } from "@/lib/abac/require-access";
+import { ProblemError } from "@/lib/openapi/problem";
 import { runAfterCommit } from "@/lib/work-items/after-commit";
 import { listTransitions } from "@/lib/workflow/engine.server";
 import { TransitionError } from "@/lib/workflow/contract";
@@ -13,7 +21,15 @@ import {
 } from "@/lib/work-items/dependency-graph";
 import { Prisma, Priority, LinkType } from "@prisma/client";
 import { z } from "zod";
-import { assertPermission, assertProjectRead, loadActorPermissions, type ToolContext } from "./_ctx";
+import {
+  assertPermission,
+  assertProjectRead,
+  assertProjectVisible,
+  loadActorPermissions,
+  loadAuthContext,
+  serviceRefusal,
+  type ToolContext,
+} from "./_ctx";
 import { teamFilter } from "./teams";
 import { calendarDateInput, toCalendarNoonUTC } from "../date-input";
 import { allocateTicketNumber, allocateSortOrder } from "@/lib/work-items/allocate";
@@ -141,13 +157,19 @@ async function assigneeName(orgId: string, userId: string | null): Promise<strin
 }
 
 /**
- * Refuse an assignee who is not in this org's directory.
+ * Refuse an assignee who can't be given work in this org.
  *
  * A well-formed uuid that names nobody here is exactly how a ticket ended up
  * "assigned to a GUID": the scalar stored happily and every surface that tried
  * to put a name to it came up empty. Same `{error} | null` shape as the gates in
  * _ctx.ts, and the message names the lookup tool so the model can recover — it
  * does NOT echo the offending id back.
+ *
+ * The question is the routes' own (`assertAssigneesInOrg`): a member still in
+ * the org, with an account that isn't deactivated. Not `assigneeNames`, which
+ * answers a different one: it NAMES someone who has left, so their old tickets
+ * keep saying who had them, and so it let the assistant assign new work to
+ * them, which the create route refuses.
  *
  * It also keeps the assignee SET writable: `WorkItemAssignee.userId` is a real
  * foreign key, so an id belonging to no user would otherwise surface as a raw
@@ -157,14 +179,17 @@ async function assertAssigneeInOrg(
   orgId: string,
   assigneeId: string | null | undefined
 ): Promise<{ error: string } | null> {
-  if (!assigneeId) return null;
-  const known = await assigneeNames(orgId, [assigneeId]);
-  if (known.has(assigneeId)) return null;
-  return {
-    error:
-      "That assigneeId is not a member of this organization. " +
-      "Look the person up with list_org_members and pass their userId.",
-  };
+  try {
+    await assertAssigneesInOrg(prisma, orgId, [assigneeId]);
+    return null;
+  } catch (e) {
+    if (!(e instanceof ProblemError && e.code === "assignee_not_in_org")) throw e;
+    return {
+      error:
+        "That assigneeId is not a member of this organization. " +
+        "Look the person up with list_org_members and pass their userId.",
+    };
+  }
 }
 
 /**
@@ -249,8 +274,22 @@ export async function createWorkItem(
 
   // Creating a ticket in a project you cannot open plants work in someone
   // else's board and confirms the project exists.
-  const outOfScope = await assertProjectRead(ctx, data.projectId, "ITEM_CREATE");
-  if (outOfScope) return { error: "Project not found" };
+  const outOfScope = await assertProjectVisible(ctx, data.projectId);
+  if (outOfScope) return outOfScope;
+
+  // The create route's own question, about the same set the item is written
+  // with: ITEM_CREATE and any deny policy, once for each person it will be
+  // assigned to (one row with no assignee when there is nobody).
+  const assigneeIds = data.assigneeId ? [data.assigneeId] : [];
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Insufficient permissions" };
+  try {
+    await requireAccessForEach(auth, "ITEM_CREATE", itemCreateRows(ctx.userId, data.projectId, assigneeIds));
+  } catch (e) {
+    const refusal = serviceRefusal(e);
+    if (refusal) return refusal;
+    throw e;
+  }
 
   const strangerAssignee = await assertAssigneeInOrg(ctx.orgId, data.assigneeId);
   if (strangerAssignee) return strangerAssignee;
@@ -305,14 +344,12 @@ export async function createWorkItem(
         title: data.title,
         description: data.description ?? "",
         columnKey,
-        assigneeId: data.assigneeId ?? null,
         // Multi-assign: the SET (`WorkItemAssignee`) is what the ticket's
         // Assignees control reads, and it is what the REST create route writes.
         // Setting only the legacy scalar left that set empty, so a ticket Cosmo
-        // had just assigned opened on "Unassigned" (COSMOS-192).
-        ...(data.assigneeId
-          ? { assignees: { create: [{ userId: data.assigneeId, sortOrder: 0 }] } }
-          : {}),
+        // had just assigned opened on "Unassigned" (COSMOS-192). Written as the
+        // route writes it, from the set the check above asked about.
+        ...assigneeSetData(assigneeIds),
         priority: data.priority ?? Priority.MEDIUM,
         intervalId: data.intervalId ?? null,
         parentId: data.parentId ?? null,
