@@ -22,7 +22,7 @@
  * place.
  */
 import type { ChipCategory } from "@/components/program-calendar/event-chip";
-import { DAY_MS, utcMidnight } from "./time";
+import { DAY_MS, utcMidnight, wallClock } from "./time";
 
 export type OverlayKey = "events" | "agile" | "outlook";
 export const OVERLAY_KEYS: readonly OverlayKey[] = ["events", "agile", "outlook"];
@@ -283,30 +283,10 @@ export const OUTLOOK_MAX_WINDOW_DAYS = 62;
 export const OUTLOOK_PAGE_SIZE = 100;
 export const OUTLOOK_MAX_PAGES = 5;
 
-/**
- * An instant as its wall-clock reading in `timeZone`, expressed as that same
- * reading in UTC.
- *
- * The grid lays days out as UTC dates and reads a chip's time on the chip's
- * own clock. A meeting at 17:00 in Los Angeles is 01:00 UTC the NEXT day, so
- * drawn as an instant it would land in the wrong column for the person whose
- * meeting it is. Their own calendar should read as their own clock does, so
- * the instant is moved onto it once, here, and then drawn as UTC.
- */
-export function wallClock(instant: Date, timeZone: string): Date {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(instant);
-  const n = (t: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === t)?.value ?? 0);
-  return new Date(Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute"), n("second")));
-}
+// `wallClock` lives in ./time, beside the rule that draws program events on
+// their own zone's clock, so the Outlook overlay and the program events share
+// one conversion. Re-exported for this module's readers.
+export { wallClock };
 
 const hhmm = (d: Date) =>
   new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }).format(d);

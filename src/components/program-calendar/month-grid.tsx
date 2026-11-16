@@ -4,8 +4,7 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { EventChip, type ChipCategory } from "./event-chip";
 import { packWeek, weekDays, weeksIn } from "@/lib/program-calendar/layout";
-import { DAY_MS, utcMidnight } from "@/lib/program-calendar/time";
-import { useUtcToday } from "./use-utc-today";
+import { useToday } from "./use-today";
 import type { OverlayKind } from "@/lib/program-calendar/overlays";
 
 export interface CalendarEvent {
@@ -73,7 +72,7 @@ export function MonthGrid({
   eventLanes?: number;
 }) {
   const weeks = useMemo(() => weeksIn(from, to), [from, to]);
-  const today = useUtcToday();
+  const today = useToday();
 
   return (
     <div className="min-w-[640px]">
@@ -190,14 +189,4 @@ export function MonthGrid({
       })}
     </div>
   );
-}
-
-/** Rows for the day the user drilled into, used by the overflow popover and
- *  the Day view. Exported so both read the same ordering. */
-export function eventsOnDay(events: CalendarEvent[], day: Date): CalendarEvent[] {
-  const from = utcMidnight(day).getTime();
-  const to = from + DAY_MS;
-  return events
-    .filter((e) => e.startsAt.getTime() < to && e.endsAt.getTime() > from)
-    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime() || a.title.localeCompare(b.title));
 }

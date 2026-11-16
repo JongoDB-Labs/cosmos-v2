@@ -96,6 +96,49 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.562.5",
+    date: "2026-11-16",
+    title: "Program calendar events on the right day",
+    highlights: [
+      {
+        kind: "fix",
+        text: "A timed event on the program calendar now shows on the day it is held in its own time zone. Before, an evening event in a zone west of UTC, such as 7 PM in Los Angeles, showed on the next day in the week and month views, and could be missing from the day view.",
+      },
+      {
+        kind: "fix",
+        text: "Opening and saving a timed event now keeps its date and time in the event\u2019s own time zone, as the form says. Before, the date could move by a day and the time could shift by your computer\u2019s offset.",
+      },
+      {
+        kind: "fix",
+        text: "With a project picked, the category counts on the calendar now count that project\u2019s events under the same filters as the calendar, not the whole organization\u2019s.",
+      },
+      {
+        kind: "fix",
+        text: "If you can see a project but can\u2019t add events to it, a new event now goes on the organization\u2019s calendar and the form says so, instead of failing with an error when you save.",
+      },
+      {
+        kind: "fix",
+        text: "Saving an event with a time zone the calendar doesn\u2019t recognize is now refused, and the message names the time zone. Before, it was saved, and one such event could stop the calendar from loading for everyone.",
+      },
+      {
+        kind: "fix",
+        text: "The program calendar now marks today, and opens on, your own date. Before, in the evening in a time zone west of UTC, it marked tomorrow, and on the last evening of a month it opened on the next month.",
+      },
+      {
+        kind: "fix",
+        text: "An event saved earlier with a time zone the calendar doesn\u2019t recognize can be edited and saved again. It is shown in UTC, and is now saved in UTC. Before, saving it failed every time, and an all-day event had no way to change its time zone.",
+      },
+      {
+        kind: "fix",
+        text: "A time zone is saved as you entered it, trimmed and with its capitalization fixed, so \u201camerica/chicago\u201d is saved as America/Chicago. A bare UTC offset such as +05:30 is refused, and the message names it, because not every browser can show one.",
+      },
+      {
+        kind: "fix",
+        text: "Through the API, clearing the person who leads an event no longer clears the team that leads it, and clearing the team no longer clears the person.",
+      },
+    ],
+  },
+  {
     version: "2.562.4",
     date: "2026-11-16",
     title: "Table board item count",
