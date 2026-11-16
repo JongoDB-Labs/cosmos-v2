@@ -21,7 +21,7 @@ const TASK_TYPE = "a2000000-0000-4000-8000-000000000008";
 const COPY_BO = "a3000000-0000-4000-8000-000000000009";
 const COPY_CY = "a4000000-0000-4000-8000-00000000000a";
 
-const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
+const { prisma, tx, getAuthContext, requireAccess, requireAccessForEach } = vi.hoisted(() => {
   // The single writer checks that a new row's parent, interval, team and type
   // are its own project's and org's (lib/rbac/foreign-refs.ts). Every id this
   // test names is, so each lookup finds all it asked for; the refusals are
@@ -58,6 +58,7 @@ const { prisma, tx, getAuthContext, requireAccess } = vi.hoisted(() => {
     },
     getAuthContext: vi.fn(),
     requireAccess: vi.fn(),
+    requireAccessForEach: vi.fn(),
   };
 });
 // Visibility is covered against a real database (lib/rbac/team-scope-writes.db.test.ts).
@@ -67,7 +68,7 @@ vi.mock("@/lib/rbac/require-project-read", async (importOriginal) => ({
 }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
-vi.mock("@/lib/abac/require-access", () => ({ requireAccess }));
+vi.mock("@/lib/abac/require-access", () => ({ requireAccess, requireAccessForEach }));
 vi.mock("@/lib/work-items/allocate", () => ({ allocateTicketNumber: vi.fn(async () => 100) }));
 vi.mock("@/lib/work-items/labels", () => ({ setWorkItemLabels: vi.fn() }));
 vi.mock("@/lib/rag/embed", () => ({ storeEmbedding: vi.fn(async () => undefined) }));
@@ -111,6 +112,10 @@ beforeEach(() => {
   prisma.organization.findUnique.mockResolvedValue({ id: ORG, slug: "acme" });
   getAuthContext.mockResolvedValue({ userId: PM, orgId: ORG });
   requireAccess.mockResolvedValue(undefined);
+  // Row by row through the single check, as the real one does.
+  requireAccessForEach.mockImplementation(async (ctx: unknown, action: string, rows: unknown[]) => {
+    for (const row of rows) await requireAccess(ctx, action, row);
+  });
   prisma.workItem.findFirst.mockResolvedValue(SOURCE);
   tx.workItem.aggregate.mockResolvedValue({ _max: { sortOrder: 7 } });
   tx.workItem.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -175,9 +180,14 @@ describe("POST split-assignees", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it("needs ITEM_UPDATE on the original as well as ITEM_CREATE", async () => {
+  it("needs ITEM_UPDATE on the original, and ITEM_CREATE for the person each copy is for", async () => {
     await call();
 
-    expect(requireAccess.mock.calls.map(([, action]) => action)).toEqual(["ITEM_UPDATE", "ITEM_CREATE"]);
+    expect(requireAccess.mock.calls.map(([, action]) => action)).toEqual(["ITEM_UPDATE", "ITEM_CREATE", "ITEM_CREATE"]);
+    const creates = requireAccess.mock.calls.filter(([, action]) => action === "ITEM_CREATE").map(([, , row]) => row);
+    expect(creates).toEqual([
+      { createdById: PM, assigneeId: BO, projectId: PROJECT },
+      { createdById: PM, assigneeId: CY, projectId: PROJECT },
+    ]);
   });
 });

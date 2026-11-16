@@ -49,6 +49,37 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.563.4",
+    date: "2026-11-16",
+    title: "Access rules apply to every assignee of a new item",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Assigning several people to a new item now applies your organization's access rules to each of them, not only the first. This holds when you create, duplicate or split an item, when Cosmo creates one, and when a retro action becomes an item.",
+      },
+      {
+        kind: "fix",
+        text: "When your organization limits whom a member may create work for, Cosmo now follows the same rule as the item form. It used to refuse that member every new item.",
+      },
+      {
+        kind: "fix",
+        text: "Cosmo no longer assigns a new item to someone who has left the organization or whose account is deactivated. The item form already refused them.",
+      },
+      {
+        kind: "fix",
+        text: "Merging two items now lists their sub-items the way opening the item does, leaving out any in a project you can't open.",
+      },
+      {
+        kind: "fix",
+        text: "Saving something that points at a record deleted a moment ago now says \"This refers to something that no longer exists.\" instead of showing a server error. Deleting something other records still use says \"This is still in use by other records.\"",
+      },
+      {
+        kind: "fix",
+        text: "An item made from a retro action now shows the action's owner under Assignees. It used to open as unassigned.",
+      },
+    ],
+  },
+  {
     version: "2.563.3",
     date: "2026-11-16",
     title: "Web framework patch",

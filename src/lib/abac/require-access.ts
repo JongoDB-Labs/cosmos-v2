@@ -109,12 +109,21 @@ export async function requirePolicy(
  *
  * Rows with identical attributes get the same answer, so each distinct set is
  * evaluated once: a 10,000-row selection by three creators is three checks.
+ *
+ * No rows still needs the permission: the bit, with the owner's break-glass
+ * and a key's scope mask exactly as `requireAccess` applies them, and no rule,
+ * since there is no row for one to be about. So the bit never depends on what
+ * a caller's row list happens to hold.
  */
 export async function requireAccessForEach(
   ctx: AuthContext,
   action: PermissionKey,
   rows: readonly ResourceAttributes[],
 ): Promise<void> {
+  if (rows.length === 0) {
+    await requireAccess({ ...ctx, abacRules: [] }, action);
+    return;
+  }
   const seen = new Set<string>();
   for (const row of rows) {
     const key = JSON.stringify(Object.entries(row).sort(([a], [b]) => a.localeCompare(b)));

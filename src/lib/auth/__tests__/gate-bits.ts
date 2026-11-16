@@ -2,8 +2,8 @@
 // scope-compat.test.ts and read-mask-writes.test.ts.
 //
 // Only bits inside a gate count: requirePermission / requireProjectManage
-// (Permission.X), requireAccess / requireProjectRead (action keys), and a
-// negated hasPermission. A plain hasPermission or a `permissions & X` test is
+// (Permission.X), requireAccess / requireAccessForEach / requireProjectRead
+// (action keys), and a negated hasPermission. A plain hasPermission or a `permissions & X` test is
 // usually an optional enrichment (show the money column when FINANCE_READ is
 // held), and counting it as required would hide real reach: the SharePoint
 // export POST looked unreachable for want of FINANCE_READ it never demands.
@@ -21,7 +21,9 @@ import { Permission } from "@/lib/rbac/permissions";
 const GATE_WITH_BIT = /\b(?:requirePermission|requireProjectManage|canAdministerProject|assertPermission)\([^;]*?Permission\.([A-Z_]+)/g;
 const NEGATED_HAS = /!\s*hasPermission\([^)]*?Permission\.([A-Z_]+)/g;
 // readableItemProjectId (lib/work-items/read.server) runs requireProjectRead with its action.
-const GATE_WITH_ACTION = /\b(?:requireAccess|requireProjectRead|assertProjectRead|readableItemProjectId)\([^;]*?"([A-Z_]+)"/g;
+// requireAccessForEach is requireAccess for each of several rows (the people a
+// new item is assigned to, a bulk selection), the same bit included.
+const GATE_WITH_ACTION = /\b(?:requireAccess|requireAccessForEach|requireProjectRead|assertProjectRead|readableItemProjectId)\([^;]*?"([A-Z_]+)"/g;
 /** `cond ? Permission.A : Permission.B` inside a gate: both sides are possible gates. */
 const TERNARY = /\?\s*(?:Permission\.|")([A-Z_]+)"?\s*:\s*(?:Permission\.|")([A-Z_]+)/g;
 /** `code` parsed as TypeScript (TSX when `fileName` says so), with parent links. */

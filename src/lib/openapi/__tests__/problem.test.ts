@@ -116,6 +116,71 @@ describe("handleApiError keeps every legacy body", () => {
     expect(res.headers.get("retry-after")).toBeNull();
   });
 
+  // A foreign-key violation is answered with a 400 that says which way the
+  // reference broke, in Postgres's own words where it gives them: the write
+  // named a row that isn't there (a parent deleted a moment ago, say), or other
+  // records still point at the row being deleted. Where it doesn't say, one
+  // message true of both. The answer names no table, constraint or column; the
+  // server log does, at error level, so a server bug that writes a bad
+  // reference is still seen. The status-column case keeps its own message.
+  const p2003 = (meta: Record<string, unknown>) =>
+    new Prisma.PrismaClientKnownRequestError("Foreign key constraint violated", { code: "P2003", clientVersion: "x", meta });
+  // The shape Prisma's pg driver adapter reports one in, as read off real violations.
+  const adapterMeta = (modelName: string, constraint: string, originalMessage: string) => ({
+    modelName,
+    driverAdapterError: {
+      name: "DriverAdapterError",
+      cause: { originalCode: "23503", originalMessage, kind: "ForeignKeyConstraintViolation", constraint: { index: constraint } },
+    },
+  });
+  const written = (modelName: string, table: string, constraint: string) =>
+    adapterMeta(modelName, constraint, `insert or update on table "${table}" violates foreign key constraint "${constraint}"`);
+  const MISSING = "This refers to something that no longer exists.";
+  const IN_USE = "This is still in use by other records.";
+  const EITHER = "This conflicts with a related record.";
+
+  it.each([
+    ["a parent that isn't there", written("WorkItem", "work_items", "work_items_parent_id_fkey"), MISSING, "work_items_parent_id_fkey"],
+    ["another table's reference", written("Comment", "comments", "comments_work_item_id_fkey"), MISSING, "comments_work_item_id_fkey"],
+    [
+      "a delete that other records still point at",
+      adapterMeta(
+        "WorkItemType",
+        "work_items_work_item_type_id_fkey",
+        'update or delete on table "work_item_types" violates foreign key constraint "work_items_work_item_type_id_fkey" on table "work_items"',
+      ),
+      IN_USE,
+      "work_items_work_item_type_id_fkey",
+    ],
+    [
+      "a server that words it otherwise",
+      adapterMeta("WorkItem", "work_items_parent_id_fkey", 'Einfügen oder Aktualisieren in Tabelle "work_items" verletzt Fremdschlüssel-Constraint'),
+      EITHER,
+      "work_items_parent_id_fkey",
+    ],
+    ["no detail at all", {}, EITHER, "P2003"],
+  ])("a broken reference (%s) is a 400 that names nothing, logged with what it was", async (_n, meta, message, logged) => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = handleApiError(p2003(meta), withId("req-fk"));
+    const logs = spy.mock.calls.map((args) => args.map(String).join(" "));
+    spy.mockRestore();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toContain(logged);
+    expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toBe(PROBLEM_CONTENT_TYPE);
+    const body = await res.json();
+    expect(body).toMatchObject({ status: 400, code: "invalid_request", error: message });
+    expect(body.detail).toBe(body.error);
+    const text = JSON.stringify(body);
+    for (const leak of ["fkey", "parent_id", "work_item", "comments", "Comment", "23503", "Foreign key", "Fremdschl"]) expect(text).not.toContain(leak);
+  });
+
+  it("a status the project doesn't have keeps its own message", async () => {
+    const res = handleApiError(p2003(written("WorkItem", "work_items", "work_items_project_id_column_key_fkey")));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("That status doesn't exist in this project.");
+  });
+
   it("a workflow refusal is a problem with its code and what to ask for beside it", async () => {
     const res = handleApiError(
       new TransitionError({

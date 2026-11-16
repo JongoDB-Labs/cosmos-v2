@@ -1,6 +1,6 @@
 import { ZodError } from "zod";
 import { hasPermission, type PermissionKey } from "@/lib/rbac/permissions";
-import { requireProjectRead } from "@/lib/rbac/require-project-read";
+import { requireProjectRead, requireProjectVisible } from "@/lib/rbac/require-project-read";
 import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { ConflictError, ForbiddenError, NotFoundError, type AuthContext } from "@/lib/rbac/check";
 import { ProblemError } from "@/lib/openapi/problem";
@@ -156,6 +156,36 @@ export async function assertProjectRead(
     return null;
   } catch {
     return { error: "Project not found" };
+  }
+}
+
+/**
+ * May this actor open this project at all? The visibility half of
+ * `assertProjectRead`, for a write that asks its own action through
+ * `requireAccess` with the row's attributes (creator, assignee), as the HTTP
+ * write routes pair `requireProjectVisible` with that call.
+ *
+ * `assertProjectRead(ctx, projectId, action)` asks the action about the
+ * project alone. A rule over an attribute it leaves out (the assignee) can't
+ * resolve there and fails closed, so the assistant refused every create a
+ * policy over the assignee touched, including ones the create route allows.
+ *
+ * Same answer as `assertProjectRead` for a project the caller can't open:
+ * "not found", never "forbidden". Any other failure is thrown, not read as a
+ * refusal.
+ */
+export async function assertProjectVisible(
+  ctx: ToolContext,
+  projectId: string,
+): Promise<{ error: string } | null> {
+  const auth = await loadAuthContext(ctx);
+  if (!auth) return { error: "Project not found" };
+  try {
+    await requireProjectVisible(auth, projectId);
+    return null;
+  } catch (e) {
+    if (e instanceof ForbiddenError) return { error: "Project not found" };
+    throw e;
   }
 }
 

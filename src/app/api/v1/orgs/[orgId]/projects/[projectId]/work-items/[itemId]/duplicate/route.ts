@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { createWorkItemRow } from "@/lib/work-items/write.server";
 import { setWorkItemLabels } from "@/lib/work-items/labels";
-import { requireAccess } from "@/lib/abac/require-access";
+import { requireAccessForEach } from "@/lib/abac/require-access";
+import { itemCreateRows } from "@/lib/work-items/create-access";
 import { handleApiError, getIpAddress } from "@/lib/api-helpers";
 import { parseRequest, respond } from "@/lib/openapi/respond";
 import { problem } from "@/lib/openapi/problem";
@@ -51,12 +52,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const assigneeIds = await assigneesToCarry(prisma, orgId, source);
 
     // The actor becomes the creator of the new item — same authz model as POST
-    // /work-items (ITEM_CREATE + any in-project deny policy).
-    await requireAccess(ctx, "ITEM_CREATE", {
-      createdById: ctx.userId,
-      assigneeId: assigneeIds[0] ?? null,
-      projectId,
-    });
+    // /work-items: ITEM_CREATE and any deny policy, asked about every person
+    // the copy will be assigned to, not just the first.
+    await requireAccessForEach(ctx, "ITEM_CREATE", itemCreateRows(ctx.userId, projectId, assigneeIds));
 
     // FR: optionally also clone the source's direct sub-items under the new copy
     // (the user is prompted when the item has children). The body may be left
@@ -125,14 +123,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         });
         for (const kid of kids) {
           // Each copied sub-item is a create of its own, with its own
-          // assignee: the same gate as the copy above, so a policy on who the
+          // assignees: the same gate as the copy above, so a policy on who the
           // caller may create work for holds for sub-items too.
           const kidAssignees = await assigneesToCarry(tx, orgId, kid);
-          await requireAccess(ctx, "ITEM_CREATE", {
-            createdById: ctx.userId,
-            assigneeId: kidAssignees[0] ?? null,
-            projectId,
-          });
+          await requireAccessForEach(ctx, "ITEM_CREATE", itemCreateRows(ctx.userId, projectId, kidAssignees));
           const child = await createWorkItemRow(tx, {
             data: {
               ...copyFields(kid),

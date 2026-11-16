@@ -154,8 +154,12 @@ describe("agent tools cannot read past project scoping", () => {
   // `createRisk` and `createKpi` were never checked at all — deleting their gate
   // passed. Mutation testing found it. A write into a project you cannot open is
   // as much a scope violation as a read out of one.
+  // `createWorkItemRow` is the one writer every work-item create goes through
+  // (lib/work-items/write.server), so a tool calling it writes a workItem row
+  // although it names no `prisma.workItem`. Without it, create_work_item was
+  // never examined here at all: removing its access check stayed green.
   const TOUCHES_SCOPED = new RegExp(
-    `prisma\\.(?:${PROJECT_SCOPED_MODELS.join("|")})\\.(?:findFirst|findUnique|findMany|create|createMany|upsert|update|updateMany|delete|deleteMany)\\(`,
+    `prisma\\.(?:${PROJECT_SCOPED_MODELS.join("|")})\\.(?:findFirst|findUnique|findMany|create|createMany|upsert|update|updateMany|delete|deleteMany)\\(|\\bcreateWorkItemRow\\(`,
   );
   // `assertProjectManage` counts: it checks VISIBILITY first (via
   // requireProjectRead) and only then authority, so a function using it is
@@ -174,6 +178,37 @@ describe("agent tools cannot read past project scoping", () => {
   // for it. Pinned in project-read-gate.arch.test.ts.
   const HAS_GATE =
     /assertProjectRead|assertProjectManage|getReadableProjectIds|visibleProjectIdsForActor|visibleProjectRecordsWhere|canReadMeeting|readableMeetingsWhere/;
+  // `assertProjectVisible` is only the visibility half of assertProjectRead:
+  // it asks no action and no access rule. It counts only beside a call that
+  // asks the action with the row's own attributes (create_work_item asks
+  // ITEM_CREATE per assignee), as the routes pair requireProjectVisible with
+  // requireAccess. On its own, a function using it would be visible-only.
+  const VISIBLE_ONLY = /\bassertProjectVisible\(/;
+  const ASKS_ACTION = /\b(?:requireAccess|requireAccessForEach|requirePolicy)\(/;
+  const gated = (body: string) => HAS_GATE.test(body) || (VISIBLE_ONLY.test(body) && ASKS_ACTION.test(body));
+
+  it("a visibility check counts as a gate only beside a check of the action", () => {
+    const visibleOnly = `export async function f(ctx) {
+      const no = await assertProjectVisible(ctx, data.projectId);
+      if (no) return no;
+      await prisma.workItem.create({ data });
+    }`;
+    const visibleAndAction = `export async function f(ctx) {
+      const no = await assertProjectVisible(ctx, data.projectId);
+      if (no) return no;
+      await requireAccessForEach(auth, "ITEM_CREATE", rows);
+      await prisma.workItem.create({ data });
+    }`;
+    expect(gated(visibleOnly)).toBe(false);
+    expect(gated(visibleAndAction)).toBe(true);
+    expect(gated(visibleOnly.replace("assertProjectVisible", "assertProjectRead"))).toBe(true);
+  });
+
+  it("examines create_work_item, which writes through the shared writer", () => {
+    const body = new Map(functionsIn("work-items.ts")).get("createWorkItem");
+    expect(body).toBeDefined();
+    expect(TOUCHES_SCOPED.test(body!)).toBe(true);
+  });
 
   /**
    * Writes that touch a project-scoped MODEL but never a project.
@@ -224,7 +259,7 @@ describe("agent tools cannot read past project scoping", () => {
         // Named exemptions, each with its reason — an allowlist, not a silence.
         if (ORG_LEVEL_WRITES.has(`${f}::${name}`)) continue;
         if (CALLER_SCOPED.has(`${f}::${name}`)) continue;
-        if (!HAS_GATE.test(body)) offenders.push(`${f}::${name}`);
+        if (!gated(body)) offenders.push(`${f}::${name}`);
       }
     }
 

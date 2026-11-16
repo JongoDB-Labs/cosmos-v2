@@ -21,7 +21,7 @@ vi.mock("@/lib/auth/session", () => ({ getAuthContext: async () => h.ctx, getCur
 import { POST as createItem } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/route";
 import { PUT as updateItem } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/[itemId]/route";
 import { PUT as bulkUpdate } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/work-items/bulk/route";
-import { updateWorkItem as aiUpdateWorkItem } from "@/lib/ai/executors/work-items";
+import { createWorkItem as aiCreateWorkItem, updateWorkItem as aiUpdateWorkItem } from "@/lib/ai/executors/work-items";
 import { PATCH as editAction } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/actions/[actionId]/route";
 import { POST as promoteAction } from "@/app/api/v1/orgs/[orgId]/projects/[projectId]/intervals/[intervalId]/ceremony/actions/[actionId]/promote/route";
 
@@ -115,6 +115,18 @@ describe("the routes", () => {
     expect(ok.status).toBe(201);
   });
 
+  it("create: someone who left the org, or whose account is deactivated, gets that same 422, alone or in a list", async () => {
+    h.ctx = ownerSession();
+    const params = () => ({ params: Promise.resolve({ orgId, projectId }) });
+    const unknown = await answer(await createItem(json("POST", { title: "x", columnKey: "todo", assigneeId: NO_SUCH_USER }), params()));
+    for (const id of [leaver, dormant]) {
+      const title = `gone ${id}`;
+      expect(await answer(await createItem(json("POST", { title, columnKey: "todo", assigneeId: id }), params())), id).toEqual(unknown);
+      expect((await createItem(json("POST", { title, columnKey: "todo", assigneeIds: [colleague, id] }), params())).status, id).toBe(422);
+      expect(await prisma.workItem.count({ where: { orgId, title } }), id).toBe(0);
+    }
+  });
+
   it("update with a project-scoped key: 'no such user' and 'not in this org' look the same; a colleague with no tie to the project is assignable", async () => {
     h.ctx = scopedKey();
     const params = { params: Promise.resolve({ orgId, projectId, itemId }) };
@@ -137,6 +149,24 @@ describe("bulk and the assistant", () => {
     expect(unknown.status).toBe(422);
     expect(foreign).toEqual(unknown);
     expect(await prisma.workItem.count({ where: { id: { in: [itemId, second] }, assigneeId: { in: [outsider, NO_SUCH_USER] } } })).toBe(0);
+  });
+
+  it("the assistant's create_work_item refuses someone who left the org, or whose account is deactivated, as the create route does", async () => {
+    const tool = { orgId, userId: owner, auth: ownerSession() };
+    for (const id of [leaver, dormant]) {
+      const title = `ai gone ${id}`;
+      const res = (await aiCreateWorkItem({ projectId, title, workItemTypeId: typeId, assigneeId: id }, tool)) as { created?: boolean; error?: string };
+      expect(res.created, id).toBeUndefined();
+      expect(res.error, id).toMatch(/not a member of this organization/);
+      expect(await prisma.workItem.count({ where: { orgId, title } }), id).toBe(0);
+    }
+    // Control: a member who is still here is assigned.
+    const ok = (await aiCreateWorkItem({ projectId, title: "ai here", workItemTypeId: typeId, assigneeId: colleague }, tool)) as {
+      created?: boolean;
+      id?: string;
+    };
+    expect(ok.created).toBe(true);
+    expect((await prisma.workItem.findUniqueOrThrow({ where: { id: ok.id! } })).assigneeId).toBe(colleague);
   });
 
   it("the assistant's update_work_item refuses an unknown id and an outsider alike, assigning no one", async () => {
@@ -199,6 +229,21 @@ describe("retro action owners, who become assignees on promote", () => {
     await promoteAction(new NextRequest("http://localhost/x", { method: "POST" }), at(a.id));
     const { workItemId } = await prisma.retroActionItem.findUniqueOrThrow({ where: { id: a.id } });
     expect((await prisma.workItem.findUniqueOrThrow({ where: { id: workItemId! } })).assigneeId).toBe(colleague);
+  });
+
+  it("the work lists its owner among its assignees, which is what the item's Assignees control reads", async () => {
+    h.ctx = ownerSession();
+    const assigneesOf = async (actionId: string) => {
+      const { workItemId } = await prisma.retroActionItem.findUniqueOrThrow({ where: { id: actionId } });
+      return (await prisma.workItemAssignee.findMany({ where: { workItemId: workItemId! }, select: { userId: true } })).map((r) => r.userId);
+    };
+    const mine = await action(colleague);
+    expect((await promoteAction(new NextRequest("http://localhost/x", { method: "POST" }), at(mine.id))).status).toBeLessThan(300);
+    expect(await assigneesOf(mine.id)).toEqual([colleague]);
+    // An owner who has left gets no assignee row either.
+    const gone = await action(leaver);
+    expect((await promoteAction(new NextRequest("http://localhost/x", { method: "POST" }), at(gone.id))).status).toBeLessThan(300);
+    expect(await assigneesOf(gone.id)).toEqual([]);
   });
 });
 
