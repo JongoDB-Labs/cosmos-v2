@@ -44,6 +44,9 @@ export function SignInProvidersManager() {
   const [clientSecret, setClientSecret] = useState("");
   const [tenant, setTenant] = useState("");
   const [trustedDomains, setTrustedDomains] = useState("");
+  // Whether the stored list reached the form. Until it has, an empty field
+  // means "unknown", and saving must not send [] (which clears the list).
+  const [domainsLoaded, setDomainsLoaded] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -71,6 +74,7 @@ export function SignInProvidersManager() {
         setClientId(m?.clientId ?? "");
         setTenant(m?.tenant ?? "");
         setTrustedDomains((m?.trustedDomains ?? []).join(", "));
+        setDomainsLoaded(true);
         const g = j.providers?.google;
         setGEnabled(g?.configured ? (g.enabled ?? true) : true);
         setGClientId(g?.clientId ?? "");
@@ -143,7 +147,7 @@ export function SignInProvidersManager() {
           clientId: clientId.trim(),
           clientSecret: clientSecret.trim() || undefined,
           tenant: tenant.trim() || null,
-          trustedDomains: parseDomains(trustedDomains),
+          ...((domainsLoaded || trustedDomains.trim() !== "") && { trustedDomains: parseDomains(trustedDomains) }),
           enabled,
         }),
       });
@@ -255,8 +259,11 @@ export function SignInProvidersManager() {
             <p id="ms-trusted-domains-help" className="text-[11px] text-[var(--text-muted)]">
               Your organization&apos;s own email domains, separated by commas. When a member
               of your tenant signs in with Microsoft for the first time, sign-in matches them
-              to the existing account with the same address on one of these domains. Leave
-              out any domain where people outside your organization can hold addresses.
+              to the existing account with the same address on one of these domains. A
+              domain matches exactly, so list each one people sign in with:{" "}
+              <span className="font-mono">example.com</span> doesn&apos;t cover{" "}
+              <span className="font-mono">corp.example.com</span>. Leave out any domain where
+              people outside your organization can hold addresses.
             </p>
             {envDomains.length > 0 && (
               <p className="text-[11px] text-[var(--text-muted)]">

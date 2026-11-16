@@ -246,7 +246,9 @@ export function normalizeTrustedDomain(d: string): string | null {
  */
 export function verifiedMicrosoftEmails(
   claims: MicrosoftIdClaims,
-  trustedDomains: string[] = microsoftTrustedDomains(),
+  /** Always `microsoftTrustedDomains(saved list)`: the env var alone misses
+   *  the domains an admin saved in Sign-in providers. */
+  trustedDomains: string[],
 ): { emails: string[]; setupIncomplete: boolean } {
   const out: string[] = [];
   if (claims.emailDomainVerified === true && looksLikeAddress(claims.email)) out.push(claims.email);

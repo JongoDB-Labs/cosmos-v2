@@ -16,6 +16,7 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import { getProviderConfig, getProviderStatus, setProviderConfig } from "./provider-config";
+import { sealSecret } from "@/lib/crypto/vault";
 
 const ORIGINAL = process.env.SSO_VAULT_KEY;
 beforeAll(() => {
@@ -51,7 +52,9 @@ describe("Microsoft trusted domains in the provider settings", () => {
   });
 
   it("reads a row saved before the list existed as an empty list", async () => {
-    await setProviderConfig("microsoft", MS);
+    // Sealed the way older versions wrote it: no trustedDomains key at all.
+    rows.set("microsoft", { enabled: true, secretEnc: sealSecret(JSON.stringify(MS)) });
     expect((await getProviderConfig("microsoft"))?.trustedDomains).toEqual([]);
+    expect((await getProviderStatus("microsoft")).trustedDomains).toEqual([]);
   });
 });

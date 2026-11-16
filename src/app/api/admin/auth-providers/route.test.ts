@@ -47,6 +47,12 @@ describe("Microsoft trusted domains in Admin → Sign-in providers", () => {
     expect(h.set).not.toHaveBeenCalled();
   });
 
+  it("never stores a domain list for Google", async () => {
+    const res = await put({ provider: "google", clientId: "g-client", clientSecret: "g-secret", trustedDomains: ["example.com"] });
+    expect(res.status).toBe(200);
+    expect(h.set.mock.calls[0][1]).not.toHaveProperty("trustedDomains");
+  });
+
   it("leaves the stored list alone when a save doesn't mention it", async () => {
     await put(MS);
     expect(h.set.mock.calls[0][1]).not.toHaveProperty("trustedDomains");
