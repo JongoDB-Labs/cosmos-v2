@@ -55,15 +55,27 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "fix",
-        text: "Filtering by team with the query language (team = X, team != X, team IS EMPTY) no longer fails as too broad when a team is very large. The filter used to list every member of every team inside the query.",
+        text: "Filtering by team with the query language (team = X, team != X, team IS EMPTY, assignee IN membersOf(X)) no longer fails as too broad when a team is very large. The filter used to list every member of every team inside the query.",
       },
       {
         kind: "fix",
-        text: "A board filtered by team no longer sends your browser the user ID of everyone on each team. Those IDs reached guests too.",
+        text: "A board filtered by team (team = X, or a person field IN membersOf(X)) no longer sends your browser the user ID of everyone on the team. Those IDs reached guests too.",
       },
       {
         kind: "fix",
-        text: "Duplicating an item whose assignee has left the organization now makes an unassigned copy instead of copying someone who can no longer be given work.",
+        text: "On a board filtered by team, a card assigned to someone on the team now appears as soon as the change is saved, and one reassigned away leaves, without reloading. When the server takes too long to filter a board, the board now says to try again instead of asking you to narrow it to a project or sprint it is already on.",
+      },
+      {
+        kind: "fix",
+        text: "Duplicating an item now copies all of its assignees, for its sub-items too. The copy used to show as unassigned. Anyone who has left the organization is left off the copy.",
+      },
+      {
+        kind: "fix",
+        text: "Merging an item no longer fails when the duplicate names an assignee who has left the organization or no longer exists. They are left off the item it merges into.",
+      },
+      {
+        kind: "fix",
+        text: "Duplicating an item now needs permission to read it, and copying its sub-items needs permission to create each of them, as creating them would.",
       },
     ],
   },
