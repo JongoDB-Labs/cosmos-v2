@@ -80,6 +80,10 @@ function isSameOrigin(request: NextRequest): boolean {
 // two can't disagree about what is public.
 const PUBLIC_PAGE_PREFIXES = [
   "/login",
+  // The password-reset email's link: opened signed out by definition. The
+  // page is only a form; the emailed token is the credential, and the API it
+  // posts to checks it (signed-out-api.ts).
+  "/reset-password",
   // Teams tabs (T1 d): framed by Teams with no Cosmos session; the pages do
   // their own auth (the tab session).
   "/teams/tab",
