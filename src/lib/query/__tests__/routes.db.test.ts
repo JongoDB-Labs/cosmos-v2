@@ -78,6 +78,62 @@ describe("CQL routes (e2e DB)", () => {
     await prisma.workItem.deleteMany({ where: { projectId: w.P3.id, ticketNumber: { gte: 20_000 } } });
   }, 60_000);
 
+  it("query idsOnly with `among`: those of the board's rows that match, inside the caller's scope, at most 5,000 asked", async () => {
+    const id = (name: string) => w.items[name].id;
+    const ask = async (body: Record<string, unknown>) => {
+      const res = await queryRoute(post("work-items/query", { idsOnly: true, ...body }), { params: params() });
+      return { status: res.status, text: await res.text() };
+    };
+    const idsIn = (text: string) => ((JSON.parse(text) as { ids: string[] }).ids ?? []).slice().sort();
+
+    // The intersection: the matching ones among those asked about.
+    const crit = await ask({ cql: "priority = CRITICAL", among: [id("p1-login-bug"), id("p1-done"), id("p1-unassigned")] });
+    expect(crit.status).toBe(200);
+    expect(idsIn(crit.text)).toEqual([id("p1-login-bug")]);
+
+    // Scope still holds: matching ids the caller can't read (a restricted
+    // project, another org) are simply not returned. Positive control: asked
+    // without `among`, the readable twin in P3 is there.
+    const secret = id(`p2-secret-${w.stamp}`);
+    const otherOrg = id(`b1-otherorg-${w.stamp}`);
+    const scoped = await ask({ cql: "priority = CRITICAL", among: [id("p1-login-bug"), secret, otherOrg, id(`p3-denied-${w.stamp}`)] });
+    expect(scoped.status).toBe(200);
+    expect(idsIn(scoped.text)).toEqual([id("p1-login-bug"), id(`p3-denied-${w.stamp}`)].sort());
+    expect(scoped.text).not.toContain(secret);
+    expect(scoped.text).not.toContain(otherOrg);
+
+    // Past 5,000 matches the query alone is refused (above); asked about the
+    // board's own rows, it answers.
+    await prisma.workItem.createMany({
+      data: Array.from({ length: 5_001 }, (_, i) => ({
+        orgId: w.orgA, projectId: w.P3.id, ticketNumber: 30_000 + i, title: `among ${i}`, description: "", columnKey: "todo",
+        workItemTypeId: w.typeTask, createdById: w.actor.id,
+      })),
+    });
+    try {
+      const some = (await prisma.workItem.findMany({ where: { projectId: w.P3.id, ticketNumber: { gte: 30_000 } }, select: { id: true }, take: 50 })).map((r) => r.id);
+      const board = await ask({ cql: `project = ${w.P3.key}`, among: some });
+      expect(board.status).toBe(200);
+      expect(idsIn(board.text)).toEqual(some.slice().sort());
+    } finally {
+      await prisma.workItem.deleteMany({ where: { projectId: w.P3.id, ticketNumber: { gte: 30_000 } } });
+    }
+
+    // At most 5,000 asked about: more is a 400 that says so. Exactly 5,000 is fine.
+    const uuids = (n: number) => Array.from({ length: n }, () => crypto.randomUUID());
+    expect((await ask({ cql: "priority = CRITICAL", among: uuids(5_000) })).status).toBe(200);
+    const over = await ask({ cql: "priority = CRITICAL", among: uuids(5_001) });
+    expect(over.status).toBe(400);
+    expect(over.text).toContain("CQL_LIMIT");
+    expect(over.text).toContain("5,000");
+
+    // Nothing asked about: nothing back. `among` is for the ids-only answer,
+    // and holds item ids.
+    expect(idsIn((await ask({ cql: "priority = CRITICAL", among: [] })).text)).toEqual([]);
+    expect((await queryRoute(post("work-items/query", { cql: "priority = CRITICAL", among: [id("p1-done")] }), { params: params() })).status).toBe(400);
+    expect((await ask({ cql: "priority = CRITICAL", among: ["not-an-id"] })).status).toBe(400);
+  }, 60_000);
+
   it("query: invalid CQL is a 400 with positioned diagnostics", async () => {
     const res = await queryRoute(post("work-items/query", { cql: "priorty = HIGH" }), { params: params() });
     expect(res.status).toBe(400);

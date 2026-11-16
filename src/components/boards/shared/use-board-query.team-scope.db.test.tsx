@@ -19,7 +19,7 @@
 // in-browser interpreter are all real. The legacy filter bar is run over the
 // same rows and must agree.
 import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest";
-import { renderHook, waitFor, cleanup } from "@testing-library/react";
+import { renderHook, waitFor, cleanup, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
@@ -75,20 +75,7 @@ describe("a board filtered to a team (e2e DB)", () => {
     await mkItem("untagged, assigned to a non-member", 703, { assigneeId: w.alex1.id });
     await mkItem("tagged with another team, assigned to a member", 704, { teamId: otherTeam, assigneeId: w.bob.id });
 
-    rows = JSON.parse(
-      JSON.stringify(
-        await prisma.workItem.findMany({
-          where: { orgId: w.orgA, projectId: w.P1.id, archivedAt: null },
-          omit: { searchVector: true },
-          include: {
-            parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
-            children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true } },
-            workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
-            assignees: { select: { userId: true, user: { select: { id: true, displayName: true, avatarUrl: true } } } },
-          },
-        }),
-      ),
-    );
+    rows = await loadRows();
     // The board's teams route: team -> members -> project member -> org member.
     teams = (
       await prisma.team.findMany({
@@ -107,7 +94,7 @@ describe("a board filtered to a team (e2e DB)", () => {
       inflight++;
       try {
         if (url.endsWith("/cql/predicate")) return await predicateCql(w.ctx(), { query: body.query }, opts);
-        if (url.endsWith("/work-items/query") && body.idsOnly) return await idsCql(w.ctx(), { query: body.query }, opts);
+        if (url.endsWith("/work-items/query") && body.idsOnly) return await idsCql(w.ctx(), { query: body.query }, { ...opts, among: body.among });
         throw new Error(`unexpected request ${url}`);
       } finally {
         inflight--;
@@ -122,6 +109,24 @@ describe("a board filtered to a team (e2e DB)", () => {
     cleanup();
     nav.search = new URLSearchParams();
   });
+
+  /** The project's items as the board's own fetch delivers them. */
+  async function loadRows(): Promise<Record<string, unknown>[]> {
+    return JSON.parse(
+      JSON.stringify(
+        await prisma.workItem.findMany({
+          where: { orgId: w.orgA, projectId: w.P1.id, archivedAt: null },
+          omit: { searchVector: true },
+          include: {
+            parent: { select: { id: true, title: true, ticketNumber: true, workItemTypeId: true } },
+            children: { select: { id: true, title: true, columnKey: true, ticketNumber: true, workItemTypeId: true, completedAt: true } },
+            workItemType: { select: { id: true, key: true, name: true, icon: true, color: true } },
+            assignees: { select: { userId: true, user: { select: { id: true, displayName: true, avatarUrl: true } } } },
+          },
+        }),
+      ),
+    );
+  }
 
   const titleOf = (id: string) => (rows.find((r) => r.id === id)?.title as string) ?? id;
   const titles = (ids: Iterable<string>) => [...ids].map(titleOf).sort();
@@ -212,4 +217,52 @@ describe("a board filtered to a team (e2e DB)", () => {
     expect(shows).toContain("untagged, assigned to a non-member");
     for (const t of [...PLATFORM, "tagged with another team, assigned to a member"]) expect(shows).not.toContain(t);
   }, 30_000);
+
+  it("a card assigned to a member joins the team's board at once, and leaves when reassigned away", async () => {
+    nav.search = new URLSearchParams({ cql: "team = Platform" });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const card = await prisma.workItem.create({
+      data: {
+        orgId: w.orgA, projectId: w.P1.id, ticketNumber: 705, title: "untagged, about to be reassigned", description: "", columnKey: "todo",
+        workItemTypeId: w.typeTask, createdById: w.actor.id, assigneeId: w.alex1.id,
+      },
+    });
+    try {
+      const { result, rerender } = renderHook(({ rows }) => useBoardQuery({ orgId: w.orgA, projectId: w.P1.id, rows }), {
+        wrapper,
+        initialProps: { rows: await loadRows() },
+      });
+      const settled = () => {
+        expect(inflight).toBe(0);
+        expect(result.current.pending).toBe(false);
+      };
+      await waitFor(settled, { timeout: 15_000 });
+      expect(result.current.keep(card)).toBe(false);
+      const asked = () => vi.mocked(jsonFetch).mock.calls.filter(([u]) => String(u).endsWith("/work-items/query")).length;
+
+      // Assigned to Bob (on Platform): the board's rows refresh from the server,
+      // as they do after a write, and the card shows without a reload.
+      await prisma.workItem.update({ where: { id: card.id }, data: { assigneeId: w.bob.id } });
+      let before = asked();
+      await act(async () => rerender({ rows: await loadRows() }));
+      await waitFor(() => {
+        expect(asked()).toBeGreaterThan(before);
+        settled();
+        expect(result.current.keep(card)).toBe(true);
+      }, { timeout: 15_000 });
+
+      // Reassigned away: it leaves.
+      await prisma.workItem.update({ where: { id: card.id }, data: { assigneeId: w.alex1.id } });
+      before = asked();
+      await act(async () => rerender({ rows: await loadRows() }));
+      await waitFor(() => {
+        expect(asked()).toBeGreaterThan(before);
+        settled();
+        expect(result.current.keep(card)).toBe(false);
+      }, { timeout: 15_000 });
+    } finally {
+      await prisma.workItem.delete({ where: { id: card.id } });
+    }
+  }, 60_000);
 });

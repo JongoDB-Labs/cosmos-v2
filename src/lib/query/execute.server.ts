@@ -353,15 +353,33 @@ export const IDS_ONLY_MAX = 5_000;
  * predicate themselves (comments, watchers, history…). Same scope and budget as
  * search; past IDS_ONLY_MAX it is refused, never truncated (a truncated id set
  * would hide cards silently).
+ *
+ * `among`: a board asks only about the rows it could not decide, and gets back
+ * the ones that match, inside the same scope (an id outside it is simply not
+ * returned). At most IDS_ONLY_MAX of them, so the answer can't pass the cap
+ * however many items the query matches elsewhere; asking about more is a 400.
  */
-export async function idsCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}): Promise<{ ids: string[] }> {
+export async function idsCql(
+  ctx: AuthContext,
+  input: CqlInput,
+  opts: CqlRunOptions & { among?: readonly string[] } = {},
+): Promise<{ ids: string[] }> {
+  const among = opts.among ? [...new Set(opts.among)] : null;
+  if (among && among.length > IDS_ONLY_MAX) {
+    const n = (x: number) => x.toLocaleString("en-US");
+    throw new CqlError(
+      [diag("", "CQL_LIMIT", `This board needs the server to check ${n(among.length)} of its items, and it checks at most ${n(IDS_ONLY_MAX)} at a time. Narrow the filter.`)],
+      400,
+    );
+  }
   const prepared = await prepareCql(ctx, input, opts);
-  if (prepared.readable.length === 0) return { ids: [] };
+  if (prepared.readable.length === 0 || among?.length === 0) return { ids: [] };
   const where = buildScopedWhere({
     orgId: prepared.orgId,
     allowedProjectIds: prepared.readable,
     archived: prepared.compiled.archived,
     user: prepared.compiled.where,
+    prefilterIds: among,
   });
   const rows = await withStatementTimeout(opts.timeoutMs ?? 3_000, (tx) =>
     tx.workItem.findMany({ where, select: { id: true }, take: IDS_ONLY_MAX + 1 }),

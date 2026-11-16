@@ -5,7 +5,7 @@
 // server's ids for rows the browser can't decide, and never the unfiltered
 // board while it waits.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor, cleanup } from "@testing-library/react";
+import { renderHook, waitFor, cleanup, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
@@ -187,22 +187,118 @@ describe("useBoardQuery", () => {
     expect(JSON.parse(String((calls("/work-items/query")[0][1] as RequestInit).body)).idsOnly).toBe(true);
   });
 
-  it("when the server won't settle them (too broad), the bar says what to narrow, and the board keeps only what it decided", async () => {
+  it("asks the server only about the rows it couldn't decide (`among`)", async () => {
+    serve();
+    params = new URLSearchParams("cql=priority%20%3D%20HIGH%20OR%20watcher%20%3D%20me");
+    // Row a is decided (HIGH); row b needs the server (its watchers).
+    predicate = { OR: [{ priority: { in: ["HIGH"] } }, { watchers: { some: { userId: "me" } } }] };
+    ids = ["b"];
+    const { result } = run();
+    await waitFor(() => expect(result.current.keep(ROWS[1])).toBe(true));
+    expect(result.current.keep(ROWS[0])).toBe(true);
+    expect(calls("/work-items/query")).toHaveLength(1);
+    expect(JSON.parse(String((calls("/work-items/query")[0][1] as RequestInit).body)).among).toEqual(["b"]);
+  });
+
+  it("asks again when the board's rows change, and keeps its last answer while it waits", async () => {
+    serve();
+    params = new URLSearchParams("cql=watcher%20%3D%20me");
+    predicate = { watchers: { some: { userId: "me" } } };
+    ids = ["a"];
+    // One client across re-renders, as on the page: the cache is what's under test.
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const stable = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const v1 = ROWS.map((r) => ({ ...r, updatedAt: "2026-11-16T10:00:00.000Z" }));
+    const { result, rerender } = renderHook(({ rows }) => useBoardQuery({ orgId: "o1", projectId: "p1", rows }), {
+      wrapper: stable,
+      initialProps: { rows: v1 },
+    });
+    await waitFor(() => expect(result.current.keep(v1[0])).toBe(true));
+    expect(result.current.keep(v1[1])).toBe(false);
+    expect(calls("/work-items/query")).toHaveLength(1);
+
+    // The same rows again (a re-render, a refetch that changed nothing): no new request.
+    rerender({ rows: v1.map((r) => ({ ...r })) });
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(calls("/work-items/query")).toHaveLength(1);
+
+    // Row b is edited (its updatedAt moves): the server is asked again, about
+    // both undecided rows, and until it answers the board keeps what it showed.
+    let answer!: (v: unknown) => void;
+    const base = vi.mocked(jsonFetch).getMockImplementation()!;
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) =>
+      String(url).endsWith("/work-items/query") ? new Promise((r) => (answer = r)) : base(url, init)) as never);
+    const v2 = [v1[0], { ...v1[1], updatedAt: "2026-11-16T10:05:00.000Z" }];
+    rerender({ rows: v2 });
+    await waitFor(() => expect(calls("/work-items/query")).toHaveLength(2));
+    expect(JSON.parse(String((calls("/work-items/query")[1][1] as RequestInit).body)).among).toEqual(["a", "b"]);
+    expect(result.current.pending).toBe(false);
+    expect(result.current.keep(v2[0])).toBe(true);
+    expect(result.current.keep(v2[1])).toBe(false);
+
+    await act(async () => answer({ ids: ["b"] }));
+    await waitFor(() => expect(result.current.keep(v2[1])).toBe(true));
+    expect(result.current.keep(v2[0])).toBe(false);
+  });
+
+  it("a new query never shows the last query's answer while it waits", async () => {
+    serve();
+    params = new URLSearchParams("cql=watcher%20%3D%20me");
+    predicate = { watchers: { some: { userId: "me" } } };
+    ids = ["a", "b"];
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const stable = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const { result, rerender } = renderHook(() => useBoardQuery({ orgId: "o1", projectId: "p1", rows: ROWS }), { wrapper: stable });
+    await waitFor(() => expect(ROWS.every((r) => result.current.keep(r))).toBe(true));
+
+    const base = vi.mocked(jsonFetch).getMockImplementation()!;
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) =>
+      String(url).endsWith("/work-items/query") ? new Promise(() => {}) : base(url, init)) as never);
+    params = new URLSearchParams("cql=watcher%20!%3D%20me");
+    predicate = { NOT: { watchers: { some: { userId: "me" } } } };
+    rerender();
+    await waitFor(() => expect(calls("/work-items/query")).toHaveLength(2));
+    expect(result.current.pending).toBe(true);
+    expect(ROWS.some((r) => result.current.keep(r))).toBe(false);
+  });
+
+  it("when the server runs out of time, the board says to try again, not to narrow by project", async () => {
     serve();
     const base = vi.mocked(jsonFetch).getMockImplementation()!;
-    const tooBroad = {
-      code: "CQL_TOO_BROAD", severity: "error", message: "This query matches more than 5,000 items. Narrow it with a project or a sprint.",
+    // What the server says to every caller (lib/query/timeout.server.ts).
+    const timeout = {
+      code: "CQL_TIMEOUT", severity: "error", message: "This query took too long. Narrow it with a project, a sprint or a date range.",
       from: 0, to: 0, line: 1, column: 1,
     };
     vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) =>
       String(url).endsWith("/work-items/query")
-        ? Promise.reject(new FetchError(422, { error: { code: "CQL_INVALID", message: tooBroad.message, diagnostics: [tooBroad] } }, tooBroad.message))
+        ? Promise.reject(new FetchError(422, { error: { code: "CQL_TIMEOUT", message: timeout.message, diagnostics: [timeout] } }, timeout.message))
+        : base(url, init)) as never);
+    params = new URLSearchParams("cql=watcher%20%3D%20me");
+    predicate = { watchers: { some: { userId: "me" } } };
+    const { result } = run();
+    await waitFor(() => expect(result.current.diagnostics).toHaveLength(1));
+    expect(result.current.diagnostics[0]).toMatchObject({ code: "CQL_TIMEOUT", severity: "error" });
+    expect(result.current.diagnostics[0].message).not.toMatch(/project|sprint/i);
+    expect(result.current.diagnostics[0].message).toMatch(/try again/i);
+  });
+
+  it("when the server won't settle them, the bar says why, and the board keeps only what it decided", async () => {
+    serve();
+    const base = vi.mocked(jsonFetch).getMockImplementation()!;
+    const tooMany = {
+      code: "CQL_LIMIT", severity: "error", message: "This board needs the server to check 5,001 of its items, and it checks at most 5,000 at a time. Narrow the filter.",
+      from: 0, to: 0, line: 1, column: 1,
+    };
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) =>
+      String(url).endsWith("/work-items/query")
+        ? Promise.reject(new FetchError(400, { error: { code: "CQL_INVALID", message: tooMany.message, diagnostics: [tooMany] } }, tooMany.message))
         : base(url, init)) as never);
     params = new URLSearchParams("cql=priority%20%3D%20HIGH%20OR%20watcher%20%3D%20me");
     // Row a is decided (HIGH); row b needs the server (its watchers).
     predicate = { OR: [{ priority: { in: ["HIGH"] } }, { watchers: { some: { userId: "me" } } }] };
     const { result } = run();
-    await waitFor(() => expect(result.current.diagnostics).toEqual([tooBroad]));
+    await waitFor(() => expect(result.current.diagnostics).toEqual([tooMany]));
     expect(result.current.pending).toBe(false);
     expect(result.current.keep(ROWS[0])).toBe(true);
     expect(result.current.keep(ROWS[1])).toBe(false);

@@ -13,8 +13,9 @@
  * browser: the server compiles it once (`POST cql/predicate`) and
  * lib/query/evaluate.ts interprets that predicate per row, so a dragged card
  * is re-judged instantly. Rows the predicate can't be decided on (it needs
- * comments, watchers, label ids, history…) are settled by the server's ids
- * (`POST work-items/query` with `idsOnly`), one request per query.
+ * comments, watchers, label ids, history, a person's teams…) are settled by
+ * the server's ids (`POST work-items/query` with `idsOnly`): the board asks
+ * about those rows only (`among`), and asks again when one of them changes.
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -22,7 +23,7 @@ import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
 import { parseCql } from "@/lib/query/parser";
 import { printCql } from "@/lib/query/print";
-import { hashQuery, validateAst } from "@/lib/query/normalize";
+import { hashQuery, hashText, validateAst } from "@/lib/query/normalize";
 import { fromWorkItemFilter } from "@/lib/query/adapters";
 import { UNDECIDED, matches } from "@/lib/query/evaluate";
 import { CQL_VERSION, type CqlNode, type CqlQuery } from "@/lib/query/ast";
@@ -166,24 +167,45 @@ export function useBoardQuery(opts: {
     if (!where) return null;
     return new Map(rows.map((r) => [r.id as string, matches(where, r)]));
   }, [where, rows]);
-  const undecided = !!verdicts && [...verdicts.values()].some((v) => v === UNDECIDED);
+  // The rows the board can't decide itself: the server is asked about these
+  // only (`among`), so its answer is bounded by the board's rows, not by how
+  // much the query matches elsewhere. Their `updatedAt`s key the answer: the
+  // board's rows come back from the server after every write and on live
+  // updates, so an edited card (reassigned, say) is asked about again and
+  // shows or leaves without a reload.
+  const undecidedRows = useMemo(
+    () => (verdicts ? rows.filter((r) => verdicts.get(r.id as string) === UNDECIDED) : []),
+    [rows, verdicts],
+  );
+  const among = useMemo(() => undecidedRows.map((r) => r.id as string).sort(), [undecidedRows]);
+  const rowsHash = useMemo(
+    () => hashText(undecidedRows.map((r) => `${r.id as string}@${String(r.updatedAt ?? "")}`).sort().join(",")),
+    [undecidedRows],
+  );
+  const undecided = among.length > 0;
 
+  const idsQuery = useOrgQueryKey("board-ids", projectId, hash);
   const ids = useQuery({
-    queryKey: useOrgQueryKey("board-ids", projectId, hash),
+    queryKey: [...idsQuery, rowsHash],
     queryFn: () =>
       jsonFetch<{ ids: string[] }>(`/api/v1/orgs/${orgId}/work-items/query`, {
         method: "POST",
-        body: JSON.stringify({ query: effective, idsOnly: true, tz: viewerTimeZone(), contextProjectId: projectId }),
+        body: JSON.stringify({ query: effective, idsOnly: true, among, tz: viewerTimeZone(), contextProjectId: projectId }),
       }),
     enabled: enabled && undecided,
     staleTime: 30_000,
     retry: false,
+    // Asked again about the same query (its rows changed), the board keeps
+    // its last answer until the new one comes, rather than drop every
+    // undecided card meanwhile. A different query starts from nothing.
+    placeholderData: (prev, prevQuery) =>
+      prevQuery && JSON.stringify(prevQuery.queryKey.slice(0, idsQuery.length)) === JSON.stringify(idsQuery) ? prev : undefined,
   });
   const idSet = useMemo(() => (ids.data ? new Set(ids.data.ids) : null), [ids.data]);
-  // When the server can't settle those rows (a 422: more than 5,000 match, or
-  // the query ran out of time), the bar says why and what to narrow. The board
-  // keeps the rows it decided itself and leaves the rest out, as it does while
-  // it waits: never a guess.
+  // When the server can't settle those rows (more than 5,000 to check, or the
+  // query ran out of time), the bar says why. The board keeps the rows it
+  // decided itself and leaves the rest out, as it does while it waits: never a
+  // guess.
   const validated = validation.data?.diagnostics;
   const diagnostics = useMemo(
     () => [...(validated ?? []), ...idsProblem(ids.error)],
@@ -229,14 +251,24 @@ export function useBoardQuery(opts: {
 }
 
 /**
+ * What a board says when the server ran out of time on its rows. The server's
+ * own advice (lib/query/timeout.server.ts) is to narrow by project or sprint,
+ * which a board, already pinned to its project, can't act on.
+ */
+const BOARD_TIMEOUT = "Filtering this board took the server too long, so the cards it had to check there are left out. Try again, or simplify the filter.";
+
+/**
  * Why the server's ids for undecided rows didn't come: the diagnostics of a
- * CQL refusal (`{ error: { diagnostics } }`), or one plain error otherwise.
+ * CQL refusal (`{ error: { diagnostics } }`), a timeout in the board's own
+ * words, or one plain error otherwise.
  */
 function idsProblem(error: unknown): CqlDiagnostic[] {
   if (!error) return [];
   const body = error instanceof FetchError ? (error.body as { error?: { diagnostics?: unknown } } | null) : null;
   const sent = body?.error?.diagnostics;
-  if (Array.isArray(sent) && sent.length > 0) return sent as CqlDiagnostic[];
+  if (Array.isArray(sent) && sent.length > 0) {
+    return (sent as CqlDiagnostic[]).map((d) => (d.code === "CQL_TIMEOUT" ? { ...d, message: BOARD_TIMEOUT } : d));
+  }
   return [
     {
       code: "CQL_LIMIT",
