@@ -83,7 +83,7 @@ function callback(extraCookie = "") {
 }
 
 /** Everything the callback logged with console.error, as the console prints it. */
-async function loggedBy(run: () => Promise<Response>) {
+async function loggedBy<R>(run: () => Promise<R>) {
   const spy = vi.spyOn(console, "error").mockImplementation(() => {});
   const res = await run();
   const lines = spy.mock.calls.map((args) => format(...args));
