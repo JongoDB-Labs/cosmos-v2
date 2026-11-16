@@ -80,6 +80,17 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.563.3",
+    date: "2026-11-16",
+    title: "Web framework patch",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Behind the scenes: updated the web framework to its latest patch release.",
+      },
+    ],
+  },
+  {
     version: "2.563.2",
     date: "2026-11-16",
     title: "Cosmo invites people to meetings, an Upcoming section, and menus on hover",
