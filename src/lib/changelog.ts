@@ -72,6 +72,21 @@ const RELEASES: Release[] = [
     ],
   },
   {
+    version: "2.562.8",
+    date: "2026-11-16",
+    title: "Password reset, tightened",
+    highlights: [
+      {
+        kind: "fix",
+        text: "The password reset page keeps its link to itself. Its address is no longer passed on to other pages or written to error reports.",
+      },
+      {
+        kind: "fix",
+        text: "A workspace\u2019s web address can no longer be \u201cteams\u201d or \u201creset-password\u201d. Built-in pages already use those, so the workspace\u2019s own pages would have been out of reach.",
+      },
+    ],
+  },
+  {
     version: "2.562.7",
     date: "2026-11-16",
     title: "Password reset links work again",

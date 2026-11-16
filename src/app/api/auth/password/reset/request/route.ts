@@ -6,6 +6,7 @@ import { rateLimit } from "@/lib/rate-limit/bucket";
 import { resolveSenderOrg } from "@/lib/auth/sender-org";
 import { getPublicOrigin } from "@/lib/auth/public-url";
 import { createPasswordResetToken } from "@/lib/auth/password-reset";
+import { resetPasswordUrl } from "@/lib/auth/reset-link";
 import { sendPasswordResetEmail } from "@/lib/integrations/invitation-email";
 import { logAudit } from "@/lib/audit";
 import { maskEmail, truncateForLog } from "@/lib/auth/mask-email";
@@ -148,7 +149,7 @@ export async function POST(request: NextRequest) {
       if (eligible) {
         userId = eligible.id;
         const token = createPasswordResetToken(eligible);
-        const resetUrl = `${getPublicOrigin(request)}/reset-password?token=${encodeURIComponent(token)}`;
+        const resetUrl = resetPasswordUrl(getPublicOrigin(request), token);
         try {
           await sendPasswordResetEmail({
             orgId: org?.id,
