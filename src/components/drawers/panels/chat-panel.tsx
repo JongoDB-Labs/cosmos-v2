@@ -149,7 +149,10 @@ export function ChatPanel({ orgId, userId }: ChatPanelProps) {
           <button
             type="button"
             onClick={backToList}
-            aria-label="Back to channels"
+            // Starts with the conversation's name, which is what the button
+            // shows (WCAG 2.5.3 Label in Name): "Back to channels" alone left
+            // "general" out, so saying it reached nothing.
+            aria-label={`${label(selected)}, back to channels`}
             className="flex items-center gap-1.5 rounded p-1 text-sm font-semibold text-[var(--text)] hover:bg-[var(--primary-tint)]"
           >
             <ArrowLeft className="h-4 w-4 text-[var(--text-muted)]" />

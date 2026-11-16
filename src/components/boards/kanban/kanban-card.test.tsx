@@ -213,6 +213,13 @@ describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", ()
   /** Letters and digits only, lowercased: spacing and punctuation don't count. */
   const squash = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
+  /** The card's text minus its aria-hidden parts: what its name is built from. */
+  const spokenText = (card: HTMLElement) => {
+    const copy = card.cloneNode(true) as HTMLElement;
+    copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+    return copy.textContent ?? "";
+  };
+
   /** The card, its computed accessible name, and the text it shows. */
   function nameAndText() {
     let name = "";
@@ -223,18 +230,56 @@ describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", ()
         return true;
       },
     });
-    return { card, name, text: card.textContent ?? "" };
+    return { card, name, text: card.textContent ?? "", spoken: spokenText(card) };
   }
 
   it("names the card by everything it shows", () => {
     renderCard({ item: FULL, members: [ADA] });
-    const { name, text } = nameAndText();
+    const { name, text, spoken } = nameAndText();
     // Positive control: the card really shows the extra chips, so this is
     // more than the title being found in itself.
     for (const shown of ["#42", "Fix the login", "Story", "5", "A"]) {
       expect(text).toContain(shown);
     }
-    expect(squash(name)).toContain(squash(text));
+    // No aria-label stands in for the content: the name IS the content, less
+    // only the avatar, which the words "assigned to Ada Lovelace" replace.
+    expect(squash(name)).toContain(squash(spoken));
+    expect(spoken).toContain("Fix the login");
+  });
+
+  // The points chip shows a bare number and the avatar shows an initial, so
+  // the name used to end "Story 5 A": a screen reader said "five, A" and
+  // never what either meant.
+  it("says what the number and the avatar mean", () => {
+    renderCard({ item: FULL, members: [ADA] });
+    const { name } = nameAndText();
+    expect(name).toMatch(/\b5 points\b/);
+    expect(name).toMatch(/assigned to Ada Lovelace/);
+    // The initial is a picture of the person, not a word to read out.
+    expect(name).not.toMatch(/(^|\s)A(\s|$)/);
+    // The words follow the chips they explain, in reading order.
+    expect(name.indexOf("Story")).toBeLessThan(name.indexOf("5 points"));
+    expect(name.indexOf("5 points")).toBeLessThan(name.indexOf("assigned to"));
+  });
+
+  it("says one point, not one points", () => {
+    renderCard({ item: { ...FULL, storyPoints: 1 }, members: [ADA] });
+    expect(nameAndText().name).toMatch(/\b1 point assigned\b/);
+  });
+
+  // The whole avatar is hidden, not just its initial. An avatar with no text of
+  // its own (its picture loaded, or only the initial hidden) is named by its
+  // tooltip instead, which would say the person's name a second time.
+  it("says the assignee's name once", () => {
+    renderCard({ item: FULL, members: [ADA] });
+    // Positive control: the avatar carries the tooltip that would repeat.
+    expect(document.querySelector('[data-slot="avatar"]')).toHaveAttribute("title", "Ada Lovelace");
+    expect(nameAndText().name.match(/Ada Lovelace/g)).toHaveLength(1);
+  });
+
+  it("an unassigned card says nothing about an assignee", () => {
+    renderCard({ item: { ...FULL, assigneeId: null }, members: [ADA] });
+    expect(nameAndText().name).not.toMatch(/assigned/);
   });
 
   it("leads with the key and the title, the words a person reads and says", () => {
@@ -245,10 +290,10 @@ describe("KanbanCard accessible name contains its visible text (WCAG 2.5.3)", ()
   it("is named by its content in select mode too, with the state in aria-pressed", () => {
     for (const selected of [false, true]) {
       renderCard({ item: FULL, members: [ADA], selectMode: true, selected });
-      const { card, name, text } = nameAndText();
+      const { card, name, spoken } = nameAndText();
       expect(card).not.toHaveAttribute("aria-label");
       expect(card).toHaveAttribute("aria-pressed", String(selected));
-      expect(squash(name)).toContain(squash(text));
+      expect(squash(name)).toContain(squash(spoken));
       cleanup();
     }
   });

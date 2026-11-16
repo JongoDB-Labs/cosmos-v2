@@ -262,8 +262,8 @@ export function KanbanCard({
         // board also disables the DndContext sensors in select mode).
         {...(selectMode ? {} : listeners)}
         // No aria-label: the card is named by what it shows, so its name is
-        // the key, the title, the type, the points and the assignee, in that
-        // order. A label of "Open <key>: <title>" left out text the card
+        // the key, the title, the type, the points ("5 points") and the
+        // assignee ("assigned to Ada Lovelace"), in that order. A label of "Open <key>: <title>" left out text the card
         // displays, which fails WCAG 2.5.3 Label in Name (axe
         // label-content-name-mismatch): "click Story" reached nothing by voice,
         // and a screen reader heard none of the chips. In select mode
@@ -344,13 +344,23 @@ export function KanbanCard({
             {item.storyPoints != null && (
               <span className="inline-flex items-center justify-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                 {item.storyPoints}
+                {/* The chip shows a bare number; the card's name says what it is. */}
+                <span className="sr-only">{item.storyPoints === 1 ? " point" : " points"}</span>
               </span>
             )}
           </div>
 
           {assignee && (
             <div className="flex items-center -space-x-1.5">
-              <Avatar size="sm" title={assignee.user?.displayName}>
+              {/* The avatar is a picture of the person, so the card's name says
+                  who in words and the avatar is hidden from it. Hidden whole,
+                  not just its initial: an avatar with no text (its picture
+                  loaded) is named by its tooltip, which would say the name
+                  twice. The tooltip still shows on hover. */}
+              <span className="sr-only">
+                {assignee.user?.displayName ? `assigned to ${assignee.user.displayName}` : "assigned"}
+              </span>
+              <Avatar size="sm" title={assignee.user?.displayName} aria-hidden>
                 {assignee.user?.avatarUrl && (
                   <AvatarImage src={assignee.user.avatarUrl} />
                 )}

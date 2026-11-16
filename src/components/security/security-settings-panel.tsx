@@ -616,7 +616,7 @@ export function SecuritySettingsPanel({
           {canManageSessions ? (
           <>
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium">Active Sessions</h4>
+            <h3 className="text-sm font-medium">Active Sessions</h3>
             <Button variant="destructive" size="sm" onClick={revokeAllSessions}>
               Revoke All
             </Button>

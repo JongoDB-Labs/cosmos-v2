@@ -541,7 +541,9 @@ function SupervisorCell({
         type="button"
         // Every row renders one of these, so the accessible name has to carry
         // WHOSE supervisors these are — "Supervisors" alone repeats N times.
-        aria-label={`Supervisors for ${nameFor(employee.userId)}`}
+        // And what the button shows, too (WCAG 2.5.3 Label in Name): a name
+        // without the visible "— none —" can't be reached by saying it.
+        aria-label={`Supervisors for ${nameFor(employee.userId)}: ${label}`}
         className="h-8 rounded-md border bg-background px-2 text-xs"
         onClick={() => setOpen(true)}
       >

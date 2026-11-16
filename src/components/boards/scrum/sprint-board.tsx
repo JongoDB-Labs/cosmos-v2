@@ -332,10 +332,15 @@ export function SprintPicker({
                     <button
                       type="button"
                       aria-pressed={pi.id === shownId}
-                      aria-label={`Show all work in ${label}`}
                       onClick={() => onSelect(pi.id)}
                       className={cn(pillClass(pi.id === shownId), "inline-flex items-center gap-1 font-medium")}
                     >
+                      {/* Named by what it shows after this lead-in: "Show all
+                          work in PI 1 Past". An aria-label of "Show all work in
+                          PI 1" left out the Past chip and the sprint count
+                          (WCAG 2.5.3 Label in Name). Absolutely positioned, so
+                          it takes no gap in the flex row. */}
+                      <span className="sr-only">Show all work in </span>
                       {label}
                       {past && (
                         <span className="rounded bg-muted px-1 text-[10px] font-normal uppercase text-[var(--text-muted)]">

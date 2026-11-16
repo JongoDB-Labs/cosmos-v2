@@ -821,3 +821,48 @@ test.describe("a11y — the notifications panel", () => {
     ).toHaveLength(0);
   });
 });
+
+test.describe("a11y — the gate runs the WCAG 2.1 rules", () => {
+  // Positive control for the whole gate. axe files each rule under the WCAG
+  // version that introduced its criterion, so a `wcag2a`/`wcag2aa` scan never
+  // ran these three. One page breaks each, and the default scan must report
+  // every one, as serious, so `blocking` gates on it.
+  test("the default scan reports each WCAG 2.1 A/AA failure, and the 2.0 tags alone do not", async ({ page }) => {
+    await page.setContent(`<!doctype html><html lang="en"><head><title>WCAG 2.1 control</title></head><body><main>
+      <h1>Control</h1>
+      <button aria-label="Close dialog">Dismiss</button>
+      <label for="f">Email</label><input id="f" autocomplete="banana">
+      <p style="letter-spacing: 0.1em !important">Spaced text</p>
+    </main></body></html>`);
+    const RULES = ["autocomplete-valid", "avoid-inline-spacing", "label-content-name-mismatch"];
+
+    const found = blocking(await runAxe(page)).map((v) => v.id).sort();
+    expect(found, "the default scan should gate on all three WCAG 2.1 rules").toEqual(RULES);
+
+    const old = (await runAxe(page, { tags: ["wcag2a", "wcag2aa"] })).map((v) => v.id);
+    expect(old, "the 2.0 tags alone should miss them, or this control proves nothing").toEqual([]);
+  });
+});
+
+test.describe("a11y — settings/security headings", () => {
+  // axe files heading-order as moderate, so the page scan above never gates on
+  // it. "Active Sessions" sat as an h4 under its card's h2.
+  test("Active Sessions is one level under its card, and the heading order is clean", async ({ page, signInAs }) => {
+    await signInAs(EMAIL);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`/${ORG}/settings/security`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("main", { timeout: 20_000 });
+    await expect(page.locator('[data-slot="skeleton"]')).toHaveCount(0, { timeout: 30_000 });
+
+    // Positive control: the section rendered at all (it needs SESSION_MANAGE).
+    await expect(page.getByRole("heading", { name: "Session Management", level: 2 })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("heading", { name: "Active Sessions", level: 3 })).toBeVisible();
+
+    // `runAxe` hands its list straight to axe's runOnly, which takes a rule id.
+    const found = await runAxe(page, { tags: ["heading-order"] });
+    expect(
+      found,
+      found.map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets.join(" | ")}`).join("\n"),
+    ).toHaveLength(0);
+  });
+});

@@ -16,8 +16,16 @@ export interface AxeViolation {
 }
 
 /**
- * Inject axe-core into the page and run a WCAG 2 A/AA scan. Returns the list of
- * violations (id, impact, where). Codifies the manual axe audits from rounds
+ * WCAG 2.0 and 2.1, levels A and AA. axe files each rule under the version that
+ * introduced its criterion, so `wcag2a`/`wcag2aa` alone never ran the 2.1 rules:
+ * label-content-name-mismatch (2.5.3 Label in Name), autocomplete-valid (1.3.5)
+ * and avoid-inline-spacing (1.4.12). All three are `serious`, so they gate.
+ */
+export const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
+
+/**
+ * Inject axe-core into the page and run a WCAG 2.1 A/AA scan. Returns the list
+ * of violations (id, impact, where). Codifies the manual axe audits from rounds
  * 16/17 as a repeatable check.
  *
  * `include`: a selector to scan only that part of the page (one popup, say),
@@ -31,7 +39,7 @@ export async function runAxe(
     // eslint-disable-next-line no-eval
     if (!(window as unknown as { axe?: unknown }).axe) eval(src);
   }, AXE_SOURCE);
-  const tags = opts?.tags ?? ["wcag2a", "wcag2aa"];
+  const tags = opts?.tags ?? WCAG_TAGS;
   return page.evaluate(async ({ runTags, include }) => {
     // Exclude `[data-a11y-preview]` regions — these intentionally render an
     // arbitrary user-CHOSEN color (e.g. the theme picker's live swatch), so

@@ -1,4 +1,6 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/auth";
+import { runAxe } from "./fixtures/axe";
 
 /**
  * Forms validation a11y contract — locks in the R23 FormField work
@@ -68,4 +70,53 @@ test.describe("forms — FormField validation contract", () => {
     const email = page.getByLabel(/^Email/i);
     await expect(email).not.toHaveAttribute("aria-required", "true");
   });
+
+  // WCAG 1.4.3: the error line is 12px text, so it needs 4.5:1. It used
+  // `text-destructive`, the fill red, at about 3.8:1 on white.
+  for (const colorScheme of ["light", "dark"] as const) {
+    test(`profile: the inline error's text passes axe's contrast check (${colorScheme})`, async ({ page, signInAs }) => {
+      await signInAs(EMAIL);
+      await page.emulateMedia({ reducedMotion: "reduce", colorScheme });
+      const error = await failSubmit(page);
+
+      const id = (await error.getAttribute("id")) ?? "";
+      // useId ids carry punctuation a CSS selector must escape.
+      const selector = "#" + id.replace(/[^\w-]/g, (c) => `\\${c}`);
+      await runAxe(page, { include: selector, tags: ["color-contrast"] });
+      const verdict = await page.evaluate(async (sel) => {
+        type Result = { nodes: unknown[] };
+        const axe = (window as unknown as {
+          axe: { run: (c: unknown, o: unknown) => Promise<Record<"passes" | "violations" | "incomplete", Result[]>> };
+        }).axe;
+        const res = await axe.run(
+          { include: [[sel]] },
+          { runOnly: ["color-contrast"], resultTypes: ["passes", "violations", "incomplete"] },
+        );
+        const count = (k: "passes" | "violations" | "incomplete") => res[k].reduce((n, r) => n + r.nodes.length, 0);
+        return { passes: count("passes"), violations: count("violations"), incomplete: count("incomplete") };
+      }, selector);
+      // A pass, not just no violation: axe measured the line, so "0 violations"
+      // is not "axe could not tell" (an unmeasured node lands in incomplete).
+      expect(verdict, `axe's color-contrast verdict on the error line (${colorScheme})`).toEqual({
+        passes: 1,
+        violations: 0,
+        incomplete: 0,
+      });
+    });
+  }
 });
+
+/** Open the profile form, empty the required name and submit: returns the error line. */
+async function failSubmit(page: Page) {
+  await page.goto(`/${ORG}/settings/profile`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("main", { timeout: 20_000 });
+  // One field, not the two the page transition briefly shows.
+  const name = page.getByLabel(/^Display name/i);
+  await expect(name).toHaveCount(1, { timeout: 15_000 });
+  await name.fill("");
+  await page.getByRole("button", { name: /save changes/i }).click();
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  const error = page.getByText("Display name is required");
+  await expect(error).toBeVisible();
+  return error;
+}
