@@ -29,6 +29,7 @@ import type { CompileEnv } from "./env";
 import { printCql } from "./print";
 import { CqlError, diag, hasErrors, tooBroad, type CqlDiagnostic, type Span } from "./errors";
 import { isValidTimeZone } from "./dates";
+import { IDS_ONLY_MAX, amongLimitMessage } from "@/lib/query/ids-limit";
 
 export interface CqlInput {
   /** CQL text. Exactly one of `cql` / `query`. */
@@ -53,6 +54,8 @@ export interface CqlRunOptions {
   sequential?: boolean;
   /** Validation strictness for unknown values (validate route only). */
   mode?: "strict" | "warn" | "none";
+  /** The where goes to the browser (predicateCql sets it; see CompileEnv.forBrowser). */
+  forBrowser?: boolean;
 }
 
 export interface PreparedCql {
@@ -124,6 +127,7 @@ export async function prepareCql(ctx: AuthContext, input: CqlInput, opts: CqlRun
     contextProjectId: opts.contextProjectId ?? raw.context?.projectId,
     sinceLastStandup: opts.sinceLastStandup,
     mode: opts.mode === "warn" ? "warn" : "strict",
+    forBrowser: opts.forBrowser,
   });
   const diagnostics = [...checked.diagnostics, ...resolved.diagnostics];
   if (hasErrors(diagnostics)) throw new CqlError(diagnostics);
@@ -302,7 +306,9 @@ const HYDRATE_CHUNK = 5_000;
  * strings; Prisma's JSON-null sentinels become `{ $null: … }` markers.
  */
 export async function predicateCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}) {
-  const prepared = await prepareCql(ctx, input, opts);
+  // forBrowser: no one's id goes in it (`membersOf()` joins to its teams, and
+  // a clause that would need the people is left to the server's ids).
+  const prepared = await prepareCql(ctx, input, { ...opts, forBrowser: true });
   const where = buildScopedWhere({
     orgId: prepared.orgId,
     allowedProjectIds: prepared.readable,
@@ -340,23 +346,36 @@ export function portableWhere(where: unknown): unknown {
   return JSON.parse(JSON.stringify(where, (_k, v) => (nulls.has(v) ? { $null: nulls.get(v) } : v)));
 }
 
-/** A board's fallback (query design §12.1): ids only, at most this many. */
-export const IDS_ONLY_MAX = 5_000;
+export { IDS_ONLY_MAX };
 
 /**
  * Just the ids a query matches, for a board whose rows can't decide the
  * predicate themselves (comments, watchers, history…). Same scope and budget as
  * search; past IDS_ONLY_MAX it is refused, never truncated (a truncated id set
  * would hide cards silently).
+ *
+ * `among`: a board asks only about the rows it could not decide, and gets back
+ * the ones that match, inside the same scope (an id outside it is simply not
+ * returned). At most IDS_ONLY_MAX of them, so the answer can't pass the cap
+ * however many items the query matches elsewhere; asking about more is a 400.
  */
-export async function idsCql(ctx: AuthContext, input: CqlInput, opts: CqlRunOptions = {}): Promise<{ ids: string[] }> {
+export async function idsCql(
+  ctx: AuthContext,
+  input: CqlInput,
+  opts: CqlRunOptions & { among?: readonly string[] } = {},
+): Promise<{ ids: string[] }> {
+  const among = opts.among ? [...new Set(opts.among)] : null;
+  if (among && among.length > IDS_ONLY_MAX) {
+    throw new CqlError([diag("", "CQL_LIMIT", amongLimitMessage(among.length))], 400);
+  }
   const prepared = await prepareCql(ctx, input, opts);
-  if (prepared.readable.length === 0) return { ids: [] };
+  if (prepared.readable.length === 0 || among?.length === 0) return { ids: [] };
   const where = buildScopedWhere({
     orgId: prepared.orgId,
     allowedProjectIds: prepared.readable,
     archived: prepared.compiled.archived,
     user: prepared.compiled.where,
+    prefilterIds: among,
   });
   const rows = await withStatementTimeout(opts.timeoutMs ?? 3_000, (tx) =>
     tx.workItem.findMany({ where, select: { id: true }, take: IDS_ONLY_MAX + 1 }),

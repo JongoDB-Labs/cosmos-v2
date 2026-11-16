@@ -3,27 +3,60 @@
 // that whatever a user writes stays inside the scope envelope.
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { FALSE, compileQuery, historySpecs } from "../compile";
+import { FALSE, SERVER_ONLY, compileQuery, historySpecs } from "../compile";
 import { historyKey } from "../history";
 import { parseCql } from "../parser";
 import { typecheck } from "../typecheck";
-import type { CompileEnv } from "../env";
+import { fnKey, type CompileEnv } from "../env";
 import { buildScopedWhere } from "@/lib/work-items/query/build-where";
 import { queryArb } from "./arbitraries";
 import type { CqlQuery } from "../ast";
-import { matches } from "../evaluate";
+import { UNDECIDED, matches } from "../evaluate";
 import { itemMatchesTeam, itemTeamIds, teamsByUser, type TeamLike } from "@/lib/teams/item-teams";
 
 const NOW = new Date("2026-10-15T15:00:00Z");
 const ORG = "org-1";
 const READABLE = ["p1", "p2"];
 
-/** t1 and t3 in p1, t2 in p2; u2 is on t1 and t2; t3 has nobody. */
-const ROSTERS: NonNullable<CompileEnv["teamRosters"]> = new Map([
+/**
+ * t1 and t3 in p1, t2 in p2; u2 is on t1 and t2; t3 has nobody. u4 was on t1
+ * and has left the org, so is on no team (ROSTERS reads current members only,
+ * as loadTeamRosters does), though the membership rows are still there.
+ */
+const ROSTERS = new Map([
   ["t1", { projectId: "p1", userIds: ["u1", "u2"] }],
   ["t2", { projectId: "p2", userIds: ["u2"] }],
-  ["t3", { projectId: "p1", userIds: [] }],
+  ["t3", { projectId: "p1", userIds: [] as string[] }],
 ]);
+/** What the compiler is given: every readable team's project, and no people. */
+const TEAMS: NonNullable<CompileEnv["teamProjects"]> = new Map([...ROSTERS].map(([id, r]) => [id, r.projectId]));
+/**
+ * A user's org memberships as `assignee.memberships` loads them: current, or
+ * left, with their team rows. u3 is also a member of another org, on a team
+ * there whose id this org's teams share (ids are uuids in life; the clash is
+ * what would show a join that forgot the org).
+ */
+type Membership = { orgId: string; removedAt: string | null; projectMembers: { teamMembers: { teamId: string }[] }[] };
+const MEMBERSHIPS: Record<string, Membership[]> = {
+  u1: [{ orgId: ORG, removedAt: null, projectMembers: [{ teamMembers: [{ teamId: "t1" }] }] }],
+  u2: [{ orgId: ORG, removedAt: null, projectMembers: [{ teamMembers: [{ teamId: "t1" }] }, { teamMembers: [{ teamId: "t2" }] }] }],
+  u3: [
+    { orgId: ORG, removedAt: null, projectMembers: [{ teamMembers: [] }] },
+    { orgId: "org-2", removedAt: null, projectMembers: [{ teamMembers: [{ teamId: "t1" }] }] },
+  ],
+  u4: [{ orgId: ORG, removedAt: "2026-09-01T00:00:00.000Z", projectMembers: [{ teamMembers: [{ teamId: "t1" }] }] }],
+};
+/** `membersOf(team)`'s people, as the old resolver listed them: current members of this org on the team. */
+const ON_TEAM = (team: string) =>
+  Object.entries(MEMBERSHIPS)
+    .filter(([, ms]) => ms.some((m) => m.orgId === ORG && !m.removedAt && m.projectMembers.some((p) => p.teamMembers.some((t) => t.teamId === team))))
+    .map(([u]) => u);
+/** A person on one of these teams, through their membership of this org: the join `team` and `membersOf()` compile to. */
+const ON = (...teams: string[]) => ({
+  memberships: { some: { orgId: ORG, removedAt: null, projectMembers: { some: { teamMembers: { some: { teamId: { in: teams } } } } } } },
+});
+/** The fnIds key the resolver files `membersOf(team)` under. */
+const MEMBERS_OF = (team: string) => fnKey({ t: "fn", name: "membersOf", args: [{ t: "ref", entity: "team", id: team }] });
 /** A stand-in for readableCommentsWhere. */
 const COMMENTS_YOU_CAN_READ = { visibility: "PUBLIC" as const, deletedAt: null, hiddenAt: null };
 /** What a comment-text predicate compiles to under the default env's comment scope. */
@@ -36,7 +69,6 @@ function env(over: Partial<CompileEnv> = {}): CompileEnv {
     actorUserId: "me-id",
     now: NOW,
     tz: "UTC",
-    fnIds: new Map(),
     vars: new Map(),
     statusCategories: {
       TODO: [{ projectId: "p1", keys: ["todo"] }],
@@ -50,7 +82,10 @@ function env(over: Partial<CompileEnv> = {}): CompileEnv {
     milestoneItems: new Map([["m1", ["c1", "x9"]]]),
     milestoneLinked: ["c1", "x9", "y7"],
     history: new Map(),
-    teamRosters: ROSTERS,
+    teamProjects: TEAMS,
+    teamOrgId: ORG,
+    // What the resolver files for `membersOf(t)`: the team, when the actor can read it.
+    fnIds: new Map([...TEAMS.keys()].map((t) => [MEMBERS_OF(t), [t]])),
     readableComments: { projectIds: ["p1"], where: COMMENTS_YOU_CAN_READ },
     ...over,
   };
@@ -422,56 +457,244 @@ describe("compile — team is the team's work, as the board reads it", () => {
   // with none is the work of every team in its project its primary assignee is
   // on. The column alone was the defect: untagged work never matched.
   const own = (...ids: string[]) => ({ teamId: { in: ids, not: null } });
-  const theirs = (projectId: string, ...users: string[]) => ({
-    AND: [{ teamId: null }, { projectId }, { assigneeId: { in: users, not: null } }],
+  /** Untagged, in this project, and the primary assignee is a current member of one of these teams. */
+  const theirs = (projectId: string, ...teams: string[]) => ({
+    AND: [
+      { teamId: null },
+      { projectId },
+      { assigneeId: { not: null } },
+      { assignee: { is: ON(...teams) } },
+    ],
   });
 
   it("`team = X`: tagged with X, or untagged and assigned to someone on X in X's project", () => {
-    expect(where('team = "ref:team:t1"')).toEqual({ OR: [own("t1"), theirs("p1", "u1", "u2")] });
+    expect(where('team = "ref:team:t1"')).toEqual({ OR: [own("t1"), theirs("p1", "t1")] });
   });
 
   it("a list takes each named team's people in its own project", () => {
     expect(where('team IN ("ref:team:t1", "ref:team:t2")')).toEqual({
-      OR: [own("t1", "t2"), theirs("p1", "u1", "u2"), theirs("p2", "u2")],
+      OR: [own("t1", "t2"), theirs("p1", "t1"), theirs("p2", "t2")],
     });
   });
 
-  it("a team with nobody on it is its tagged work only", () => {
-    expect(where('team = "ref:team:t3"')).toEqual(own("t3"));
+  it("a team the actor can't read is its tagged work only", () => {
+    expect(where('team = "ref:team:t9"')).toEqual(own("t9"));
   });
 
   it("IS EMPTY is what no team claims; != stays two-valued and leaves out the unclaimed", () => {
-    const claimed = { OR: [theirs("p1", "u1", "u2"), theirs("p2", "u2")] };
+    const claimed = { OR: [theirs("p1", "t1", "t3"), theirs("p2", "t2")] };
     expect(where("team IS EMPTY")).toEqual({ AND: [{ teamId: null }, { NOT: claimed }] });
     expect(where('team != "ref:team:t1"')).toEqual({
-      AND: [{ NOT: { OR: [own("t1"), theirs("p1", "u1", "u2")] } }, { NOT: { AND: [{ teamId: null }, { NOT: claimed }] } }],
+      AND: [{ NOT: { OR: [own("t1"), theirs("p1", "t1")] } }, { NOT: { AND: [{ teamId: null }, { NOT: claimed }] } }],
     });
   });
 
-  it("FAILS CLOSED: no rosters means it throws, never the column-only answer", () => {
-    expect(() => where('team = "ref:team:t1"', env({ teamRosters: undefined }))).toThrow(/teamRosters/);
-    expect(() => where("team IS EMPTY", env({ teamRosters: undefined }))).toThrow(/teamRosters/);
+  it("the where names teams and never a person, however large the teams", () => {
+    // A where with user ids in it reached the browser (`POST cql/predicate`),
+    // and past 30,000 of them was refused as too broad.
+    for (const text of ['team = "ref:team:t1"', 'team != "ref:team:t2"', "team IS EMPTY", 'team IN ("ref:team:t1", "ref:team:t3")']) {
+      const json = JSON.stringify(where(text));
+      for (const user of Object.keys(MEMBERSHIPS)) expect(json).not.toContain(`"${user}"`);
+    }
+  });
+
+  it("FAILS CLOSED: no teams means it throws, never the column-only answer", () => {
+    expect(() => where('team = "ref:team:t1"', env({ teamProjects: undefined }))).toThrow(/teamProjects/);
+    expect(() => where("team IS EMPTY", env({ teamProjects: undefined }))).toThrow(/teamProjects/);
+  });
+
+  it("FAILS CLOSED on the org: the membership hop is held to the teams' org, or the field is refused", () => {
+    // Without the org, a person's membership of ANOTHER org, on a team there,
+    // would count (u3 below), and the join could not use org_members' (org_id,
+    // user_id) index.
+    expect(() => where('team = "ref:team:t1"', env({ teamOrgId: undefined }))).toThrow(/teamOrgId/);
+    expect(() => where("team IS EMPTY", env({ teamOrgId: undefined }))).toThrow(/teamOrgId/);
+  });
+
+  // The board sees one project's rows with that project's teams; so does
+  // this, item by item.
+  const teamsIn = (projectId: string): TeamLike[] =>
+    [...ROSTERS].filter(([, r]) => r.projectId === projectId).map(([id, r]) => ({ id, name: id, members: r.userIds.map((userId) => ({ userId })) }));
+  const itemArb = fc.constantFrom("p1", "p2").chain((projectId) =>
+    fc.record({
+      id: fc.constant("i"),
+      projectId: fc.constant(projectId),
+      teamId: fc.constantFrom(null, ...teamsIn(projectId).map((t) => t.id)),
+      assigneeId: fc.constantFrom(null, "u1", "u2", "u3", "u4"),
+    }),
+  );
+  /** The item with its assignee's memberships loaded, as the database would join them. */
+  const loaded = (item: { assigneeId: string | null }) => ({
+    ...item,
+    assignee: item.assigneeId ? { id: item.assigneeId, memberships: MEMBERSHIPS[item.assigneeId] } : null,
   });
 
   it("agrees with the board's rule (itemMatchesTeam) and the dashboards' groups (itemTeamIds) on every item", () => {
-    // The board sees one project's rows with that project's teams; so does
-    // this, item by item.
-    const teamsIn = (projectId: string): TeamLike[] =>
-      [...ROSTERS].filter(([, r]) => r.projectId === projectId).map(([id, r]) => ({ id, name: id, members: r.userIds.map((userId) => ({ userId })) }));
-    const itemArb = fc.constantFrom("p1", "p2").chain((projectId) =>
-      fc.record({
-        id: fc.constant("i"),
-        projectId: fc.constant(projectId),
-        teamId: fc.constantFrom(null, ...teamsIn(projectId).map((t) => t.id)),
-        assigneeId: fc.constantFrom(null, "u1", "u2", "u3"),
-      }),
-    );
     fc.assert(
       fc.property(itemArb, fc.constantFrom("t1", "t2", "t3"), (item, teamId) => {
         const board = itemMatchesTeam(item, teamId, teamsByUser(teamsIn(item.projectId)));
-        expect(matches(where(`team = "ref:team:${teamId}"`), item)).toBe(board);
+        expect(matches(where(`team = "ref:team:${teamId}"`), loaded(item))).toBe(board);
+        expect(matches(where(`team != "ref:team:${teamId}"`), loaded(item))).toBe(!board && itemTeamIds(item, ROSTERS).length > 0);
         expect(itemTeamIds(item, ROSTERS).includes(teamId)).toBe(board);
-        expect(matches(where("team IS EMPTY"), item)).toBe(itemTeamIds(item, ROSTERS).length === 0);
+        expect(matches(where("team IS EMPTY"), loaded(item))).toBe(itemTeamIds(item, ROSTERS).length === 0);
+      }),
+      { numRuns: 500 },
+    );
+  });
+
+  it("on a board's row, which carries no memberships, it decides all but untagged assigned items, and decides them right", () => {
+    fc.assert(
+      fc.property(itemArb, fc.constantFrom("t1", "t2", "t3"), (item, teamId) => {
+        for (const text of [`team = "ref:team:${teamId}"`, `team != "ref:team:${teamId}"`, "team IS EMPTY"]) {
+          const verdict = matches(where(text), item);
+          if (verdict === UNDECIDED) expect(item.teamId === null && item.assigneeId !== null).toBe(true);
+          else expect(verdict).toBe(matches(where(text), loaded(item)));
+        }
+      }),
+      { numRuns: 300 },
+    );
+    // And the server really is asked: an untagged item assigned in the team's project.
+    const row = { id: "i", projectId: "p1", teamId: null, assigneeId: "u1" };
+    expect(matches(where('team = "ref:team:t1"'), row)).toBe(UNDECIDED);
+    expect(matches(where('team = "ref:team:t1"'), loaded(row))).toBe(true);
+  });
+});
+
+describe("compile — membersOf() joins to the team, and never lists its people", () => {
+  /** Untagged or not: the primary assignee is a current member of one of these teams. */
+  const primaryOn = (...teams: string[]) => ({ AND: [{ assigneeId: { not: null } }, { assignee: { is: ON(...teams) } }] });
+  const coOn = (...teams: string[]) => ({ assignees: { some: { user: { is: ON(...teams) } } } });
+
+  it("`assignee IN membersOf(X)`: the primary assignee or a co-assignee is on X", () => {
+    expect(where('assignee IN membersOf("ref:team:t1")')).toEqual({ OR: [primaryOn("t1"), coOn("t1")] });
+  });
+
+  it("NOT IN is the complement of IN on assigned items, and leaves the unassigned out", () => {
+    expect(where('assignee NOT IN membersOf("ref:team:t1")')).toEqual({
+      AND: [{ NOT: { OR: [primaryOn("t1"), coOn("t1")] } }, { NOT: { assigneeId: null, assignees: { none: {} } } }],
+    });
+  });
+
+  it("beside named people, each kind compiles its own way; several teams share one join", () => {
+    expect(where('assignee IN (me, membersOf("ref:team:t1"), membersOf("ref:team:t2"))')).toEqual({
+      OR: [
+        { assigneeId: { in: ["me-id"], not: null } },
+        { assignees: { some: { userId: { in: ["me-id"] } } } },
+        primaryOn("t1", "t2"),
+        coOn("t1", "t2"),
+      ],
+    });
+  });
+
+  it("a team the actor can't read matches nobody", () => {
+    expect(where('assignee IN membersOf("ref:team:t9")', env({ fnIds: new Map([[MEMBERS_OF("t9"), []]]) }))).toEqual(FALSE);
+  });
+
+  it("primary assignee and watcher join the same way", () => {
+    expect(where('primaryAssignee IN membersOf("ref:team:t1")')).toEqual(primaryOn("t1"));
+    expect(where('watcher IN membersOf("ref:team:t1")')).toEqual({ watchers: { some: { user: { is: ON("t1") } } } });
+  });
+
+  it("the joined fields name the team and none of its people, though the people are to hand", () => {
+    // The teams' people are in the env, as on the server when another field in
+    // the same query needs them, so a joined field that read them would show.
+    const people = new Map([
+      [MEMBERS_OF("t1"), ON_TEAM("t1")],
+      [MEMBERS_OF("t2"), ON_TEAM("t2")],
+    ]);
+    expect(ON_TEAM("t1")).toEqual(["u1", "u2"]);
+    // Positive control: a field that takes the people does list them here.
+    expect(JSON.stringify(where('reporter IN membersOf("ref:team:t1")', env({ teamMemberIds: people })))).toContain('"u1"');
+    for (const e of [env({ teamMemberIds: people }), env({ teamMemberIds: people, forBrowser: true })]) {
+      for (const text of [
+        'assignee IN membersOf("ref:team:t1")',
+        'assignee NOT IN membersOf("ref:team:t1")',
+        'primaryAssignee IN membersOf("ref:team:t2")',
+        'watcher IN membersOf("ref:team:t1")',
+      ]) {
+        const json = JSON.stringify(where(text, e));
+        for (const user of Object.keys(MEMBERSHIPS)) expect(json, text).not.toContain(`"${user}"`);
+        expect(json, text).toContain('"t');
+      }
+    }
+  });
+
+  // reporter (a bare created_by_id), @mentions (tokens in text), a person
+  // custom field (JSON) and history (Activity rows) store people's ids and
+  // have no relation to join through, so they still need the ids.
+  const PEOPLE = new Map([[MEMBERS_OF("t1"), ["u1", "u2"]]]);
+  const SERVER_SIDE = [
+    'reporter IN membersOf("ref:team:t1")',
+    'mentions IN membersOf("ref:team:t1")',
+    'cf[owner] IN membersOf("ref:team:t1")',
+    'assignee WAS IN membersOf("ref:team:t1")',
+    'priority CHANGED BY membersOf("ref:team:t1")',
+  ];
+  const withOwner = (over: Partial<CompileEnv> = {}) =>
+    env({ customFields: new Map([["owner", "USER"]]), history: new Map(), ...over });
+  const whereOwner = (text: string, e: CompileEnv) => {
+    const p = parseCql(text);
+    const t = typecheck(p.query, { customFields: [{ key: "owner", name: "Owner", fieldType: "USER" }] });
+    expect(t.diagnostics.filter((d) => d.severity === "error"), text).toEqual([]);
+    const query = JSON.parse(JSON.stringify(t.query).replace(/\{"t":"str","v":"ref:team:(\w+)"\}/g, '{"t":"ref","entity":"team","id":"$1"}')) as CqlQuery;
+    return compileQuery(query, e).where;
+  };
+
+  it("on the server, the fields that can't join get the people from `teamMemberIds`", () => {
+    expect(whereOwner(SERVER_SIDE[0], withOwner({ teamMemberIds: PEOPLE }))).toEqual({ createdById: { in: ["u1", "u2"] } });
+    expect(JSON.stringify(whereOwner(SERVER_SIDE[2], withOwner({ teamMemberIds: PEOPLE })))).toContain('"u2"');
+    expect(JSON.stringify(whereOwner(SERVER_SIDE[4], withOwner({ teamMemberIds: PEOPLE })))).toContain('"u1"');
+  });
+
+  it("for the browser they are left to the server: no person, and a marker the board can't decide", () => {
+    // The people are in the env, so a browser predicate that listed them would show them.
+    for (const text of SERVER_SIDE) {
+      const w = whereOwner(text, withOwner({ forBrowser: true, teamMemberIds: PEOPLE }));
+      const json = JSON.stringify(w);
+      for (const user of Object.keys(MEMBERSHIPS)) expect(json, text).not.toContain(`"${user}"`);
+      expect(json, text).toContain(JSON.stringify(SERVER_ONLY));
+      expect(matches(w, { id: "i", projectId: "p1", createdById: "u1", assigneeId: "u1", description: "<@u1>", customFields: { owner: "u1" } }), text).toBe(UNDECIDED);
+    }
+    // NOT of a deferred clause is deferred too, and decided parts stay decided.
+    const both = whereOwner('priority = HIGH AND reporter NOT IN membersOf("ref:team:t1")', withOwner({ forBrowser: true, teamMemberIds: PEOPLE }));
+    expect(matches(both, { id: "i", priority: "LOW", createdById: "u1" })).toBe(false);
+    expect(matches(both, { id: "i", priority: "HIGH", createdById: "u1" })).toBe(UNDECIDED);
+  });
+
+  it("FAILS CLOSED: on the server without the people, or without the org, it throws", () => {
+    expect(() => whereOwner(SERVER_SIDE[0], withOwner())).toThrow(/teamMemberIds/);
+    expect(() => where('assignee IN membersOf("ref:team:t1")', env({ teamOrgId: undefined }))).toThrow(/teamOrgId/);
+  });
+
+  it("the server's answer is the old one: the same items as listing the team's current members", () => {
+    // Every item shape the join can meet: no assignee, a primary, co-assignees,
+    // someone who left the org, someone on the team in another org only.
+    const userArb = fc.constantFrom("u1", "u2", "u3", "u4");
+    const itemArb = fc.record({
+      id: fc.constant("i"),
+      projectId: fc.constantFrom("p1", "p2"),
+      assigneeId: fc.option(userArb, { nil: null }),
+      co: fc.uniqueArray(userArb, { maxLength: 3 }),
+    });
+    const loaded = (it: { id: string; projectId: string; assigneeId: string | null; co: string[] }) => ({
+      id: it.id,
+      projectId: it.projectId,
+      assigneeId: it.assigneeId,
+      assignee: it.assigneeId ? { id: it.assigneeId, memberships: MEMBERSHIPS[it.assigneeId] } : null,
+      assignees: it.co.map((u) => ({ userId: u, user: { id: u, memberships: MEMBERSHIPS[u] } })),
+    });
+    fc.assert(
+      fc.property(itemArb, fc.constantFrom("t1", "t2", "t3"), fc.boolean(), (it, team, negate) => {
+        const op = negate ? "NOT IN" : "IN";
+        const people = ON_TEAM(team);
+        // The old compile: the team's people as ids.
+        const listed = compileQuery(
+          { v: 1, where: { op: "in", field: { kind: "sys", id: "assignee" }, ...(negate ? { negate: true } : {}), values: people.map((id) => ({ t: "ref", entity: "user", id })) } },
+          env(),
+        ).where;
+        const row = loaded(it);
+        const old = people.length ? matches(listed, row) : negate ? it.assigneeId !== null || it.co.length > 0 : false;
+        expect(matches(where(`assignee ${op} membersOf("ref:team:${team}")`), row)).toBe(old);
       }),
       { numRuns: 500 },
     );
@@ -527,13 +750,25 @@ describe("compile — pi", () => {
   });
 });
 
-/** Every key anywhere in a where tree. */
+/** Every key anywhere in a where tree, except inside a person's `memberships`. */
 function keysIn(o: unknown, out = new Set<string>()): Set<string> {
   if (Array.isArray(o)) o.forEach((x) => keysIn(x, out));
   else if (o && typeof o === "object" && !(o instanceof Date)) {
     for (const [k, v] of Object.entries(o)) {
       out.add(k);
-      keysIn(v, out);
+      if (k !== "memberships") keysIn(v, out);
+    }
+  }
+  return out;
+}
+
+/** Every `orgId` value inside a person's `memberships` (the team join's hop), anywhere in a where tree. */
+function membershipOrgIds(o: unknown, inside = false, out: unknown[] = []): unknown[] {
+  if (Array.isArray(o)) o.forEach((x) => membershipOrgIds(x, inside, out));
+  else if (o && typeof o === "object" && !(o instanceof Date)) {
+    for (const [k, v] of Object.entries(o)) {
+      if (inside && k === "orgId") out.push(v);
+      membershipOrgIds(v, inside || k === "memberships", out);
     }
   }
   return out;
@@ -542,6 +777,7 @@ function keysIn(o: unknown, out = new Set<string>()): Set<string> {
 describe("compile — the scope envelope holds for any query", () => {
   it("orgId never appears in the user predicate; the envelope carries org + readable projects", () => {
     let compiled = 0;
+    let joined = 0;
     fc.assert(
       fc.property(queryArb, (raw) => {
         const t = typecheck(raw, { customFields: [{ key: "severity", name: "Severity", fieldType: "SELECT" }] });
@@ -560,14 +796,30 @@ describe("compile — the scope envelope holds for any query", () => {
         expect(Object.keys(scoped).sort()).toEqual(
           ["AND", "orgId", "projectId", ...(c.archived === "all" ? [] : ["archivedAt"])].sort(),
         );
+        // The predicate never scopes the item by org. The one orgId it may
+        // carry is the team join's, holding a person's membership to the
+        // envelope's own org (compile.ts, `onTeams`).
         expect(keysIn(c.where).has("orgId")).toBe(false);
+        const orgs = membershipOrgIds(c.where);
+        if (orgs.length) joined++;
+        for (const org of orgs) expect(org).toBe(ORG);
       }),
       // Most random queries fail the typechecker (that's its job), so run many
       // to compile well over a thousand.
       { numRuns: 20000 },
     );
-    // The property must not pass by skipping everything.
+    // The property must not pass by skipping everything, nor by never meeting a join.
     expect(compiled).toBeGreaterThan(1000);
+    expect(joined).toBeGreaterThan(0);
+  });
+
+  it("the team join's orgId is the envelope's org and sits only inside `memberships`", () => {
+    for (const text of ["team IS EMPTY", 'team != "ref:team:t1"', 'assignee NOT IN membersOf("ref:team:t2")', 'watcher IN membersOf("ref:team:t1")']) {
+      const w = where(text);
+      expect(keysIn(w).has("orgId"), text).toBe(false);
+      expect(membershipOrgIds(w).length, text).toBeGreaterThan(0);
+      for (const org of membershipOrgIds(w)) expect(org, text).toBe(ORG);
+    }
   });
 
   it("an empty readable set matches nothing whatever the predicate", () => {

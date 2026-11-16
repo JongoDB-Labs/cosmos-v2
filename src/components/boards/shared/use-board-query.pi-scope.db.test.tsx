@@ -119,7 +119,7 @@ describe("a board scoped to a Program Increment (e2e DB)", () => {
       inflight++;
       try {
         if (url.endsWith("/cql/predicate")) return await predicateCql(w.ctx(), { query: body.query }, opts);
-        if (url.endsWith("/work-items/query") && body.idsOnly) return await idsCql(w.ctx(), { query: body.query }, opts);
+        if (url.endsWith("/work-items/query") && body.idsOnly) return await idsCql(w.ctx(), { query: body.query }, { ...opts, among: body.among });
         throw new Error(`unexpected request ${url}`);
       } finally {
         inflight--;

@@ -49,6 +49,37 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.563.0",
+    date: "2026-11-16",
+    title: "Team filters work for teams of any size",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Filtering by team with the query language (team = X, team != X, team IS EMPTY, assignee IN membersOf(X)) no longer fails as too broad when a team is very large. The filter used to list every member of every team inside the query.",
+      },
+      {
+        kind: "fix",
+        text: "A board filtered by team (team = X, or a person field IN membersOf(X)) no longer sends your browser the user ID of everyone on the team. Those IDs reached guests too.",
+      },
+      {
+        kind: "fix",
+        text: "On a board filtered by team, a card assigned to someone on the team now appears as soon as the change is saved, and one reassigned away leaves, without reloading. When the server takes too long to filter a board, the board now says to try again instead of asking you to narrow it to a project or sprint it is already on.",
+      },
+      {
+        kind: "fix",
+        text: "Duplicating an item now copies all of its assignees, for its sub-items too. The copy used to show as unassigned. Anyone who has left the organization is left off the copy.",
+      },
+      {
+        kind: "fix",
+        text: "Merging an item no longer fails when the duplicate names an assignee who has left the organization or no longer exists. They are left off the item it merges into.",
+      },
+      {
+        kind: "fix",
+        text: "Duplicating an item now needs permission to read it, and copying its sub-items needs permission to create each of them, as creating them would.",
+      },
+    ],
+  },
+  {
     version: "2.562.9",
     date: "2026-11-16",
     title: "Steadier releases",

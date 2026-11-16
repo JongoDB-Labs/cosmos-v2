@@ -312,7 +312,7 @@ export function assignableMembersWhere(orgId: string, userIds: readonly string[]
 }
 
 /** Whether every one of these user ids is an assignable member of the org. */
-async function membersAmong(tx: Prisma.TransactionClient, orgId: string, ids: readonly string[]): Promise<boolean> {
+async function membersAmong(tx: Pick<Prisma.TransactionClient, "orgMember">, orgId: string, ids: readonly string[]): Promise<boolean> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return true;
   return (await tx.orgMember.count({ where: assignableMembersWhere(orgId, unique) })) === unique.length;
@@ -333,6 +333,43 @@ export async function assertAssigneesInOrg(
 ): Promise<void> {
   const named = ids.filter((id): id is string => !!id);
   if (!(await membersAmong(tx, orgId, named))) throw new ProblemError(422, "assignee_not_in_org", NOT_A_MEMBER);
+}
+
+/**
+ * The assignees a copy (Duplicate) or a merge carries over from a source item:
+ * its primary, then the rest of its set in order, keeping only the people
+ * creating an item could name (the rule above). Nothing else checks them, as
+ * they come from the source rather than a request, and the source can name
+ * someone who has left the org or, on a row imported with foreign-key checks
+ * off (the cutover import does this; 20261116120000 cleared the ones written
+ * before the key), an id that is no user at all. Those are dropped, not
+ * refused: the copy or the merge loses that assignee instead of failing on it.
+ */
+export async function assigneesToCarry(
+  tx: Pick<Prisma.TransactionClient, "orgMember">,
+  orgId: string,
+  source: { assigneeId: string | null; assignees: readonly { userId: string; sortOrder: number }[] },
+): Promise<string[]> {
+  const ordered = [
+    ...new Set([
+      ...(source.assigneeId ? [source.assigneeId] : []),
+      ...[...source.assignees].sort((a, b) => a.sortOrder - b.sortOrder).map((a) => a.userId),
+    ]),
+  ];
+  if (ordered.length === 0) return [];
+  const members = await tx.orgMember.findMany({ where: assignableMembersWhere(orgId, ordered), select: { userId: true } });
+  const ok = new Set(members.map((m) => m.userId));
+  return ordered.filter((id) => ok.has(id));
+}
+
+/**
+ * A new item's assignees as Create writes them: the first is the primary
+ * (`assigneeId`) and each one is a row of the set, in order, so the card
+ * (which shows the set) and the primary agree. Create and Duplicate's copies
+ * both write through this.
+ */
+export function assigneeSetData(ids: readonly string[]) {
+  return { assigneeId: ids[0] ?? null, assignees: { create: ids.map((userId, i) => ({ userId, sortOrder: i })) } };
 }
 
 /**

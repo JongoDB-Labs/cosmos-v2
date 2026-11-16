@@ -212,7 +212,10 @@ const INLINE: Record<string, Record<string, string>> = {
   },
   [`${API}work-items/[itemId]/route.ts`]: { boardId: IGNORED_BOARD, cascadeSkipIds: SKIP_LIST },
   [`${API}work-items/aggregate/route.ts`]: { contextProjectId: CQL_CONTEXT },
-  [`${API}work-items/query/route.ts`]: { contextProjectId: CQL_CONTEXT },
+  [`${API}work-items/query/route.ts`]: {
+    contextProjectId: CQL_CONTEXT,
+    among: "a read: the items a board asks about, intersected with the caller's readable scope (idsCql); nothing is stored",
+  },
   [`${API}work-items/search/route.ts`]: {
     assigneeIds: READ, intervalIds: READ, parentIds: READ, projectIds: READ, typeIds: READ,
     watchedByUserId: "a read filter, and only the caller's own id is accepted",

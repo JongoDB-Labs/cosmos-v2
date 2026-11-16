@@ -211,10 +211,8 @@ const ALLOWED: Record<string, { sites: number; reason: string }> = {
       "administrator named.",
   },
   "src/lib/query/resolve.server.ts": {
-    sites: 2,
-    reason:
-      "`myTeams()` reads the actor's own teams (see ACTOR); `membersOf()` selects " +
-      "`removedAt` and drops removed members in code, on the line after the read.",
+    sites: 1,
+    reason: "`myTeams()` reads the actor's own teams (see ACTOR).",
   },
   "src/lib/query/saved-filters.server.ts": { sites: 1, reason: ACTOR },
   "src/lib/query/subscriptions.server.ts": {
