@@ -66,10 +66,10 @@ describe("proxy: signed-out page visits keep their address", () => {
     expect(location.searchParams.get("next")).toBe("/acme/issues?view=list");
   });
 
-  it("uses the first host when the edge forwards several", async () => {
+  it("uses the host the nearest proxy wrote when the edge forwards several", async () => {
     const location = await loginRedirect("/acme/issues", {
       host: "localhost:3000",
-      "x-forwarded-host": "cosmos.example.dev, internal.example",
+      "x-forwarded-host": "evil.example, cosmos.example.dev",
       "x-forwarded-proto": "https",
     });
     expect(location.origin).toBe("https://cosmos.example.dev");
