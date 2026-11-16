@@ -16,6 +16,12 @@ const errorSchema = z.object({
   ts: z.number().optional(),
 });
 
+// The page, without its query string or fragment: a page URL can carry a
+// credential there, as an emailed reset link does, and this goes to the log.
+function pageOnly(url: string): string {
+  return url.split(/[?#]/, 1)[0];
+}
+
 /**
  * Client-side error sink. Logged to stdout so production log aggregators
  * (or a future Sentry integration) can index them. Intentionally permissive
@@ -32,7 +38,7 @@ export async function POST(request: NextRequest) {
     console.error(
       `[client:error] scope=${parsed.data.scope ?? "?"} v=${parsed.data.appVersion ?? "?"} ` +
         `vp=${parsed.data.viewport ?? "?"} ip=${ip ?? "?"} ` +
-        `url=${parsed.data.url ?? "?"} msg=${parsed.data.message}`,
+        `url=${parsed.data.url ? pageOnly(parsed.data.url) : "?"} msg=${parsed.data.message}`,
       parsed.data.breadcrumbs?.length
         ? `\n  trail: ${parsed.data.breadcrumbs.join(" | ")}`
         : "",
