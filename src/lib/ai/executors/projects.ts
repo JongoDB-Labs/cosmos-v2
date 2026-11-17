@@ -11,7 +11,7 @@ import { loadStatusCategories } from "@/lib/boards/status-categories.server";
 import { seedBoardColumns } from "@/lib/workflow/provision.server";
 import { buildIntervalReport } from "@/lib/intervals/interval-report";
 import { writeIntervalChange } from "@/lib/intervals/pi-lifecycle.server";
-import { isDoneStatus } from "@/lib/work-items/done-state";
+import { isResolvedStatus } from "@/lib/work-items/done-state";
 import { updateWorkItems } from "@/lib/work-items/write.server";
 
 const listProjectsSchema = z.object({
@@ -414,10 +414,11 @@ export async function completeInterval(input: Record<string, unknown>, ctx: Tool
   try {
     completed = await writeIntervalChange({ auth, action: "SPRINT_COMPLETE" }, interval, { status: "COMPLETED" }, () => prisma.$transaction(async (tx) => {
       const items = interval.workItems;
-      // The same report the Complete button records: done is the status's
-      // CATEGORY, and the carried ids are kept for the review board.
+      // The same report the Complete button records: settled is the status's
+      // CATEGORY (done OR cancelled), and the carried ids are kept for the
+      // review board.
       const statuses = await loadStatusCategories(tx, interval.projectId);
-      const incompleteItems = items.filter((i) => !isDoneStatus(i.columnKey, statuses));
+      const incompleteItems = items.filter((i) => !isResolvedStatus(i.columnKey, statuses));
       const report = buildIntervalReport(items, new Date().toISOString(), statuses);
 
       if (incompleteItems.length > 0) {

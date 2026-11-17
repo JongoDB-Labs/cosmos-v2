@@ -1,4 +1,4 @@
-import { isDoneStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
+import { isDoneStatus, isResolvedStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
 
 /**
  * The report recorded on `intervals.report` when a sprint is completed.
@@ -28,6 +28,12 @@ export interface IntervalReport {
   completedAt: string;
   totalItems: number;
   completedItems: number;
+  /**
+   * Still outstanding — the carried set's size, which is what every surface
+   * showing this labels it ("Carried over"). Cancelled work is in NEITHER this
+   * nor `completedItems`, so the two need not add up to `totalItems`: it was
+   * not delivered, and it is not waiting on anyone.
+   */
   incompleteItems: number;
   totalStoryPoints: number;
   completedStoryPoints: number;
@@ -50,7 +56,10 @@ export function buildIntervalReport(
   // One definition of "done", shared with the review, so a report and the board
   // that produced it cannot disagree about what shipped.
   const doneItems = items.filter((i) => isDoneStatus(i.columnKey, columns));
-  const carried = items.filter((i) => !isDoneStatus(i.columnKey, columns));
+  // What carries is what still NEEDS work, which is not the same set as "not
+  // delivered": a cancelled item is settled, so it neither counts as velocity
+  // nor rolls into the next sprint (COSMOS-246).
+  const carried = items.filter((i) => !isResolvedStatus(i.columnKey, columns));
 
   return {
     completedAt,

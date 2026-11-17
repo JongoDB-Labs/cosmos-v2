@@ -1,4 +1,4 @@
-import { isDoneStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
+import { isResolvedStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
 
 /**
  * Resolves "what carried forward" for a sprint, and says which of three things
@@ -13,6 +13,10 @@ import { isDoneStatus, type DoneStateColumn } from "@/lib/work-items/done-state"
  * as an empty list — tells a room that nothing carried, which the data does not
  * support. A ceremony board that invents a clean sprint is worse than one that
  * admits it does not know.
+ *
+ * What carries is work that still NEEDS doing (`isResolvedStatus`), not work
+ * that was not delivered. Cancelled items are settled: they stay off this list
+ * whether or not a cancellation date was recorded (COSMOS-246).
  */
 
 export type CarriedItems =
@@ -33,7 +37,7 @@ export function resolveCarriedItems(input: CarriedInput): CarriedItems {
     return {
       kind: "live",
       itemIds: input.items
-        .filter((i) => !isDoneStatus(i.columnKey, input.statuses))
+        .filter((i) => !isResolvedStatus(i.columnKey, input.statuses))
         .map((i) => i.id),
     };
   }
