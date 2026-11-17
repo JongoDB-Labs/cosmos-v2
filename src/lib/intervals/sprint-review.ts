@@ -8,8 +8,13 @@
  * same rule the report recorded at completion and the ceremony boards use. It
  * used to be the key's spelling ("done"/"completed"/"closed"), which counted a
  * team-named done lane such as "Shipped" as unfinished work.
+ *
+ * "Outstanding" is a different question from "not done" and asks
+ * `isResolvedStatus`: cancelled work was not delivered, but nobody is going to
+ * do it either, so it is not carried (COSMOS-246). The COMMITTED figures stay
+ * whole-sprint — see `committed` below.
  */
-import { isDoneStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
+import { isDoneStatus, isResolvedStatus, type DoneStateColumn } from "@/lib/work-items/done-state";
 
 export interface SprintReviewItem {
   storyPoints?: number | null;
@@ -31,6 +36,7 @@ export type PacingStatus = "ahead" | "on track" | "behind";
 export interface SprintReview {
   totalItems: number;
   completedItems: number;
+  /** Still outstanding — what would carry forward. Cancelled work is neither. */
   incompleteItems: number;
   totalPoints: number;
   completedPoints: number;
@@ -60,13 +66,25 @@ export function computeSprintReview(input: SprintReviewInput): SprintReview {
   const totalItems = items.length;
   const doneItems = items.filter((i) => isDoneStatus(i.columnKey, input.columns));
   const completedItems = doneItems.length;
-  const incompleteItems = totalItems - completedItems;
+  // Outstanding, NOT "total minus delivered". The ceremony summary renders this
+  // as "N carried →", so it has to be the set that actually carries: cancelled
+  // work is settled and stays put (COSMOS-246). `committed` below is deliberately
+  // untouched — the team committed to that work before the duplicates were
+  // found, and the sprint's commitment is a historical fact.
+  const incompleteItems = items.filter(
+    (i) => !isResolvedStatus(i.columnKey, input.columns),
+  ).length;
 
   const totalPoints = items.reduce((s, i) => s + (i.storyPoints ?? 0), 0);
   const completedPoints = doneItems.reduce((s, i) => s + (i.storyPoints ?? 0), 0);
 
   // Estimated sprints measure in points; unestimated ones fall back to item counts.
   const basis: SprintReview["basis"] = totalPoints > 0 ? "points" : "items";
+  // EVERY item on the sprint, cancelled ones included, and intentionally so: the
+  // team committed to that work at planning, before anyone knew some of it was
+  // duplicated. Discounting it afterwards would rewrite the commitment and
+  // flatter efficiency and pacing. What was abandoned shows up as the gap
+  // between committed and delivered, which is the honest reading.
   const committed = basis === "points" ? totalPoints : totalItems;
   const completed = basis === "points" ? completedPoints : completedItems;
 

@@ -100,6 +100,48 @@ export function isDoneStatus(
 }
 
 /**
+ * Does an item in status `columnKey` need no more work — finished OR abandoned?
+ *
+ * The status-only sibling of {@link isWorkItemResolved}, standing to it exactly
+ * as `isDoneStatus` stands to `isWorkItemDone`: the same question, in the shape
+ * the sprint surfaces have (a status key plus the project's statuses, no item
+ * row). Written for the carry-forward set — what rolls into the next sprint, and
+ * the count the review boards label "carried over".
+ *
+ * Cancelled-as-duplicate work was carrying forward sprint after sprint
+ * (COSMOS-246): `isDoneStatus` answers "was this DELIVERED", which a cancelled
+ * item was not, and that was being read as "is this still outstanding", which it
+ * also was not. Merging duplicates (COSMOS-207) leaves the loser Cancelled ON
+ * ITS SPRINT, so every merge fed the list.
+ *
+ * Status ALONE decides. A cancelled item needs no more work whether or not
+ * anyone recorded a cancellation date, so carry-forward never asks for one — the
+ * date is a record of when it settled, not what makes it settled.
+ *
+ * NOT a widening of "done": velocity, committed points, what shipped and the
+ * completion percentage all keep asking `isDoneStatus`, because cancelled work
+ * was not delivered. That split is why CANCELLED is its own category
+ * (COSMOS-206) and `isWorkItemResolved` is separate from `isWorkItemDone`.
+ */
+export function isResolvedStatus(
+  columnKey: string | null | undefined,
+  columns: readonly DoneStateColumn[] = [],
+): boolean {
+  if (isDoneStatus(columnKey, columns)) return true;
+  if (!columnKey) return false;
+
+  // Mirrors isDoneStatus's precedence, including distrusting the TODO default
+  // that every uncategorised column carries, so the two cannot disagree about
+  // which signal wins for a given column.
+  const category = columns.find((c) => c.key === columnKey)?.category;
+  if (category && category !== "TODO") return category === "CANCELLED";
+
+  // Unknown to this surface, or stored as the TODO default — fall back to the
+  // seeded Cancelled lane's key, imported rather than spelled again.
+  return columnKey.toLowerCase() === CANCELLED_COLUMN.key;
+}
+
+/**
  * Does this item need no more work — finished OR abandoned?
  *
  * Distinct from {@link isWorkItemDone} ON PURPOSE, and the distinction is
@@ -109,7 +151,9 @@ export function isDoneStatus(
  * velocity, sprint figures and parent rollups as DELIVERED work, which is the
  * opposite of why the category exists.
  *
- * So this is for PRESENTATION only — the places that strike out a settled item.
+ * So this is the ITEM-shaped answer, used by the places that strike out a
+ * settled item. {@link isResolvedStatus} is the same rule for a bare status key,
+ * which is all the sprint surfaces hold.
  * BUG 635be41c: a sub-item in the Done column was struck through and one in the
  * Cancelled column was not, so an abandoned child read as still outstanding. It
  * reported as "cancelled/OBE should scratch out children like DONE does"; OBE is

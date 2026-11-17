@@ -5,7 +5,7 @@ import { requireProjectManage } from "@/lib/rbac/require-project-manage";
 import { Permission } from "@/lib/rbac/permissions";
 import { success, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
-import { isDoneStatus } from "@/lib/work-items/done-state";
+import { isResolvedStatus } from "@/lib/work-items/done-state";
 import { loadStatusCategories } from "@/lib/boards/status-categories.server";
 import { updateWorkItems } from "@/lib/work-items/write.server";
 import { buildIntervalReport } from "@/lib/intervals/interval-report";
@@ -58,9 +58,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // agent: a PI completes only once every interval inside it has.
     const completed = await writeIntervalChange({ auth: ctx, action: "SPRINT_COMPLETE" }, interval, { status: "COMPLETED" }, () => prisma.$transaction(async (tx) => {
       const items = interval.workItems;
-      // Done is the status's CATEGORY, so a team-named done lane counts.
+      // Settled is the status's CATEGORY, so a team-named done lane counts, and
+      // cancelled work stays behind rather than rolling forward for ever
+      // (COSMOS-246) — the same rule the review board's carry-forward uses.
       const statuses = await loadStatusCategories(tx, projectId);
-      const incompleteItems = items.filter((i) => !isDoneStatus(i.columnKey, statuses));
+      const incompleteItems = items.filter((i) => !isResolvedStatus(i.columnKey, statuses));
 
       // Built BEFORE the reassignment below, and it records which items carried.
       // Completing the sprint severs their link to it, so after this transaction

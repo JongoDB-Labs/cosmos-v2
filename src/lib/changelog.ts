@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.563.5",
+    date: "2026-11-17",
+    title: "Cancelled work stops rolling into the next sprint",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Tickets you cancelled — the duplicates from a planning spreadsheet, say — no longer show up in the work to carry forward on the Sprint Retrospective, and completing a sprint now leaves them on it instead of moving them into the next one. They used to reappear sprint after sprint. The \"Carried over\" count beside a finished sprint, and the \"carried\" figure on the retrospective summary, now count the same tickets the Carrying forward tab lists.",
+      },
+      {
+        kind: "improvement",
+        text: "A cancelled ticket counts as settled on its STATUS alone: it does not need a completion date to drop off the carry-forward list, and having one does not pull it back on. Merging two tickets, which leaves the duplicate cancelled, is covered the same way.",
+      },
+      {
+        kind: "improvement",
+        text: "Committed work is deliberately unchanged: a sprint's committed points and its completion percentage still count every ticket the team took on, cancelled duplicates included, because that is what was committed at planning — before anyone knew they were duplicates. Cancelled work now reads as the gap between committed and delivered rather than as work still outstanding.",
+      },
+    ],
+  },
+  {
     version: "2.563.4",
     date: "2026-11-16",
     title: "Access rules apply to every assignee of a new item",
