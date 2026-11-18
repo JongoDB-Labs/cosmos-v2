@@ -49,6 +49,33 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.564.0",
+    date: "2026-11-18",
+    title: "Whiteboards stop overwriting each other, and Foreman's controls check your role",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening a whiteboard no longer saves it, and a save can no longer replace a newer one. When two people draw on the same board at once, each save names the version it started from; if the board has moved on, your canvas merges the other changes in, says the screen changed, and saves the merge. Leaving the page now keeps your last stroke instead of dropping it.",
+      },
+      {
+        kind: "fix",
+        text: "View-only collaborators, and people your organization's policy stops from editing items, can no longer change a board's drawing.",
+      },
+      {
+        kind: "feature",
+        text: "A Foreman build that runs out of time keeps its work, and the next attempt continues from it instead of starting over. Environment files, keys, credentials, logs and build output are never kept, and nothing is kept at all if a secret scan finds something.",
+      },
+      {
+        kind: "fix",
+        text: "Foreman's deployment-wide settings and its restart now need a system administrator. Build transcripts, and grooming Apply and Undo, need an owner or admin role in the organization plus edit rights on the item's own project, so your access rules apply to them. Anyone else sees why rather than the control.",
+      },
+      {
+        kind: "fix",
+        text: "After a deploy, Foreman's update status stays readable, so what administrators see no longer goes stale until someone repairs a file by hand.",
+      },
+    ],
+  },
+  {
     version: "2.563.4",
     date: "2026-11-16",
     title: "Access rules apply to every assignee of a new item",
