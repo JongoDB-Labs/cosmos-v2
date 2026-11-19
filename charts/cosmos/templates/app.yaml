@@ -40,6 +40,12 @@ metadata:
   labels: {{- include "cosmos.labels" . | nindent 4 }}
   annotations:
     azure.workload.identity/client-id: {{ $wiClientId | quote }}
+{{- with ($az.workloadIdentity).imagePullSecrets }}
+imagePullSecrets:
+{{- range . }}
+  - name: {{ . | quote }}
+{{- end }}
+{{- end }}
 ---
 {{- end }}
 apiVersion: apps/v1

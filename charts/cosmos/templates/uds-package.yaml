@@ -53,8 +53,8 @@ spec:
       # Opt-in (storage.azure.udsEgress). Uploads in Azure Blob: the web pods reach the
       # storage account and, to sign in with their Azure identity, Microsoft Entra ID.
       # Both are outside the cluster and their addresses change, so this is `Anywhere`,
-      # held to 443 and the web pods. It also lets every other HTTPS call those pods
-      # make leave the cluster.
+      # held to TCP 443 and the web pods. `Anywhere` also covers in-cluster
+      # destinations, so it opens every 443 connection those pods make.
       - description: app->Azure Blob + Entra ID (HTTPS)
         direction: Egress
         remoteGenerated: Anywhere
