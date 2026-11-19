@@ -15,7 +15,10 @@ import { contentDisposition } from "@/lib/http/content-disposition";
  *   AZURE_STORAGE_CONTAINER          the uploads container (required)
  * and ONE of:
  *   AZURE_STORAGE_ACCOUNT_URL        e.g. https://<account>.blob.core.windows.net
- *                                    (a bare https endpoint; a SAS URL is refused)
+ *                                    (a bare https endpoint; a SAS URL, a
+ *                                    container path, or an IP / localhost /
+ *                                    emulator-port host is refused: use the
+ *                                    connection string for those)
  *                                    Signs in with DefaultAzureCredential, so no
  *                                    secret is stored: a VM's managed identity
  *                                    (set AZURE_CLIENT_ID too for a user-assigned
@@ -40,6 +43,9 @@ const URL_BASE = "/api/v1/storage/local";
 export const STREAM_BLOCK_BYTES = 4 * 1024 * 1024;
 export const STREAM_CONCURRENCY = 4;
 
+/** A container name used only to ask the SDK how it parses the account URL. */
+export const PATH_STYLE_PROBE = "path-style-probe";
+
 function containerClient(): ContainerClient {
   const container = process.env.AZURE_STORAGE_CONTAINER;
   if (!container) {
@@ -57,20 +63,35 @@ function containerClient(): ContainerClient {
     // The identity path must carry no secret. Refuse anything but a bare https
     // endpoint (a pasted SAS URL would otherwise be sent with every request), and
     // report a bad value by setting name only: a URL parse error keeps its input.
+    // A path is refused too: the SDK would fold it into every blob's address,
+    // so blobs would silently land under shifted names (or in another container)
+    // and files already stored under the real keys would 404.
     let url: URL | null = null;
     try {
       url = new URL(accountUrl!);
     } catch {
       url = null;
     }
-    if (!url || url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+    if (!url || url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
       throw new Error(
-        "azure storage adapter: AZURE_STORAGE_ACCOUNT_URL must be a bare https account endpoint (no query, fragment or credentials; value withheld)",
+        "azure storage adapter: AZURE_STORAGE_ACCOUNT_URL must be a bare https account endpoint (no path, query, fragment or credentials; value withheld)",
       );
     }
     // The credential's own config errors (e.g. a mistyped AZURE_TOKEN_CREDENTIALS,
-    // which lists the valid values) hold no secret and pass through.
-    return new BlobServiceClient(accountUrl!, new DefaultAzureCredential()).getContainerClient(container);
+    // which lists the valid values) hold no secret and pass through. The SDK gets
+    // the parsed origin, so what was checked above is exactly what it uses.
+    const service = new BlobServiceClient(url.origin, new DefaultAzureCredential());
+    // On a host the SDK treats as path-style (an IP, localhost,
+    // host.docker.internal or an emulator port) it reads the account name from
+    // the path, so a bare URL there would shift every name by one segment (the
+    // container becomes the account). Ask the SDK itself, with a fixed probe name.
+    if (service.getContainerClient(PATH_STYLE_PROBE).containerName !== PATH_STYLE_PROBE) {
+      throw new Error(
+        "azure storage adapter: AZURE_STORAGE_ACCOUNT_URL is a host the SDK treats as path-style (an IP, localhost, host.docker.internal or an emulator port); use AZURE_STORAGE_CONNECTION_STRING for those (value withheld)",
+      );
+    }
+    const client = service.getContainerClient(container);
+    return client;
   }
   try {
     return BlobServiceClient.fromConnectionString(connectionString).getContainerClient(container);

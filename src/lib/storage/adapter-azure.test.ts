@@ -25,8 +25,7 @@ vi.mock("@azure/storage-blob", () => {
       serviceCtor(url, credential);
     }
     getContainerClient(name: string) {
-      getContainerClient(name);
-      return { getBlockBlobClient };
+      return { containerName: getContainerClient(name) ?? name, getBlockBlobClient };
     }
   }
   return { BlobServiceClient };
@@ -41,7 +40,7 @@ vi.mock("@azure/identity", () => ({
   },
 }));
 
-import { createAzureBlobAdapter, STREAM_BLOCK_BYTES, STREAM_CONCURRENCY } from "./adapter-azure";
+import { createAzureBlobAdapter, PATH_STYLE_PROBE, STREAM_BLOCK_BYTES, STREAM_CONCURRENCY } from "./adapter-azure";
 
 const ENV_KEYS = [
   "AZURE_STORAGE_CONTAINER",
@@ -84,6 +83,43 @@ describe("createAzureBlobAdapter config", () => {
     expect(getContainerClient).toHaveBeenCalledWith("cosmos-uploads");
   });
 
+  it("accepts the account URL with a trailing slash", () => {
+    process.env.AZURE_STORAGE_ACCOUNT_URL = "https://acct.blob.core.windows.net/";
+    createAzureBlobAdapter();
+    expect(serviceCtor).toHaveBeenCalledTimes(1);
+    expect(serviceCtor.mock.calls[0][0]).toBe("https://acct.blob.core.windows.net"); // the parsed origin
+    expect(getContainerClient).toHaveBeenLastCalledWith("cosmos-uploads");
+  });
+
+  it("refuses an account URL the SDK parses to a different container (path-style host)", () => {
+    process.env.AZURE_STORAGE_ACCOUNT_URL = "https://127.0.0.1:10000";
+    // A container literally named "undefined" must not slip past: that is the
+    // string the real SDK parses on a path-style host.
+    process.env.AZURE_STORAGE_CONTAINER = "undefined";
+    getContainerClient.mockReturnValueOnce("undefined");
+    expect(() => createAzureBlobAdapter()).toThrow(/is a host the SDK treats as path-style/);
+    expect(getContainerClient).toHaveBeenCalledWith(PATH_STYLE_PROBE);
+  });
+
+  // The check above trusts the SDK's own parsing; pin that against the real SDK
+  // so an upgrade that changes it is noticed.
+  it("real SDK: path-style hosts lose the container name, account hosts keep it", async () => {
+    const real = await vi.importActual<typeof import("@azure/storage-blob")>("@azure/storage-blob");
+    const probe = (u: string) =>
+      new real.BlobServiceClient(u, new real.AnonymousCredential()).getContainerClient(PATH_STYLE_PROBE).containerName;
+    for (const u of ["https://127.0.0.1:10000", "https://localhost", "https://[::1]", "https://storage.example.com:10000"]) {
+      expect(probe(u)).not.toBe(PATH_STYLE_PROBE);
+    }
+    for (const u of [
+      "https://acct.blob.core.windows.net",
+      "https://acct.privatelink.blob.core.windows.net",
+      "https://acct.blob.core.usgovcloudapi.net",
+      "https://files.example.com:8443",
+    ]) {
+      expect(probe(u)).toBe(PATH_STYLE_PROBE);
+    }
+  });
+
   it("prefers a connection string when both are set", () => {
     process.env.AZURE_STORAGE_CONNECTION_STRING = "UseDevelopmentStorage=true";
     createAzureBlobAdapter();
@@ -123,6 +159,8 @@ describe("createAzureBlobAdapter config", () => {
     "https://user:zzzz-fake-zzzz@acct.blob.core.windows.net",
     "http://acct.blob.core.windows.net",
     "acct.blob.core.windows.net/?sig=zzzz-fake-zzzz",
+    "https://acct.blob.core.windows.net/cosmos-uploads",
+    "https://acct.blob.core.windows.net/zzzz-fake-zzzz/",
   ])("refuses a non-bare account URL without echoing it: %s", (value) => {
     process.env.AZURE_STORAGE_ACCOUNT_URL = value;
     let message = "";
