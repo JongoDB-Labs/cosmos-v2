@@ -23,6 +23,9 @@ Uploads go to MinIO or Azure Blob, per `storage.adapter` (values.yaml).
 {{- if not $az.accountUrl }}
 {{- fail "storage.adapter=azure needs storage.azure.accountUrl (with workloadIdentity.clientId) or storage.azure.connectionStringSecret" }}
 {{- end }}
+{{- if not (regexMatch "^https://[A-Za-z0-9.-]+(:[0-9]+)?/?$" (toString $az.accountUrl)) }}
+{{- fail "storage.azure.accountUrl must be a bare https account endpoint, e.g. https://<account>.blob.core.windows.net (no path, query or credentials; value withheld)" }}
+{{- end }}
 {{- if not $wiClientId }}
 {{- fail "storage.azure.accountUrl needs storage.azure.workloadIdentity.clientId: without it the pod would fall back to the node's identity" }}
 {{- end }}

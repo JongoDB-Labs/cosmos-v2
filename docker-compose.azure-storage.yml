@@ -6,12 +6,16 @@
 # AZURE_STORAGE_CONNECTION_STRING) in .env; the app reads them through env_file.
 # See .env.example. MinIO still runs: it holds the backup and audit buckets. The S3_* settings
 # stay set on the app but are not used.
-# Switching an existing install: copy its objects to the container under the SAME
-# keys first, or existing files will 404.
+# The container must already exist. A connection string in .env also reaches the
+# other services that read .env; prefer the host's identity (account URL).
+# Switching an existing install needs a pause in uploads: stop the app, copy its
+# objects to the container under the SAME keys, then switch, or files uploaded
+# meanwhile (or not copied) will 404.
 services:
   cosmos:
     environment:
       STORAGE_ADAPTER: azure
-      # Sign in only with the host's Azure identity; skip developer sign-ins. Not
-      # used with a connection string.
+      # prod: skip developer sign-ins (Azure CLI etc.); the host's managed identity,
+      # or service-principal settings in .env, are used. Not used with a connection
+      # string.
       AZURE_TOKEN_CREDENTIALS: ${AZURE_TOKEN_CREDENTIALS:-prod}

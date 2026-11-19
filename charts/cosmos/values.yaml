@@ -73,11 +73,13 @@ outbound:
 
 # Where the app keeps uploaded files: `s3` (the MinIO below; the default) or `azure`
 # (Azure Blob Storage). MinIO is deployed either way: the backup and audit buckets
-# live there. Switching an existing install: copy its objects to the new store under
-# the SAME keys first, or existing files will 404.
+# live there. Switching an existing install needs a pause in uploads: stop the app,
+# copy its objects to the new store under the SAME keys, then switch, or files
+# uploaded meanwhile (or not copied) will 404.
 storage:
   adapter: s3
   azure:
+    # Must already exist: the app does not create it.
     container: cosmos-uploads
     # A bare https endpoint, e.g. https://<account>.blob.core.windows.net (no SAS, no
     # path). The app signs in with AKS workload identity, so no secret is stored.
@@ -100,7 +102,7 @@ storage:
     # Under UDS (default-deny network): true adds an egress for the web pods to any
     # address on 443, which Blob and Microsoft Entra ID sign-in need. That also opens
     # every other outbound HTTPS call from those pods, so it is off by default; turn
-    # it on, or allow that egress some narrower way.
+    # it on, or allow that egress some narrower way (e.g. a UDS `remoteHost` rule).
     udsEgress: false
 
 # Object storage — single-instance MinIO for the lab (MinIO Operator / external
