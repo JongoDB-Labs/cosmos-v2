@@ -80,23 +80,28 @@ storage:
   azure:
     container: cosmos-uploads
     # A bare https endpoint, e.g. https://<account>.blob.core.windows.net (no SAS, no
-    # path). The app signs in with an Azure identity, so no secret is stored. Needs
-    # `workloadIdentity.clientId` on AKS.
+    # path). The app signs in with AKS workload identity, so no secret is stored.
+    # Requires `workloadIdentity.clientId`.
     accountUrl: ""
     # AKS workload identity: the client ID of the user-assigned managed identity the
-    # app signs in as. When set, the chart creates the ServiceAccount `cosmos`
-    # (annotated with this ID) and labels the app pods so AKS injects the token.
-    # That identity needs "Storage Blob Data Contributor" on the account, and a
-    # federated credential for subject system:serviceaccount:<namespace>:cosmos.
+    # app signs in as. The chart creates the ServiceAccount `cosmos` (annotated with
+    # this ID) and labels the app pods so AKS injects the token. That identity needs
+    # "Storage Blob Data Contributor" on the account, and a federated credential for
+    # subject system:serviceaccount:<namespace>:cosmos. The app pods then run as that
+    # ServiceAccount, not `default`: if your image pull secret is on `default`, add it
+    # to `cosmos` too.
     workloadIdentity:
       clientId: ""
     # Instead of an identity: the name of a Secret whose key
     # AZURE_STORAGE_CONNECTION_STRING holds a connection string (for the Azurite
-    # emulator, or an account with shared keys on). It wins over `accountUrl`.
+    # emulator, or an account with shared keys on). When set, `accountUrl` and
+    # workload identity are not used.
     connectionStringSecret: ""
-    # Under UDS: the app's egress to Blob and Microsoft Entra ID (sign-in), on 443.
-    # Set false only if your cluster allows that egress some other way.
-    udsEgress: true
+    # Under UDS (default-deny network): true adds an egress for the web pods to any
+    # address on 443, which Blob and Microsoft Entra ID sign-in need. That also opens
+    # every other outbound HTTPS call from those pods, so it is off by default; turn
+    # it on, or allow that egress some narrower way.
+    udsEgress: false
 
 # Object storage — single-instance MinIO for the lab (MinIO Operator / external
 # GovCloud S3 is the prod path per north-star §2). Creds live in a Secret,

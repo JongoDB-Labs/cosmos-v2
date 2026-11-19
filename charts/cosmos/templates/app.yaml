@@ -6,21 +6,30 @@ Distinct `component: web` labels avoid colliding with MinIO's selector.
 Uploads go to MinIO or Azure Blob, per `storage.adapter` (values.yaml).
 */}}
 {{- $st := .Values.storage | default dict }}
-{{- $adapter := $st.adapter | default "s3" }}
+{{- $adapter := "s3" }}
+{{- if not (kindIs "invalid" $st.adapter) }}{{ $adapter = toString $st.adapter }}{{ end }}
 {{- $az := $st.azure | default dict }}
 {{- $wiClientId := ($az.workloadIdentity | default dict).clientId }}
 {{- if not (has $adapter (list "s3" "azure")) }}
 {{- fail (printf "storage.adapter must be s3 or azure, got %q" $adapter) }}
 {{- end }}
+{{- /* Workload identity is used only when the app signs in with an identity (no connection string). */}}
+{{- $useWI := false }}
 {{- if eq $adapter "azure" }}
 {{- if not $az.container }}
 {{- fail "storage.adapter=azure needs storage.azure.container" }}
 {{- end }}
-{{- if not (or $az.accountUrl $az.connectionStringSecret) }}
-{{- fail "storage.adapter=azure needs storage.azure.accountUrl or storage.azure.connectionStringSecret" }}
+{{- if not $az.connectionStringSecret }}
+{{- if not $az.accountUrl }}
+{{- fail "storage.adapter=azure needs storage.azure.accountUrl (with workloadIdentity.clientId) or storage.azure.connectionStringSecret" }}
+{{- end }}
+{{- if not $wiClientId }}
+{{- fail "storage.azure.accountUrl needs storage.azure.workloadIdentity.clientId: without it the pod would fall back to the node's identity" }}
+{{- end }}
+{{- $useWI = true }}
 {{- end }}
 {{- end }}
-{{- if and (eq $adapter "azure") $wiClientId }}
+{{- if $useWI }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -46,12 +55,17 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Chart.Name }}
         app.kubernetes.io/component: web
-        {{- if and (eq $adapter "azure") $wiClientId }}
+        {{- if $useWI }}
         # AKS injects the workload identity token into pods with this label.
         azure.workload.identity/use: "true"
         {{- end }}
+      {{- if $useWI }}
+      annotations:
+        # AKS sets the client ID when a pod starts; a new ID rolls the pods.
+        cosmos.dev/azure-client-id: {{ $wiClientId | quote }}
+      {{- end }}
     spec:
-      {{- if and (eq $adapter "azure") $wiClientId }}
+      {{- if $useWI }}
       serviceAccountName: cosmos
       {{- end }}
       securityContext:

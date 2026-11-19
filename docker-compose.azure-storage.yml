@@ -1,0 +1,17 @@
+# Opt-in: keep the app's uploads in Azure Blob Storage instead of MinIO.
+#   docker compose -f docker-compose.yml -f docker-compose.azure-storage.yml up -d
+# (or set COMPOSE_FILE=docker-compose.yml:docker-compose.azure-storage.yml in the
+# shell, and add any override file you already use to the same list).
+# Put AZURE_STORAGE_CONTAINER and AZURE_STORAGE_ACCOUNT_URL (or
+# AZURE_STORAGE_CONNECTION_STRING) in .env; the app reads them through env_file.
+# See .env.example. MinIO still runs: it holds the backup repo. The S3_* settings
+# stay set on the app but are not used.
+# Switching an existing install: copy its objects to the container under the SAME
+# keys first, or existing files will 404.
+services:
+  cosmos:
+    environment:
+      STORAGE_ADAPTER: azure
+      # Sign in only with the host's Azure identity; skip developer sign-ins. Not
+      # used with a connection string.
+      AZURE_TOKEN_CREDENTIALS: ${AZURE_TOKEN_CREDENTIALS:-prod}

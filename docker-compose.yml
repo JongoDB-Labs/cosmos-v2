@@ -159,10 +159,8 @@ services:
       # cosmos-uploads only (least privilege — NO access to the backup repo or audit-worm).
       # NODE_EXTRA_CA_CERTS trusts the internal self-signed cert WITHOUT disabling TLS
       # verification globally (gov-defensible: a known internal CA, encryption in transit).
-      # STORAGE_ADAPTER defaults to s3 (MinIO). Set STORAGE_ADAPTER=azure in .env to keep
-      # uploads in Azure Blob instead; the AZURE_STORAGE_* settings then come from .env
-      # via env_file (see .env.example). MinIO still runs: it holds the backup repo.
-      STORAGE_ADAPTER: ${STORAGE_ADAPTER:-s3}
+      # Uploads in Azure Blob instead: add docker-compose.azure-storage.yml (see there).
+      STORAGE_ADAPTER: s3
       S3_ENDPOINT: https://cosmos-minio:9000
       S3_BUCKET: cosmos-uploads
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:-cosmos-app}

@@ -49,10 +49,12 @@ spec:
           app.kubernetes.io/component: web
       {{- end }}
       {{- $st := .Values.storage | default dict }}
-      {{- if and (eq ($st.adapter | default "s3") "azure") (ne (($st.azure | default dict).udsEgress) false) }}
-      # Uploads in Azure Blob: the web pods reach the storage account and, to sign in
-      # with their Azure identity, Microsoft Entra ID. Both are outside the cluster
-      # and their addresses change, so this is `Anywhere`, held to 443 and the web pods.
+      {{- if and (eq (toString ($st.adapter | default "s3")) "azure") (eq (toString (($st.azure | default dict).udsEgress)) "true") }}
+      # Opt-in (storage.azure.udsEgress). Uploads in Azure Blob: the web pods reach the
+      # storage account and, to sign in with their Azure identity, Microsoft Entra ID.
+      # Both are outside the cluster and their addresses change, so this is `Anywhere`,
+      # held to 443 and the web pods. It also lets every other HTTPS call those pods
+      # make leave the cluster.
       - description: app->Azure Blob + Entra ID (HTTPS)
         direction: Egress
         remoteGenerated: Anywhere
