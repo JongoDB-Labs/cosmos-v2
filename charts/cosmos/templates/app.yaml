@@ -93,8 +93,8 @@ spec:
             - { name: AZURE_STORAGE_CONNECTION_STRING, valueFrom: { secretKeyRef: { name: {{ $az.connectionStringSecret | quote }}, key: AZURE_STORAGE_CONNECTION_STRING } } }
             {{- else }}
             - { name: AZURE_STORAGE_ACCOUNT_URL, value: {{ $az.accountUrl | quote }} }
-            # Use only the pod's Azure identity; skip developer sign-ins.
-            - { name: AZURE_TOKEN_CREDENTIALS, value: prod }
+            # Sign in only with AKS workload identity: never fall back to the node's identity.
+            - { name: AZURE_TOKEN_CREDENTIALS, value: WorkloadIdentityCredential }
             {{- end }}
             {{- else }}
             - { name: S3_ENDPOINT, value: "http://minio.cosmos.svc:9000" }

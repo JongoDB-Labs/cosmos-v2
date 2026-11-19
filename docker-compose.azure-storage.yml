@@ -4,7 +4,7 @@
 # shell, and add any override file you already use to the same list).
 # Put AZURE_STORAGE_CONTAINER and AZURE_STORAGE_ACCOUNT_URL (or
 # AZURE_STORAGE_CONNECTION_STRING) in .env; the app reads them through env_file.
-# See .env.example. MinIO still runs: it holds the backup repo. The S3_* settings
+# See .env.example. MinIO still runs: it holds the backup and audit buckets. The S3_* settings
 # stay set on the app but are not used.
 # Switching an existing install: copy its objects to the container under the SAME
 # keys first, or existing files will 404.
