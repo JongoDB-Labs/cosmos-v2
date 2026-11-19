@@ -52,16 +52,19 @@ function containerClient(): ContainerClient {
     );
   }
 
+  if (!connectionString) {
+    // An account URL holds no secret, so its errors (and the credential's own,
+    // e.g. a mistyped AZURE_TOKEN_CREDENTIALS listing the valid values) pass through.
+    return new BlobServiceClient(accountUrl!, new DefaultAzureCredential()).getContainerClient(container);
+  }
   try {
-    const service = connectionString
-      ? BlobServiceClient.fromConnectionString(connectionString)
-      : new BlobServiceClient(accountUrl!, new DefaultAzureCredential());
-    return service.getContainerClient(container);
+    return BlobServiceClient.fromConnectionString(connectionString).getContainerClient(container);
   } catch {
     // The SDK's parse errors can quote the value they choked on, and a
     // connection string carries a key or SAS signature. Name the setting only.
-    const setting = connectionString ? "AZURE_STORAGE_CONNECTION_STRING" : "AZURE_STORAGE_ACCOUNT_URL";
-    throw new Error(`azure storage adapter: ${setting} is malformed (value withheld; it may hold a credential)`);
+    throw new Error(
+      "azure storage adapter: AZURE_STORAGE_CONNECTION_STRING is malformed (value withheld; it may hold a credential)",
+    );
   }
 }
 

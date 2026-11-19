@@ -111,6 +111,13 @@ describe("createAzureBlobAdapter config", () => {
     expect(message).not.toContain("zzzz-fake-zzzz");
   });
 
+  it("lets the credential's own config error through (it names the valid values)", () => {
+    credentialCtor.mockImplementationOnce(() => {
+      throw new Error("Invalid value for AZURE_TOKEN_CREDENTIALS = production. Valid values: dev, prod");
+    });
+    expect(() => createAzureBlobAdapter()).toThrow(/AZURE_TOKEN_CREDENTIALS = production/);
+  });
+
   it("throws without any way to reach the account", () => {
     delete process.env.AZURE_STORAGE_ACCOUNT_URL;
     expect(() => createAzureBlobAdapter()).toThrow(/AZURE_STORAGE_ACCOUNT_URL.*AZURE_STORAGE_CONNECTION_STRING/);
