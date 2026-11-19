@@ -40,7 +40,7 @@ vi.mock("@azure/identity", () => ({
   },
 }));
 
-import { createAzureBlobAdapter, PATH_STYLE_PROBE, STREAM_BLOCK_BYTES, STREAM_CONCURRENCY } from "./adapter-azure";
+import { createAzureBlobAdapter, PATH_STYLE_PROBE } from "./adapter-azure";
 
 const ENV_KEYS = [
   "AZURE_STORAGE_CONTAINER",
@@ -158,6 +158,7 @@ describe("createAzureBlobAdapter config", () => {
     "https://acct.blob.core.windows.net/?sv=2024&sig=zzzz-fake-zzzz",
     "https://user:zzzz-fake-zzzz@acct.blob.core.windows.net",
     "http://acct.blob.core.windows.net",
+    "https://acct.blob.core.windows.net/#zzzz-fake-zzzz",
     "acct.blob.core.windows.net/?sig=zzzz-fake-zzzz",
     "https://acct.blob.core.windows.net/cosmos-uploads",
     "https://acct.blob.core.windows.net/zzzz-fake-zzzz/",
@@ -219,8 +220,10 @@ describe("createAzureBlobAdapter operations", () => {
     expect(uploadStream).toHaveBeenCalledTimes(1);
     const [source, blockBytes, concurrency, opts] = uploadStream.mock.calls[0];
     expect(source).toBeInstanceOf(Readable);
-    expect([blockBytes, concurrency]).toEqual([STREAM_BLOCK_BYTES, STREAM_CONCURRENCY]);
-    expect(STREAM_BLOCK_BYTES).toBe(4 * 1024 * 1024);
+    const chunks: Buffer[] = [];
+    for await (const chunk of source as Readable) chunks.push(Buffer.from(chunk));
+    expect(Buffer.concat(chunks).toString()).toBe("streamed");
+    expect([blockBytes, concurrency]).toEqual([4 * 1024 * 1024, 4]);
     expect(opts.blobHTTPHeaders.blobContentType).toBe("application/octet-stream");
     expect(opts.blobHTTPHeaders.blobContentDisposition).toContain('filename="k.bin"');
   });
@@ -281,6 +284,12 @@ describe("createAzureBlobAdapter operations", () => {
     );
     const adapter = createAzureBlobAdapter();
     await expect(adapter.stream("k")).rejects.toThrow(/no container/);
+  });
+
+  it("stream fails loud when a successful download has no body", async () => {
+    download.mockResolvedValueOnce({ readableStreamBody: undefined });
+    const adapter = createAzureBlobAdapter();
+    await expect(adapter.stream("k")).rejects.toThrow(/download returned no body/);
   });
 
   it("stream rethrows other errors (fail loud)", async () => {

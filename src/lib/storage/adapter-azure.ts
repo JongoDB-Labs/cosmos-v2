@@ -90,8 +90,7 @@ function containerClient(): ContainerClient {
         "azure storage adapter: AZURE_STORAGE_ACCOUNT_URL is a host the SDK treats as path-style (an IP, localhost, host.docker.internal or an emulator port); use AZURE_STORAGE_CONNECTION_STRING for those (value withheld)",
       );
     }
-    const client = service.getContainerClient(container);
-    return client;
+    return service.getContainerClient(container);
   }
   try {
     return BlobServiceClient.fromConnectionString(connectionString).getContainerClient(container);
@@ -165,7 +164,8 @@ export function createAzureBlobAdapter(): StorageAdapter {
       try {
         const res = await container.getBlockBlobClient(key).download();
         const body = res.readableStreamBody;
-        if (!body) return null;
+        // Always set in Node on success; its absence is a fault, not a missing file.
+        if (!body) throw new Error("azure storage adapter: download returned no body");
         // Node stream in the Node runtime; expose a Web stream so the route layer
         // treats every adapter the same.
         return Readable.toWeb(body as Readable) as unknown as ReadableStream;
