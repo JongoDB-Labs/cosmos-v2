@@ -74,7 +74,8 @@ outbound:
 # Where the app keeps uploaded files: `s3` (the MinIO below; the default) or `azure`
 # (Azure Blob Storage). `azure` needs app image 2.564.0 or later: the chart released
 # with each version pins its own image, but the `image` pin in this source file can
-# be older, so set `image.app.digest` when installing from source. MinIO is deployed either way: the backup and audit buckets
+# be older, so when installing from source set `image.app.digest` and
+# `image.migrate.digest` to the same release. MinIO is deployed either way: the backup and audit buckets
 # live there. Switching an existing install needs a pause in uploads: stop the app,
 # copy its objects to the new store under the SAME keys, then switch, or files
 # uploaded meanwhile (or not copied) will 404.
