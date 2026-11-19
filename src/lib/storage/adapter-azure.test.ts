@@ -118,6 +118,24 @@ describe("createAzureBlobAdapter config", () => {
     expect(() => createAzureBlobAdapter()).toThrow(/AZURE_TOKEN_CREDENTIALS = production/);
   });
 
+  it.each([
+    "https://acct.blob.core.windows.net/?sv=2024&sig=zzzz-fake-zzzz",
+    "https://user:zzzz-fake-zzzz@acct.blob.core.windows.net",
+    "http://acct.blob.core.windows.net",
+    "acct.blob.core.windows.net/?sig=zzzz-fake-zzzz",
+  ])("refuses a non-bare account URL without echoing it: %s", (value) => {
+    process.env.AZURE_STORAGE_ACCOUNT_URL = value;
+    let message = "";
+    try {
+      createAzureBlobAdapter();
+    } catch (e) {
+      message = String((e as Error).message) + String((e as Error).stack) + JSON.stringify(e);
+    }
+    expect(message).toMatch(/AZURE_STORAGE_ACCOUNT_URL must be a bare https account endpoint/);
+    expect(message).not.toContain("zzzz-fake-zzzz");
+    expect(serviceCtor).not.toHaveBeenCalled();
+  });
+
   it("throws without any way to reach the account", () => {
     delete process.env.AZURE_STORAGE_ACCOUNT_URL;
     expect(() => createAzureBlobAdapter()).toThrow(/AZURE_STORAGE_ACCOUNT_URL.*AZURE_STORAGE_CONNECTION_STRING/);
@@ -207,6 +225,14 @@ describe("createAzureBlobAdapter operations", () => {
 
   it("stream returns null on a 404", async () => {
     download.mockRejectedValueOnce(Object.assign(new Error("nf"), { statusCode: 404, code: "BlobNotFound" }));
+    const adapter = createAzureBlobAdapter();
+    expect(await adapter.stream("missing")).toBeNull();
+  });
+
+  it("stream returns null when BlobNotFound arrives only as a header (no error body)", async () => {
+    download.mockRejectedValueOnce(
+      Object.assign(new Error("nf"), { statusCode: 404, details: { errorCode: "BlobNotFound" } }),
+    );
     const adapter = createAzureBlobAdapter();
     expect(await adapter.stream("missing")).toBeNull();
   });

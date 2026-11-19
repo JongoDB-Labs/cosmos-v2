@@ -15,6 +15,7 @@ import { contentDisposition } from "@/lib/http/content-disposition";
  *   AZURE_STORAGE_CONTAINER          the uploads container (required)
  * and ONE of:
  *   AZURE_STORAGE_ACCOUNT_URL        e.g. https://<account>.blob.core.windows.net
+ *                                    (a bare https endpoint; a SAS URL is refused)
  *                                    Signs in with DefaultAzureCredential, so no
  *                                    secret is stored: a VM's managed identity
  *                                    (set AZURE_CLIENT_ID too for a user-assigned
@@ -53,8 +54,22 @@ function containerClient(): ContainerClient {
   }
 
   if (!connectionString) {
-    // An account URL holds no secret, so its errors (and the credential's own,
-    // e.g. a mistyped AZURE_TOKEN_CREDENTIALS listing the valid values) pass through.
+    // The identity path must carry no secret. Refuse anything but a bare https
+    // endpoint (a pasted SAS URL would otherwise be sent with every request), and
+    // report a bad value by setting name only: a URL parse error keeps its input.
+    let url: URL | null = null;
+    try {
+      url = new URL(accountUrl!);
+    } catch {
+      url = null;
+    }
+    if (!url || url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+      throw new Error(
+        "azure storage adapter: AZURE_STORAGE_ACCOUNT_URL must be a bare https account endpoint (no query, fragment or credentials; value withheld)",
+      );
+    }
+    // The credential's own config errors (e.g. a mistyped AZURE_TOKEN_CREDENTIALS,
+    // which lists the valid values) hold no secret and pass through.
     return new BlobServiceClient(accountUrl!, new DefaultAzureCredential()).getContainerClient(container);
   }
   try {
@@ -73,7 +88,10 @@ function containerClient(): ContainerClient {
  * is a setup fault, and returning null for it would make every file look absent.
  */
 function isBlobNotFound(err: unknown): boolean {
-  return (err as { code?: string })?.code === "BlobNotFound";
+  // The code comes from the XML error body; with no body (e.g. a proxy stripped
+  // it) the SDK only has the x-ms-error-code header, in details.errorCode.
+  const e = err as { code?: string; details?: { errorCode?: string } };
+  return e?.code === "BlobNotFound" || e?.details?.errorCode === "BlobNotFound";
 }
 
 export function createAzureBlobAdapter(): StorageAdapter {
