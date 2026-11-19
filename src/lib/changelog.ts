@@ -55,7 +55,7 @@ const RELEASES: Release[] = [
     highlights: [
       {
         kind: "feature",
-        text: "Cosmos can now keep uploaded files, logos and attachments in Azure Blob Storage. It signs in with the server's Azure identity, so no storage password has to be kept anywhere.",
+        text: "Cosmos can now keep uploaded files, logos and attachments in Azure Blob Storage. It can sign in with the server's own Azure identity, so no storage password has to be kept anywhere.",
       },
     ],
   },

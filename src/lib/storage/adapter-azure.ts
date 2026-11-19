@@ -15,15 +15,19 @@ import { contentDisposition } from "@/lib/http/content-disposition";
  *   AZURE_STORAGE_CONTAINER          the uploads container (required)
  * and ONE of:
  *   AZURE_STORAGE_ACCOUNT_URL        e.g. https://<account>.blob.core.windows.net
- *                                    Signs in with DefaultAzureCredential: a
- *                                    managed identity on a VM, workload identity
- *                                    on AKS (AZURE_CLIENT_ID / AZURE_TENANT_ID /
- *                                    AZURE_FEDERATED_TOKEN_FILE), or a dev login.
- *                                    No secret is stored. Preferred.
- *   AZURE_STORAGE_CONNECTION_STRING  a full connection string (shared key). For
- *                                    the Azurite emulator and accounts that still
- *                                    allow shared keys.
- * If both are set, the connection string wins, so a local override is explicit.
+ *                                    Signs in with DefaultAzureCredential, so no
+ *                                    secret is stored: a VM's managed identity
+ *                                    (set AZURE_CLIENT_ID too for a user-assigned
+ *                                    one), or AKS workload identity (its webhook
+ *                                    injects AZURE_CLIENT_ID / AZURE_TENANT_ID /
+ *                                    AZURE_FEDERATED_TOKEN_FILE).
+ *                                    AZURE_TOKEN_CREDENTIALS=prod skips the
+ *                                    developer sign-ins (Azure CLI etc.) in prod.
+ *   AZURE_STORAGE_CONNECTION_STRING  a full connection string (shared key or SAS).
+ *                                    For the Azurite emulator and accounts that
+ *                                    still allow shared keys. A secret: inject it
+ *                                    at runtime, never bake it into an image.
+ * If both are set, the connection string wins.
  *
  * The identity needs "Storage Blob Data Contributor" on the container (or the
  * account). The container is not created here: provisioning owns it.
@@ -32,8 +36,8 @@ import { contentDisposition } from "@/lib/http/content-disposition";
 const URL_BASE = "/api/v1/storage/local";
 
 /** Upload in 4 MiB blocks, 4 at a time: bounded memory for streamed uploads. */
-const STREAM_BLOCK_BYTES = 4 * 1024 * 1024;
-const STREAM_CONCURRENCY = 4;
+export const STREAM_BLOCK_BYTES = 4 * 1024 * 1024;
+export const STREAM_CONCURRENCY = 4;
 
 function containerClient(): ContainerClient {
   const container = process.env.AZURE_STORAGE_CONTAINER;
@@ -42,23 +46,31 @@ function containerClient(): ContainerClient {
   }
   const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
   const accountUrl = process.env.AZURE_STORAGE_ACCOUNT_URL;
-
-  let service: BlobServiceClient;
-  if (connectionString) {
-    service = BlobServiceClient.fromConnectionString(connectionString);
-  } else if (accountUrl) {
-    service = new BlobServiceClient(accountUrl, new DefaultAzureCredential());
-  } else {
+  if (!connectionString && !accountUrl) {
     throw new Error(
       "azure storage adapter: set AZURE_STORAGE_ACCOUNT_URL (managed/workload identity) or AZURE_STORAGE_CONNECTION_STRING",
     );
   }
-  return service.getContainerClient(container);
+
+  try {
+    const service = connectionString
+      ? BlobServiceClient.fromConnectionString(connectionString)
+      : new BlobServiceClient(accountUrl!, new DefaultAzureCredential());
+    return service.getContainerClient(container);
+  } catch {
+    // The SDK's parse errors can quote the value they choked on, and a
+    // connection string carries a key or SAS signature. Name the setting only.
+    const setting = connectionString ? "AZURE_STORAGE_CONNECTION_STRING" : "AZURE_STORAGE_ACCOUNT_URL";
+    throw new Error(`azure storage adapter: ${setting} is malformed (value withheld; it may hold a credential)`);
+  }
 }
 
-function isNotFound(err: unknown): boolean {
-  const e = err as { statusCode?: number; code?: string };
-  return e?.statusCode === 404 || e?.code === "BlobNotFound";
+/**
+ * Only a missing BLOB is "not found". A missing container is also a 404, but it
+ * is a setup fault, and returning null for it would make every file look absent.
+ */
+function isBlobNotFound(err: unknown): boolean {
+  return (err as { code?: string })?.code === "BlobNotFound";
 }
 
 export function createAzureBlobAdapter(): StorageAdapter {
@@ -82,7 +94,14 @@ export function createAzureBlobAdapter(): StorageAdapter {
       } else {
         // Stream a Web ReadableStream without buffering the whole upload.
         const node = Readable.fromWeb(body as unknown as NodeWebReadableStream);
-        await blob.uploadStream(node, STREAM_BLOCK_BYTES, STREAM_CONCURRENCY, options);
+        try {
+          await blob.uploadStream(node, STREAM_BLOCK_BYTES, STREAM_CONCURRENCY, options);
+        } catch (err) {
+          // A failed upload leaves the source paused, not cancelled; release it so
+          // the producer's file handle or socket is not held open.
+          node.destroy();
+          throw err;
+        }
       }
 
       return {
@@ -94,7 +113,9 @@ export function createAzureBlobAdapter(): StorageAdapter {
     async delete(key) {
       assertSafeStorageKey(key);
       // Idempotent like the local and S3 adapters: a missing blob is not an error.
-      await container.getBlockBlobClient(key).deleteIfExists();
+      // Snapshots go too; without that, Azure refuses with 409 SnapshotsPresent and
+      // the file outlives the record that pointed at it.
+      await container.getBlockBlobClient(key).deleteIfExists({ deleteSnapshots: "include" });
     },
 
     async stream(key) {
@@ -108,7 +129,7 @@ export function createAzureBlobAdapter(): StorageAdapter {
         return Readable.toWeb(body as Readable) as unknown as ReadableStream;
       } catch (err) {
         // Missing blob → null (the route returns 404); anything else fails loud.
-        if (isNotFound(err)) return null;
+        if (isBlobNotFound(err)) return null;
         throw err;
       }
     },

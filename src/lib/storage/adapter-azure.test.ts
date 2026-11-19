@@ -41,7 +41,7 @@ vi.mock("@azure/identity", () => ({
   },
 }));
 
-import { createAzureBlobAdapter } from "./adapter-azure";
+import { createAzureBlobAdapter, STREAM_BLOCK_BYTES, STREAM_CONCURRENCY } from "./adapter-azure";
 
 const ENV_KEYS = [
   "AZURE_STORAGE_CONTAINER",
@@ -96,6 +96,21 @@ describe("createAzureBlobAdapter config", () => {
     expect(() => createAzureBlobAdapter()).toThrow(/missing required env AZURE_STORAGE_CONTAINER/);
   });
 
+  it("never echoes a malformed connection string (it may hold a credential)", () => {
+    process.env.AZURE_STORAGE_CONNECTION_STRING = "BlobEndpoint=x;SharedAccessSignature=sig=zzzz-fake-zzzz";
+    fromConnectionString.mockImplementationOnce((cs: string) => {
+      throw new Error(`cannot parse ${cs}`);
+    });
+    let message = "";
+    try {
+      createAzureBlobAdapter();
+    } catch (e) {
+      message = String((e as Error).message) + String((e as Error).stack) + JSON.stringify(e);
+    }
+    expect(message).toMatch(/AZURE_STORAGE_CONNECTION_STRING is malformed/);
+    expect(message).not.toContain("zzzz-fake-zzzz");
+  });
+
   it("throws without any way to reach the account", () => {
     delete process.env.AZURE_STORAGE_ACCOUNT_URL;
     expect(() => createAzureBlobAdapter()).toThrow(/AZURE_STORAGE_ACCOUNT_URL.*AZURE_STORAGE_CONNECTION_STRING/);
@@ -139,15 +154,40 @@ describe("createAzureBlobAdapter operations", () => {
     await adapter.put("k", webStream, { contentType: "application/octet-stream", filename: "k.bin" });
     expect(uploadData).not.toHaveBeenCalled();
     expect(uploadStream).toHaveBeenCalledTimes(1);
-    expect(uploadStream.mock.calls[0][0]).toBeInstanceOf(Readable);
+    const [source, blockBytes, concurrency, opts] = uploadStream.mock.calls[0];
+    expect(source).toBeInstanceOf(Readable);
+    expect([blockBytes, concurrency]).toEqual([STREAM_BLOCK_BYTES, STREAM_CONCURRENCY]);
+    expect(STREAM_BLOCK_BYTES).toBe(4 * 1024 * 1024);
+    expect(opts.blobHTTPHeaders.blobContentType).toBe("application/octet-stream");
+    expect(opts.blobHTTPHeaders.blobContentDisposition).toContain('filename="k.bin"');
   });
 
-  it("delete is idempotent (deleteIfExists)", async () => {
+  it("put releases the source stream when a streamed upload fails", async () => {
+    uploadStream.mockRejectedValueOnce(new Error("block upload failed"));
+    const adapter = createAzureBlobAdapter();
+    let cancelled = false;
+    const webStream = new ReadableStream({
+      pull(c) {
+        c.enqueue(new TextEncoder().encode("x"));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    await expect(
+      adapter.put("k", webStream, { contentType: "application/octet-stream", filename: "k.bin" }),
+    ).rejects.toThrow(/block upload failed/);
+    await new Promise((r) => setImmediate(r));
+    expect(cancelled).toBe(true);
+  });
+
+  it("delete is idempotent (deleteIfExists) and takes snapshots with it", async () => {
     deleteIfExists.mockResolvedValueOnce({ succeeded: false });
     const adapter = createAzureBlobAdapter();
     await adapter.delete("org/abc/file.txt");
     expect(getBlockBlobClient).toHaveBeenCalledWith("org/abc/file.txt");
     expect(deleteIfExists).toHaveBeenCalledTimes(1);
+    expect(deleteIfExists).toHaveBeenCalledWith({ deleteSnapshots: "include" });
   });
 
   it("stream returns the blob's bytes as a Web stream", async () => {
@@ -162,6 +202,14 @@ describe("createAzureBlobAdapter operations", () => {
     download.mockRejectedValueOnce(Object.assign(new Error("nf"), { statusCode: 404, code: "BlobNotFound" }));
     const adapter = createAzureBlobAdapter();
     expect(await adapter.stream("missing")).toBeNull();
+  });
+
+  it("stream rethrows a missing CONTAINER (a setup fault, not a missing file)", async () => {
+    download.mockRejectedValueOnce(
+      Object.assign(new Error("no container"), { statusCode: 404, code: "ContainerNotFound" }),
+    );
+    const adapter = createAzureBlobAdapter();
+    await expect(adapter.stream("k")).rejects.toThrow(/no container/);
   });
 
   it("stream rethrows other errors (fail loud)", async () => {
