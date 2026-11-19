@@ -1,0 +1,187 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Readable } from "node:stream";
+
+// ── Mock the Azure SDK ────────────────────────────────────────────────────────
+// Capture what the adapter asks of the blob client and control its responses
+// (incl. a 404) — no network, no real storage account.
+
+const uploadData = vi.fn();
+const uploadStream = vi.fn();
+const deleteIfExists = vi.fn();
+const download = vi.fn();
+const getBlockBlobClient = vi.fn();
+const getContainerClient = vi.fn();
+const fromConnectionString = vi.fn();
+const serviceCtor = vi.fn();
+const credentialCtor = vi.fn();
+
+vi.mock("@azure/storage-blob", () => {
+  class BlobServiceClient {
+    static fromConnectionString(cs: string) {
+      fromConnectionString(cs);
+      return new BlobServiceClient("from-cs", undefined);
+    }
+    constructor(url: string, credential: unknown) {
+      serviceCtor(url, credential);
+    }
+    getContainerClient(name: string) {
+      getContainerClient(name);
+      return { getBlockBlobClient };
+    }
+  }
+  return { BlobServiceClient };
+});
+
+vi.mock("@azure/identity", () => ({
+  DefaultAzureCredential: class {
+    readonly kind = "default-credential";
+    constructor() {
+      credentialCtor();
+    }
+  },
+}));
+
+import { createAzureBlobAdapter } from "./adapter-azure";
+
+const ENV_KEYS = [
+  "AZURE_STORAGE_CONTAINER",
+  "AZURE_STORAGE_ACCOUNT_URL",
+  "AZURE_STORAGE_CONNECTION_STRING",
+] as const;
+
+beforeEach(() => {
+  for (const m of [
+    uploadData,
+    uploadStream,
+    deleteIfExists,
+    download,
+    getBlockBlobClient,
+    getContainerClient,
+    fromConnectionString,
+    serviceCtor,
+    credentialCtor,
+  ]) {
+    m.mockReset();
+  }
+  getBlockBlobClient.mockReturnValue({ uploadData, uploadStream, deleteIfExists, download });
+  process.env.AZURE_STORAGE_CONTAINER = "cosmos-uploads";
+  process.env.AZURE_STORAGE_ACCOUNT_URL = "https://acct.blob.core.windows.net";
+  delete process.env.AZURE_STORAGE_CONNECTION_STRING;
+});
+
+afterEach(() => {
+  for (const k of ENV_KEYS) delete process.env[k];
+});
+
+describe("createAzureBlobAdapter config", () => {
+  it("uses the account URL with DefaultAzureCredential (no stored secret)", () => {
+    createAzureBlobAdapter();
+    expect(serviceCtor).toHaveBeenCalledTimes(1);
+    const [url, credential] = serviceCtor.mock.calls[0];
+    expect(url).toBe("https://acct.blob.core.windows.net");
+    expect(credential).toMatchObject({ kind: "default-credential" });
+    expect(fromConnectionString).not.toHaveBeenCalled();
+    expect(getContainerClient).toHaveBeenCalledWith("cosmos-uploads");
+  });
+
+  it("prefers a connection string when both are set", () => {
+    process.env.AZURE_STORAGE_CONNECTION_STRING = "UseDevelopmentStorage=true";
+    createAzureBlobAdapter();
+    expect(fromConnectionString).toHaveBeenCalledWith("UseDevelopmentStorage=true");
+    expect(credentialCtor).not.toHaveBeenCalled();
+  });
+
+  it("throws without a container", () => {
+    delete process.env.AZURE_STORAGE_CONTAINER;
+    expect(() => createAzureBlobAdapter()).toThrow(/missing required env AZURE_STORAGE_CONTAINER/);
+  });
+
+  it("throws without any way to reach the account", () => {
+    delete process.env.AZURE_STORAGE_ACCOUNT_URL;
+    expect(() => createAzureBlobAdapter()).toThrow(/AZURE_STORAGE_ACCOUNT_URL.*AZURE_STORAGE_CONNECTION_STRING/);
+  });
+});
+
+describe("createAzureBlobAdapter operations", () => {
+  it("put uploads a Buffer with content type + a legal Content-Disposition", async () => {
+    uploadData.mockResolvedValueOnce({});
+    const adapter = createAzureBlobAdapter();
+    const key = "org/abc/file.txt";
+    const body = Buffer.from("hello world");
+
+    const result = await adapter.put(key, body, { contentType: "text/plain", filename: "file.txt" });
+
+    expect(getBlockBlobClient).toHaveBeenCalledWith(key);
+    expect(uploadData).toHaveBeenCalledTimes(1);
+    const [sent, opts] = uploadData.mock.calls[0];
+    expect(sent).toBe(body);
+    expect(opts.blobHTTPHeaders.blobContentType).toBe("text/plain");
+    expect(opts.blobHTTPHeaders.blobContentDisposition).toContain('filename="file.txt"');
+    expect(uploadStream).not.toHaveBeenCalled();
+    expect(result.storageKey).toBe(key);
+    expect(result.url).toContain(encodeURIComponent(key));
+  });
+
+  it("put keeps a macOS screenshot name header-legal", async () => {
+    uploadData.mockResolvedValueOnce({});
+    const adapter = createAzureBlobAdapter();
+    const name = "Screenshot 2026-10-29 at 10.28.00 AM.png";
+    await adapter.put("k", Buffer.from("x"), { contentType: "image/png", filename: name });
+    const cd: string = uploadData.mock.calls[0][1].blobHTTPHeaders.blobContentDisposition;
+    expect(/^[\t\x20-\x7E\x80-\xFF]*$/.test(cd)).toBe(true);
+    expect(/^[\t\x20-\x7E\x80-\xFF]*$/.test(name)).toBe(false);
+  });
+
+  it("put streams a Web ReadableStream as a Node Readable", async () => {
+    uploadStream.mockResolvedValueOnce({});
+    const adapter = createAzureBlobAdapter();
+    const webStream = new Response("streamed").body as ReadableStream;
+    await adapter.put("k", webStream, { contentType: "application/octet-stream", filename: "k.bin" });
+    expect(uploadData).not.toHaveBeenCalled();
+    expect(uploadStream).toHaveBeenCalledTimes(1);
+    expect(uploadStream.mock.calls[0][0]).toBeInstanceOf(Readable);
+  });
+
+  it("delete is idempotent (deleteIfExists)", async () => {
+    deleteIfExists.mockResolvedValueOnce({ succeeded: false });
+    const adapter = createAzureBlobAdapter();
+    await adapter.delete("org/abc/file.txt");
+    expect(getBlockBlobClient).toHaveBeenCalledWith("org/abc/file.txt");
+    expect(deleteIfExists).toHaveBeenCalledTimes(1);
+  });
+
+  it("stream returns the blob's bytes as a Web stream", async () => {
+    download.mockResolvedValueOnce({ readableStreamBody: Readable.from([Buffer.from("payload")]) });
+    const adapter = createAzureBlobAdapter();
+    const stream = await adapter.stream("k");
+    expect(stream).not.toBeNull();
+    expect(await new Response(stream!).text()).toBe("payload");
+  });
+
+  it("stream returns null on a 404", async () => {
+    download.mockRejectedValueOnce(Object.assign(new Error("nf"), { statusCode: 404, code: "BlobNotFound" }));
+    const adapter = createAzureBlobAdapter();
+    expect(await adapter.stream("missing")).toBeNull();
+  });
+
+  it("stream rethrows other errors (fail loud)", async () => {
+    download.mockRejectedValueOnce(Object.assign(new Error("boom"), { statusCode: 403 }));
+    const adapter = createAzureBlobAdapter();
+    await expect(adapter.stream("k")).rejects.toThrow(/boom/);
+  });
+});
+
+describe("createAzureBlobAdapter refuses unsafe keys", () => {
+  it.each(["../other/logo.png", "org/../../x", "/org/abc", "org//abc", "org\\abc", "org/./abc"])(
+    "never sends %s to storage",
+    async (key) => {
+      const adapter = createAzureBlobAdapter();
+      await expect(adapter.put(key, Buffer.from("x"), { contentType: "text/plain", filename: "x" })).rejects.toThrow(
+        /unsafe storage key/,
+      );
+      await expect(adapter.stream(key)).rejects.toThrow(/unsafe storage key/);
+      await expect(adapter.delete(key)).rejects.toThrow(/unsafe storage key/);
+      expect(getBlockBlobClient).not.toHaveBeenCalled();
+    },
+  );
+});

@@ -1,5 +1,6 @@
 import { createLocalAdapter } from "./adapter-local";
 import { createS3Adapter } from "./adapter-s3";
+import { createAzureBlobAdapter } from "./adapter-azure";
 
 export interface StorageAdapter {
   put(
@@ -16,8 +17,8 @@ let instance: StorageAdapter | null = null;
 /**
  * Lazy singleton selected by STORAGE_ADAPTER env (default "local").
  * "s3" targets the in-boundary MinIO (or GovCloud / Assured-Workloads S3 in
- * prod). Production code passes uploads and downloads through this abstraction
- * so swapping adapters never touches call sites. The S3 adapter constructs its
+ * prod); "azure" targets Azure Blob Storage (adapter-azure.ts). Production
+ * code passes uploads and downloads through this abstraction so swapping adapters never touches call sites. The S3 adapter constructs its
  * client lazily (inside createS3Adapter on first getStorage("s3")), so the
  * AWS SDK is never instantiated on the default "local" path.
  */
@@ -28,8 +29,10 @@ export function getStorage(): StorageAdapter {
     instance = createLocalAdapter();
   } else if (choice === "s3") {
     instance = createS3Adapter();
+  } else if (choice === "azure") {
+    instance = createAzureBlobAdapter();
   } else {
-    throw new Error(`Unknown STORAGE_ADAPTER=${choice} (expected "local" or "s3")`);
+    throw new Error(`Unknown STORAGE_ADAPTER=${choice} (expected "local", "s3" or "azure")`);
   }
   return instance;
 }
