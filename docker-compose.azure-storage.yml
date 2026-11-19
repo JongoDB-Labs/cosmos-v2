@@ -1,7 +1,13 @@
 # Opt-in: keep the app's uploads in Azure Blob Storage instead of MinIO.
-#   docker compose -f docker-compose.yml -f docker-compose.azure-storage.yml up -d
-# (or set COMPOSE_FILE=docker-compose.yml:docker-compose.azure-storage.yml in the
-# shell, and add any override file you already use to the same list).
+# Turn it on in the project .env, so every compose command (plain `docker compose
+# up -d`, sudo, runbooks) includes this file:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.azure-storage.yml
+# COMPOSE_FILE replaces the automatic docker-compose.override.yml, so if you use
+# one, list it too:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:docker-compose.azure-storage.yml
+# Without this file in the list, the app silently goes back to MinIO: uploads
+# split across two stores and files kept in Azure 404. Check with
+#   docker compose config | grep STORAGE_ADAPTER
 # Put AZURE_STORAGE_CONTAINER and AZURE_STORAGE_ACCOUNT_URL (or
 # AZURE_STORAGE_CONNECTION_STRING) in .env; the app reads them through env_file.
 # See .env.example. MinIO still runs: it holds the backup and audit buckets. The S3_* settings
