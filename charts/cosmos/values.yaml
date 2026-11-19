@@ -71,6 +71,33 @@ sso:
 outbound:
   allowPrivateCidrs: ""
 
+# Where the app keeps uploaded files: `s3` (the MinIO below; the default) or `azure`
+# (Azure Blob Storage). MinIO is deployed either way: the backup and audit buckets
+# live there. Switching an existing install: copy its objects to the new store under
+# the SAME keys first, or existing files will 404.
+storage:
+  adapter: s3
+  azure:
+    container: cosmos-uploads
+    # A bare https endpoint, e.g. https://<account>.blob.core.windows.net (no SAS, no
+    # path). The app signs in with an Azure identity, so no secret is stored. Needs
+    # `workloadIdentity.clientId` on AKS.
+    accountUrl: ""
+    # AKS workload identity: the client ID of the user-assigned managed identity the
+    # app signs in as. When set, the chart creates the ServiceAccount `cosmos`
+    # (annotated with this ID) and labels the app pods so AKS injects the token.
+    # That identity needs "Storage Blob Data Contributor" on the account, and a
+    # federated credential for subject system:serviceaccount:<namespace>:cosmos.
+    workloadIdentity:
+      clientId: ""
+    # Instead of an identity: the name of a Secret whose key
+    # AZURE_STORAGE_CONNECTION_STRING holds a connection string (for the Azurite
+    # emulator, or an account with shared keys on). It wins over `accountUrl`.
+    connectionStringSecret: ""
+    # Under UDS: the app's egress to Blob and Microsoft Entra ID (sign-in), on 443.
+    # Set false only if your cluster allows that egress some other way.
+    udsEgress: true
+
 # Object storage — single-instance MinIO for the lab (MinIO Operator / external
 # GovCloud S3 is the prod path per north-star §2). Creds live in a Secret,
 # SOPS-managed from T4 (created out-of-band for now).

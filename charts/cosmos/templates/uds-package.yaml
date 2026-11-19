@@ -48,6 +48,19 @@ spec:
           app.kubernetes.io/name: {{ .Chart.Name }}
           app.kubernetes.io/component: web
       {{- end }}
+      {{- $st := .Values.storage | default dict }}
+      {{- if and (eq ($st.adapter | default "s3") "azure") (ne (($st.azure | default dict).udsEgress) false) }}
+      # Uploads in Azure Blob: the web pods reach the storage account and, to sign in
+      # with their Azure identity, Microsoft Entra ID. Both are outside the cluster
+      # and their addresses change, so this is `Anywhere`, held to 443 and the web pods.
+      - description: app->Azure Blob + Entra ID (HTTPS)
+        direction: Egress
+        remoteGenerated: Anywhere
+        port: 443
+        selector:
+          app.kubernetes.io/name: {{ .Chart.Name }}
+          app.kubernetes.io/component: web
+      {{- end }}
       {{- if .Values.postgres.backups.s3.enabled }}
       # pgBackRest (repo2) -> the MinIO Operator Tenant S3 endpoint in ns `minio`.
       # GOTCHA #15: do NOT add `port: 443` here. The Tenant Service is 443->targetPort

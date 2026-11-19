@@ -3,7 +3,33 @@ The cosmos app — Next.js standalone. Runs as the non-root `cosmos` user from t
 image (UDS-compliant). Connects to Postgres as the least-priv cosmos_app role, to
 MinIO for S3, and reads SSO/WORM secrets from the SOPS-managed secret.
 Distinct `component: web` labels avoid colliding with MinIO's selector.
+Uploads go to MinIO or Azure Blob, per `storage.adapter` (values.yaml).
 */}}
+{{- $st := .Values.storage | default dict }}
+{{- $adapter := $st.adapter | default "s3" }}
+{{- $az := $st.azure | default dict }}
+{{- $wiClientId := ($az.workloadIdentity | default dict).clientId }}
+{{- if not (has $adapter (list "s3" "azure")) }}
+{{- fail (printf "storage.adapter must be s3 or azure, got %q" $adapter) }}
+{{- end }}
+{{- if eq $adapter "azure" }}
+{{- if not $az.container }}
+{{- fail "storage.adapter=azure needs storage.azure.container" }}
+{{- end }}
+{{- if not (or $az.accountUrl $az.connectionStringSecret) }}
+{{- fail "storage.adapter=azure needs storage.azure.accountUrl or storage.azure.connectionStringSecret" }}
+{{- end }}
+{{- end }}
+{{- if and (eq $adapter "azure") $wiClientId }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cosmos
+  labels: {{- include "cosmos.labels" . | nindent 4 }}
+  annotations:
+    azure.workload.identity/client-id: {{ $wiClientId | quote }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,7 +46,14 @@ spec:
       labels:
         app.kubernetes.io/name: {{ .Chart.Name }}
         app.kubernetes.io/component: web
+        {{- if and (eq $adapter "azure") $wiClientId }}
+        # AKS injects the workload identity token into pods with this label.
+        azure.workload.identity/use: "true"
+        {{- end }}
     spec:
+      {{- if and (eq $adapter "azure") $wiClientId }}
+      serviceAccountName: cosmos
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -39,12 +72,23 @@ spec:
             # k8s substitutes $(COSMOS_APP_PASSWORD) from the env above
             - { name: DATABASE_URL, value: "postgresql://cosmos_app:$(COSMOS_APP_PASSWORD)@cosmos-pg-primary.cosmos.svc:5432/cosmos?sslmode=require&sslrootcert=/etc/pg-ca/ca.crt" }
             - { name: DIRECT_URL,  value: "postgresql://cosmos_app:$(COSMOS_APP_PASSWORD)@cosmos-pg-primary.cosmos.svc:5432/cosmos?sslmode=require&sslrootcert=/etc/pg-ca/ca.crt" }
-            - { name: STORAGE_ADAPTER, value: s3 }
+            - { name: STORAGE_ADAPTER, value: {{ $adapter | quote }} }
+            {{- if eq $adapter "azure" }}
+            - { name: AZURE_STORAGE_CONTAINER, value: {{ $az.container | quote }} }
+            {{- if $az.connectionStringSecret }}
+            - { name: AZURE_STORAGE_CONNECTION_STRING, valueFrom: { secretKeyRef: { name: {{ $az.connectionStringSecret | quote }}, key: AZURE_STORAGE_CONNECTION_STRING } } }
+            {{- else }}
+            - { name: AZURE_STORAGE_ACCOUNT_URL, value: {{ $az.accountUrl | quote }} }
+            # Use only the pod's Azure identity; skip developer sign-ins.
+            - { name: AZURE_TOKEN_CREDENTIALS, value: prod }
+            {{- end }}
+            {{- else }}
             - { name: S3_ENDPOINT, value: "http://minio.cosmos.svc:9000" }
             - { name: S3_BUCKET, value: {{ .Values.minio.buckets.uploads | quote }} }
             - { name: S3_FORCE_PATH_STYLE, value: "true" }
             - { name: S3_ACCESS_KEY, valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: S3_ACCESS_KEY } } }
             - { name: S3_SECRET_KEY, valueFrom: { secretKeyRef: { name: {{ .Values.minio.credsSecret }}, key: S3_SECRET_KEY } } }
+            {{- end }}
             - { name: SSO_VAULT_KEY, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: SSO_VAULT_KEY } } }
             - { name: WORM_MANIFEST_HMAC_KEY, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: WORM_MANIFEST_HMAC_KEY } } }
             - { name: INTERNAL_ADMINS, valueFrom: { secretKeyRef: { name: cosmos-app-secrets, key: INTERNAL_ADMINS } } }

@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.564.1",
+    date: "2026-11-19",
+    title: "Choose Azure Blob Storage when installing",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "Behind the scenes: the Docker Compose and Kubernetes installs can now be set to keep uploaded files in Azure Blob Storage. Existing installs keep their current storage.",
+      },
+    ],
+  },
+  {
     version: "2.564.0",
     date: "2026-11-19",
     title: "Store files in Azure Blob Storage",
