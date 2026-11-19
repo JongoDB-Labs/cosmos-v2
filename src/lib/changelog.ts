@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.564.0",
+    date: "2026-11-19",
+    title: "Store files in Azure Blob Storage",
+    highlights: [
+      {
+        kind: "feature",
+        text: "Cosmos can now keep uploaded files, logos and attachments in Azure Blob Storage. It can sign in with the server's own Azure identity, so no storage password has to be kept anywhere.",
+      },
+    ],
+  },
+  {
     version: "2.563.4",
     date: "2026-11-16",
     title: "Access rules apply to every assignee of a new item",

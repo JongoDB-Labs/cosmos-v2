@@ -1,5 +1,5 @@
 /**
- * The shape every storage key must have, checked by both adapters before any
+ * The shape every storage key must have, checked by every adapter before any
  * read, write or delete.
  *
  * Keys are built by the app (`<orgId>/<uuid>/<name>`, `documents/<scope>/...`),

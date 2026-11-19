@@ -245,7 +245,7 @@ RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 # This makes the image work on its own. A deployment that must KEEP uploads
 # across releases has to mount a volume here as well: the directory is inside the
 # container, so `docker compose up --force-recreate` discards whatever is in it.
-# Set STORAGE_ADAPTER=s3 instead and none of this applies.
+# Set STORAGE_ADAPTER=s3 or azure instead and none of this applies.
 RUN mkdir -p /app/uploads && chown cosmos:cosmos /app/uploads
 USER cosmos
 EXPOSE 3000

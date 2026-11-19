@@ -32,6 +32,14 @@ describe("getStorage", () => {
     await s.delete(key);
   });
 
+  it("selects the azure adapter for STORAGE_ADAPTER=azure", () => {
+    // Reaching the azure adapter's own config check proves the wiring without a
+    // storage account; the adapter itself is covered in adapter-azure.test.ts.
+    process.env.STORAGE_ADAPTER = "azure";
+    delete process.env.AZURE_STORAGE_CONTAINER;
+    expect(() => getStorage()).toThrow(/azure storage adapter: missing required env AZURE_STORAGE_CONTAINER/);
+  });
+
   it("throws on unknown STORAGE_ADAPTER", () => {
     process.env.STORAGE_ADAPTER = "invalid";
     expect(() => getStorage()).toThrow(/Unknown STORAGE_ADAPTER=invalid/);
