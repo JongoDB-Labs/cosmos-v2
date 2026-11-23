@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { useCustomFields } from "@/hooks/use-custom-fields";
@@ -548,14 +548,15 @@ export function CreateWorkItemDialog({
         return;
       }
 
-      await jsonFetch(`/api/v1/orgs/${orgId}/projects/${projectId}/work-items`, {
+      const create = (assignTo: string[]) =>
+        jsonFetch(`/api/v1/orgs/${orgId}/projects/${projectId}/work-items`, {
         method: "POST",
         body: JSON.stringify({
           title: trimmed,
           ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
           columnKey: submitColumnKey,
           priority,
-          ...(assigneeIds.length ? { assigneeIds } : {}),
+          ...(assignTo.length ? { assigneeIds: assignTo } : {}),
           ...(intervalId ? { intervalId } : {}),
           ...(teamId ? { teamId } : {}),
           description:
@@ -569,6 +570,19 @@ export function CreateWorkItemDialog({
             : {}),
         }),
       });
+      // The creator was assigned by DEFAULT, not by choice. If a create rule
+      // refuses work assigned to them (403) where an unassigned item is allowed,
+      // fall back to unassigned rather than failing a create that worked before
+      // the default existed. A choice the user made is never second-guessed.
+      const isAutoDefault =
+        !assigneesTouched.current && assigneeIds.length === 1 && assigneeIds[0] === currentUserId;
+      try {
+        await create(assigneeIds);
+      } catch (err) {
+        if (!(isAutoDefault && err instanceof FetchError && err.status === 403)) throw err;
+        await create([]);
+        toast.warning("Created unassigned — you can't be assigned this item.");
+      }
       toast.success(`Created "${trimmed}"`);
       onOpenChange(false);
       onCreated?.();

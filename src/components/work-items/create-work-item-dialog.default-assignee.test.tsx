@@ -27,14 +27,19 @@ vi.mock("@/hooks/use-work-item-types", async (importOriginal) => ({
   useWorkItemTypes: vi.fn(),
 }));
 vi.mock("@/hooks/use-custom-fields", () => ({ useCustomFields: vi.fn() }));
-vi.mock("@/lib/query/json-fetcher", () => ({ jsonFetch: vi.fn() }));
+vi.mock("@/lib/query/json-fetcher", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/query/json-fetcher")>()),
+  jsonFetch: vi.fn(),
+}));
 vi.mock("@/lib/errors/notify", () => ({ notifyError: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
 import { CreateWorkItemDialog } from "./create-work-item-dialog";
 import { useWorkItemTypes } from "@/hooks/use-work-item-types";
 import { useCustomFields } from "@/hooks/use-custom-fields";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
+import { toast } from "sonner";
+import { notifyError } from "@/lib/errors/notify";
 
 const MEMBERS = [
   { userId: "u1", user: { id: "u1", displayName: "Ana Beltran", email: "ana@x.co" } },
@@ -127,6 +132,35 @@ describe("CreateWorkItemDialog — the creator is the default assignee", () => {
     expect(checkedNames()).toEqual([]);
   });
 
+  it("gives the default back when the dialog is reopened after unticking", async () => {
+    const user = userEvent.setup();
+    const props = { orgId: "o1", onOpenChange: vi.fn(), projects: PROJECTS, onCreated: vi.fn() };
+    const view = render(<CreateWorkItemDialog {...props} open />);
+    await screen.findByText("Bob Carr");
+    await waitFor(() => expect(checkedNames()).toEqual(["Bob Carr"]));
+    await user.click(boxFor("Bob Carr"));
+    expect(checkedNames()).toEqual([]);
+
+    view.rerender(<CreateWorkItemDialog {...props} open={false} />);
+    view.rerender(<CreateWorkItemDialog {...props} open />);
+    await screen.findByText("Bob Carr");
+    await waitFor(() => expect(checkedNames()).toEqual(["Bob Carr"]));
+  });
+
+  it("re-applies the default when a late project list resets the form", async () => {
+    // NewWorkItemButton loads its projects lazily: the dialog opens with none,
+    // then the list lands, `firstProjectId` changes and the reset runs again,
+    // emptying the picker the default had just filled.
+    const props = { orgId: "o1", open: true, onOpenChange: vi.fn(), onCreated: vi.fn() };
+    const view = render(<CreateWorkItemDialog {...props} projects={[]} />);
+    await screen.findByText("Bob Carr");
+    await waitFor(() => expect(checkedNames()).toEqual(["Bob Carr"]));
+
+    view.rerender(<CreateWorkItemDialog {...props} projects={PROJECTS} />);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(checkedNames()).toEqual(["Bob Carr"]);
+  });
+
   it("does not pre-pick someone who is not in the member list", async () => {
     // Checked boxes can't show this: a non-member has no row to tick. The
     // create request is the evidence.
@@ -157,5 +191,59 @@ describe("CreateWorkItemDialog — the creator is the default assignee", () => {
     await screen.findByText("Bob Carr");
     await new Promise((r) => setTimeout(r, 50));
     expect(checkedNames()).toEqual([]);
+  });
+});
+
+describe("CreateWorkItemDialog — a refused default falls back to unassigned", () => {
+  function posts() {
+    return vi.mocked(jsonFetch).mock.calls
+      .filter(([, i]) => (i as RequestInit | undefined)?.method === "POST")
+      .map(([, i]) => JSON.parse(String((i as RequestInit).body)));
+  }
+  function refuseAssigned() {
+    const base = vi.mocked(jsonFetch).getMockImplementation()!;
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        return body.assigneeIds
+          ? Promise.reject(new FetchError(403, {}, "forbidden"))
+          : Promise.resolve({ id: "new" });
+      }
+      return base(url, init as never);
+    }) as never);
+  }
+  async function fillAndCreate(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByLabelText("Title"), "A task");
+    await user.type(screen.getByLabelText(/planned start/i), "2026-07-01");
+    await user.type(screen.getByLabelText(/planned end/i), "2026-07-15");
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
+  }
+
+  it("creates it unassigned, and says so, when a rule refuses the creator", async () => {
+    refuseAssigned();
+    const user = userEvent.setup();
+    renderDialog();
+    await screen.findByText("Bob Carr");
+    await waitFor(() => expect(checkedNames()).toEqual(["Bob Carr"]));
+    await fillAndCreate(user);
+
+    await waitFor(() => expect(posts()).toHaveLength(2));
+    expect(posts()[0].assigneeIds).toEqual(["u2"]);
+    expect(posts()[1]).not.toHaveProperty("assigneeIds");
+    expect(toast.warning).toHaveBeenCalled();
+    expect(notifyError).not.toHaveBeenCalled();
+  });
+
+  it("does not second-guess an assignee the user chose", async () => {
+    refuseAssigned();
+    const user = userEvent.setup();
+    renderDialog();
+    await screen.findByText("Bob Carr");
+    await waitFor(() => expect(checkedNames()).toEqual(["Bob Carr"]));
+    await user.click(boxFor("Ana Beltran"));
+    await fillAndCreate(user);
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    expect(posts()).toHaveLength(1);
   });
 });
