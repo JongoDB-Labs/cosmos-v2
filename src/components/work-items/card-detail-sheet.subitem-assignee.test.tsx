@@ -165,6 +165,15 @@ describe("CardDetailSheet — a sub-item inherits its parent's assignees", () =>
     expect(posts[0]).not.toHaveProperty("assigneeIds");
   });
 
+  it("starts unassigned when the parent has more assignees than the API accepts", async () => {
+    const posts = mockServer();
+    const many = Array.from({ length: 51 }, (_, i) => ({ userId: `u${i}` }));
+    renderSheet(parent({ assignees: many as never, assigneeId: "u0" }));
+    await addSubItem("Child task");
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).not.toHaveProperty("assigneeIds");
+  });
+
   it.each([403, 422])("creates it unassigned, and says so, when the server refuses the assignee (%i)", async (status) => {
     const posts = mockServer(status);
     renderSheet(parent({ assignees: [{ userId: "gone" }] as never, assigneeId: "gone" }));

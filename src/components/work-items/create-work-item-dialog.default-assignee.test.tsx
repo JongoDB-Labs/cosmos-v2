@@ -234,6 +234,47 @@ describe("CreateWorkItemDialog — a refused default falls back to unassigned", 
     expect(notifyError).not.toHaveBeenCalled();
   });
 
+  it("does not drop a duplicate's own assignee, even when it is the creator", async () => {
+    source = {
+      id: "src1", title: "Original", priority: "MEDIUM", workItemTypeId: "t1",
+      assignees: [{ userId: "u2" }], assigneeId: "u2", storyPoints: null, description: "",
+      tags: [], startDate: "2026-07-01T00:00:00.000Z", dueDate: "2026-07-15T00:00:00.000Z",
+      intervalId: null, teamId: null,
+    };
+    refuseAssigned();
+    const user = userEvent.setup();
+    renderDialog({ duplicateSource: { projectId: "p1", itemId: "src1" } });
+    await screen.findByDisplayValue("Copy of Original");
+    await screen.findByText("Bob Carr");
+    await waitFor(() => expect(checkedNames()).toEqual(["Bob Carr"]));
+    await user.click(screen.getByRole("button", { name: "Create work item" }));
+
+    await waitFor(() => expect(notifyError).toHaveBeenCalled());
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("does not tick the creator mid-submit when the request is unassigned", async () => {
+    // Submitted before the user id arrived: the request carries nobody, so
+    // the picker must not then show the creator.
+    me.id = null;
+    const base = vi.mocked(jsonFetch).getMockImplementation()!;
+    vi.mocked(jsonFetch).mockImplementation(((url: string, init?: RequestInit) =>
+      init?.method === "POST" ? new Promise(() => {}) : base(url, init as never)) as never);
+    const user = userEvent.setup();
+    const view = renderDialog();
+    await screen.findByText("Bob Carr");
+    await fillAndCreate(user);
+    await waitFor(() => expect(posts()).toHaveLength(1));
+
+    me.id = "u2";
+    view.rerender(
+      <CreateWorkItemDialog orgId="o1" open onOpenChange={vi.fn()} projects={PROJECTS} onCreated={vi.fn()} />,
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(checkedNames()).toEqual([]);
+    expect(posts()[0]).not.toHaveProperty("assigneeIds");
+  });
+
   it("does not second-guess an assignee the user chose", async () => {
     refuseAssigned();
     const user = userEvent.setup();

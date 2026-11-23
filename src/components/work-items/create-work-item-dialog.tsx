@@ -316,12 +316,14 @@ export function CreateWorkItemDialog({
   // empty the picker; an untouched, empty picker gets the default back.
   const assigneeCount = assigneeIds.length;
   useEffect(() => {
-    if (!open || duplicateSource || assigneesTouched.current || !currentUserId) return;
+    // Not mid-submit: the request has already captured the picker, and it must
+    // not then show someone the item isn't being created with.
+    if (!open || duplicateSource || submitting || assigneesTouched.current || !currentUserId) return;
     if (assigneeCount > 0) return;
     if (!memberOptions.some((m) => m.value === currentUserId)) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAssigneeIds((prev) => (prev.length === 0 ? [currentUserId] : prev));
-  }, [open, duplicateSource, currentUserId, memberOptions, assigneeCount]);
+  }, [open, duplicateSource, submitting, currentUserId, memberOptions, assigneeCount]);
 
   // The statuses this dialog can file into: the board's own workflow when it was
   // opened from a board, else the project's, pooled across its boards.
@@ -574,8 +576,12 @@ export function CreateWorkItemDialog({
       // refuses work assigned to them (403) where an unassigned item is allowed,
       // fall back to unassigned rather than failing a create that worked before
       // the default existed. A choice the user made is never second-guessed.
+      // A duplicate's assignees came from its source, never from the default.
       const isAutoDefault =
-        !assigneesTouched.current && assigneeIds.length === 1 && assigneeIds[0] === currentUserId;
+        !duplicateSource &&
+        !assigneesTouched.current &&
+        assigneeIds.length === 1 &&
+        assigneeIds[0] === currentUserId;
       try {
         await create(assigneeIds);
       } catch (err) {

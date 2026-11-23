@@ -850,11 +850,14 @@ export function CardDetailSheet({
     try {
       // A sub-item starts with its parent's assignees: a task usually belongs
       // to whoever owns the story.
-      const parentAssigneeIds = item.assignees?.length
+      const inherited = item.assignees?.length
         ? item.assignees.map((a) => a.userId)
         : item.assigneeId
           ? [item.assigneeId]
           : [];
+      // The create API takes at most 50 assignees (an import can store more on
+      // one item); past that, start the sub-item unassigned.
+      const parentAssigneeIds = inherited.length <= 50 ? inherited : [];
       const post = (assigneeIds: string[]) =>
         fetch(basePath, {
           method: "POST",
