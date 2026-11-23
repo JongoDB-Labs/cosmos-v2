@@ -457,7 +457,13 @@ function KanbanBoardInner({
           setError(err instanceof Error ? err.message : "Unknown error");
         }
       } finally {
-        if (seq === reqSeq.current && !opts?.silent) setLoading(false);
+        // Whichever fetch is LATEST clears the skeleton, silent or not. A silent
+        // fetch never raises `loading`, but it can supersede one that did: create
+        // an item and the board's own refetch (loud) is overtaken ~400ms later by
+        // the realtime `work-item.created` refetch (silent). If only the loud one
+        // could clear `loading`, the superseded loud one returns early and the
+        // skeleton stays up until a hard refresh.
+        if (seq === reqSeq.current) setLoading(false);
       }
     },
     [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, linksKey, milestonesKey, teamsKey, intervalsKey],
@@ -1264,7 +1270,10 @@ function KanbanBoardInner({
         projectId={projectId}
         projectKey={projectKey}
         boardId={boardId}
-        onCreated={() => void fetchData()}
+        // Silent + fresh: the board is already painted, so no skeleton flash,
+        // and `fresh` bypasses the 30s staleTime that would otherwise serve the
+        // cached list without the item just created.
+        onCreated={() => void fetchData({ silent: true, fresh: true })}
       />
     </BoardToolbarActions>
   )}
