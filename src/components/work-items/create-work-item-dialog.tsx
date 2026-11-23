@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo} from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -27,6 +27,7 @@ import {
 } from "@/components/work-items/custom-field-input";
 import { createStatusOptions } from "@/lib/boards/status-columns";
 import { filterMemberOptions, memberPickerOptions } from "@/lib/org/member-picker";
+import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import type { Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 import { datesFromInterval } from "@/lib/intervals/fill-dates";
 import {
@@ -202,6 +203,12 @@ export function CreateWorkItemDialog({
   // Assignee search box (COSMOS-171) — client-side only; the member list is
   // already loaded in full.
   const [assigneeSearch, setAssigneeSearch] = useState("");
+  // A new item defaults its assignee to the person creating it. The user id
+  // and the member list both load after the dialog opens, so the default is
+  // applied when they land, and never once the user has touched the picker
+  // (unticking yourself must stick).
+  const currentUserId = useCurrentUserId();
+  const assigneesTouched = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   // Status. The dialog used to resolve this silently — first board, first column
   // — with no way to say where the issue should land, which is the one thing the
@@ -260,6 +267,7 @@ export function CreateWorkItemDialog({
       setTitle("");
       setPriority("MEDIUM");
       setAssigneeIds([]);
+      assigneesTouched.current = false;
       setAssigneeSearch("");
       setStoryPoints("");
       // Both date fields are reset from their seeds (usually absent, so ""):
@@ -299,6 +307,21 @@ export function CreateWorkItemDialog({
     initialDueDate,
     initialColumnKey,
   ]);
+
+  // Default the assignee to the creator (see `assigneesTouched`). Not for a
+  // duplicate, which keeps the original's assignees, and only when the creator
+  // is in the member list, so the default is always someone the picker offers.
+  // `assigneeIds.length` is a dependency because the reset above can run again
+  // after open (a lazily loaded project list changes `firstProjectId`) and
+  // empty the picker; an untouched, empty picker gets the default back.
+  const assigneeCount = assigneeIds.length;
+  useEffect(() => {
+    if (!open || duplicateSource || assigneesTouched.current || !currentUserId) return;
+    if (assigneeCount > 0) return;
+    if (!memberOptions.some((m) => m.value === currentUserId)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAssigneeIds((prev) => (prev.length === 0 ? [currentUserId] : prev));
+  }, [open, duplicateSource, currentUserId, memberOptions, assigneeCount]);
 
   // The statuses this dialog can file into: the board's own workflow when it was
   // opened from a board, else the project's, pooled across its boards.
@@ -699,13 +722,14 @@ export function CreateWorkItemDialog({
                       className="accent-[var(--primary)]"
                       checked={assigneeIds.includes(m.value)}
                       disabled={submitting}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        assigneesTouched.current = true;
                         setAssigneeIds((prev) =>
                           e.target.checked
                             ? [...prev, m.value]
                             : prev.filter((id) => id !== m.value),
-                        )
-                      }
+                        );
+                      }}
                     />
                     {m.label}
                   </label>

@@ -3,6 +3,9 @@
 // before anyone on it picks it up, so "New work item" offers a Team picker that is
 // separate from Assignees, and sends the choice with the create.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+// The creator-as-default-assignee lookup needs React Query; these cases test
+// other behaviour, so "no signed-in user yet" keeps the picker as it was.
+vi.mock("@/lib/hooks/use-current-user", () => ({ useCurrentUserId: () => null }));
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 

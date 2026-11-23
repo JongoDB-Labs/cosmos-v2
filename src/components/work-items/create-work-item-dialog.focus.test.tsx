@@ -3,6 +3,9 @@
 // base-ui had no trigger to hand focus back to: closing dropped focus on
 // <body> and a keyboard user started over from the top of the page.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+// The creator-as-default-assignee lookup needs React Query; these cases test
+// other behaviour, so "no signed-in user yet" keeps the picker as it was.
+vi.mock("@/lib/hooks/use-current-user", () => ({ useCurrentUserId: () => null }));
 import { useState } from "react";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
