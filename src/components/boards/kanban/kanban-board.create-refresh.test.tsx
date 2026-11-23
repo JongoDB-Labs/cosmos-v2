@@ -14,7 +14,9 @@
 //
 // 2. A stale list. The post-create refetch honoured the 30s staleTime, so a
 //    board loaded moments earlier was served from cache — without the item
-//    just created.
+//    just created. It must also not JOIN an items read already in flight from
+//    before the create, and must not re-read the board's columns (a failed
+//    columns read would replace a loaded board with an error).
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -126,14 +128,23 @@ describe("Kanban refresh after creating an item", () => {
     expect(await screen.findByText("Existing card", {}, { timeout: 3000 })).toBeTruthy();
   });
 
-  it("shows the created item at once, not the cached list", async () => {
+  it("shows the created item at once, not the cached list, with no skeleton meanwhile", async () => {
     let created = false;
+    let releasePostCreate: (() => void) | null = null;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
         const u = String(url);
         if (u.endsWith("/boards/b1")) return respond(BOARD);
-        if (u.endsWith("/work-items")) return respond(created ? [EXISTING, CREATED] : [EXISTING]);
+        if (u.endsWith("/work-items")) {
+          if (created) {
+            // Hold the post-create read so the test can look at the board
+            // WHILE it is pending.
+            await new Promise<void>((r) => (releasePostCreate = r));
+            return respond([EXISTING, CREATED]);
+          }
+          return respond([EXISTING]);
+        }
         return respond([]);
       }),
     );
@@ -146,8 +157,77 @@ describe("Kanban refresh after creating an item", () => {
     created = true;
     fireEvent.click(screen.getByText("fake-create"));
 
-    expect(await screen.findByText("Just-created card", {}, { timeout: 3000 })).toBeTruthy();
-    // And no skeleton flash: the existing card never left the screen.
+    // Mid-refresh: the skeleton replaces every card, so the existing card
+    // still being on screen is what proves there is no skeleton flash.
+    await vi.waitFor(() => expect(releasePostCreate).not.toBeNull());
     expect(screen.getByText("Existing card")).toBeTruthy();
+
+    releasePostCreate!();
+    expect(await screen.findByText("Just-created card", {}, { timeout: 3000 })).toBeTruthy();
+  });
+
+  it("does not reuse an items read that started before the create", async () => {
+    // A realtime refetch is mid-flight, holding the PRE-create list, when the
+    // create lands. The post-create refresh must read again, not join it.
+    let created = false;
+    let releaseOld: (() => void) | null = null;
+    let itemCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith("/boards/b1")) return respond(BOARD);
+        if (u.endsWith("/work-items")) {
+          itemCalls += 1;
+          const snapshot = created ? [EXISTING, CREATED] : [EXISTING];
+          if (itemCalls === 2) await new Promise<void>((r) => (releaseOld = r));
+          return respond(snapshot);
+        }
+        return respond([]);
+      }),
+    );
+
+    renderKanban();
+    await screen.findByText("Existing card", {}, { timeout: 3000 });
+
+    // Another client's change: a silent, fresh refetch starts and is held,
+    // having captured the list without the new item.
+    realtime.fire!();
+    await vi.waitFor(() => expect(releaseOld).not.toBeNull(), { timeout: 2000 });
+
+    created = true;
+    fireEvent.click(screen.getByText("fake-create"));
+    releaseOld!();
+
+    expect(await screen.findByText("Just-created card", {}, { timeout: 3000 })).toBeTruthy();
+  });
+
+  it("keeps the loaded board if re-reading its columns would fail", async () => {
+    // Only the item list changes on create. A columns read that fails after a
+    // successful create must not replace the board with an error.
+    let created = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith("/boards/b1")) {
+          return created
+            ? new Response(JSON.stringify({ error: "unavailable" }), { status: 503 })
+            : respond(BOARD);
+        }
+        if (u.endsWith("/work-items")) return respond(created ? [EXISTING, CREATED] : [EXISTING]);
+        return respond([]);
+      }),
+    );
+
+    renderKanban();
+    await screen.findByText("Existing card", {}, { timeout: 3000 });
+
+    created = true;
+    fireEvent.click(screen.getByText("fake-create"));
+
+    expect(await screen.findByText("Just-created card", {}, { timeout: 3000 })).toBeTruthy();
+    expect(screen.getByText("Existing card")).toBeTruthy();
+    expect(screen.queryByText("Failed to load board")).toBeNull();
   });
 });

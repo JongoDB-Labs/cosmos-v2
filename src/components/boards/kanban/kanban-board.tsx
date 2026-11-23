@@ -348,14 +348,24 @@ function KanbanBoardInner({
   // Fetch board, items, members, sprints. `silent` skips the loading skeleton
   // so a live-update refetch doesn't flash the board away under the user.
   const fetchData = useCallback(
-    async (opts?: { silent?: boolean; fresh?: boolean }) => {
+    async (opts?: { silent?: boolean; fresh?: boolean; afterItemWrite?: boolean }) => {
       const seq = ++reqSeq.current;
       if (!opts?.silent) setLoading(true);
       setError(null);
       // Serve from cache on a plain board switch (staleTime), but force a live
       // read when a realtime event or our own bulk op needs server truth.
       const staleTime = opts?.fresh ? 0 : 30_000;
+      // `afterItemWrite`: we just wrote an item. Only the item list changed, so
+      // keep any cached board (columns) rather than re-reading it — a failed
+      // board read would otherwise replace a loaded board with an error. And
+      // the item list must be a read that STARTED after the write: fetchQuery
+      // joins an in-flight request, which may have captured the old list.
+      const boardStaleTime = opts?.afterItemWrite ? Infinity : staleTime;
+      const itemsStaleTime = opts?.afterItemWrite ? 0 : staleTime;
       try {
+        if (opts?.afterItemWrite) {
+          await qc.cancelQueries({ queryKey: itemsKey, exact: true });
+        }
         // Two of these seven gate the first paint: the board (for its columns)
         // and the items (for the cards). The other five feed the filter bar and
         // card decorations, and three of them were already best-effort
@@ -370,12 +380,12 @@ function KanbanBoardInner({
           qc.fetchQuery({
             queryKey: boardKey,
             queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
-            staleTime,
+            staleTime: boardStaleTime,
           }),
           qc.fetchQuery({
             queryKey: itemsKey,
             queryFn: () => jsonFetch<WorkItem[]>(`${basePath}/work-items`),
-            staleTime,
+            staleTime: itemsStaleTime,
           }),
         ]);
         const auxP = Promise.all([
@@ -1270,10 +1280,10 @@ function KanbanBoardInner({
         projectId={projectId}
         projectKey={projectKey}
         boardId={boardId}
-        // Silent + fresh: the board is already painted, so no skeleton flash,
-        // and `fresh` bypasses the 30s staleTime that would otherwise serve the
-        // cached list without the item just created.
-        onCreated={() => void fetchData({ silent: true, fresh: true })}
+        // Silent: the board is already painted, so no skeleton flash.
+        // afterItemWrite: a new read of the items (not the 30s cache, not an
+        // in-flight read from before the create), and the cached columns kept.
+        onCreated={() => void fetchData({ silent: true, afterItemWrite: true })}
       />
     </BoardToolbarActions>
   )}
