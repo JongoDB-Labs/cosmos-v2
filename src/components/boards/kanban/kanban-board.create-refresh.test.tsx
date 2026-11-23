@@ -202,38 +202,6 @@ describe("Kanban refresh after creating an item", () => {
     expect(await screen.findByText("Just-created card", {}, { timeout: 3000 })).toBeTruthy();
   });
 
-  it.each([
-    ["the post-create items read fails", "create"],
-    ["the realtime refresh's columns read fails", "realtime"],
-  ] as const)("keeps the loaded board when %s", async (_label, trigger) => {
-    // A background refresh that fails on a board already showing must keep it
-    // (and tell the user), not swap every card for "Failed to load board".
-    let broken = false;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        const u = String(url);
-        const down = () => new Response(JSON.stringify({ error: "unavailable" }), { status: 503 });
-        if (u.endsWith("/boards/b1")) return broken ? down() : respond(BOARD);
-        if (u.endsWith("/work-items")) return broken ? down() : respond([EXISTING]);
-        return respond([]);
-      }),
-    );
-    const { notifyError } = await import("@/lib/errors/notify");
-    vi.mocked(notifyError).mockClear();
-
-    renderKanban();
-    await screen.findByText("Existing card", {}, { timeout: 3000 });
-
-    broken = true;
-    if (trigger === "create") fireEvent.click(screen.getByText("fake-create"));
-    else realtime.fire!();
-
-    await vi.waitFor(() => expect(notifyError).toHaveBeenCalled(), { timeout: 3000 });
-    expect(screen.getByText("Existing card")).toBeTruthy();
-    expect(screen.queryByText("Failed to load board")).toBeNull();
-  });
-
   it("keeps the loaded board if re-reading its columns would fail", async () => {
     // Only the item list changes on create. A columns read that fails after a
     // successful create must not replace the board with an error.

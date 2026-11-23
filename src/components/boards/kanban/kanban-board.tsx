@@ -344,9 +344,6 @@ function KanbanBoardInner({
   // Monotonic request id: a realtime refetch may race the initial load (or
   // another refetch), so only the newest response is allowed to write state.
   const reqSeq = useRef(0);
-  // True once the board has painted from a successful fetch. A failed
-  // background refresh must not then replace a working board with an error.
-  const paintedRef = useRef(false);
 
   // Fetch board, items, members, sprints. `silent` skips the loading skeleton
   // so a live-update refetch doesn't flash the board away under the user.
@@ -465,16 +462,9 @@ function KanbanBoardInner({
           (boardData.columns ?? []).sort((a, b) => a.sortOrder - b.sortOrder)
         );
         setItems(itemsData);
-        paintedRef.current = true;
       } catch (err) {
         if (seq === reqSeq.current) {
-          if (opts?.silent && paintedRef.current) {
-            // A background refresh (realtime, post-create, bulk op) failed on a
-            // board that is already showing: keep it, and say so.
-            notifyError(err, "Couldn't refresh the board — showing the last loaded version.");
-          } else {
-            setError(err instanceof Error ? err.message : "Unknown error");
-          }
+          setError(err instanceof Error ? err.message : "Unknown error");
         }
       } finally {
         // Whichever fetch is LATEST clears the skeleton, silent or not. A silent
