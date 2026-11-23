@@ -348,7 +348,7 @@ function KanbanBoardInner({
   // Fetch board, items, members, sprints. `silent` skips the loading skeleton
   // so a live-update refetch doesn't flash the board away under the user.
   const fetchData = useCallback(
-    async (opts?: { silent?: boolean; fresh?: boolean }) => {
+    async (opts?: { silent?: boolean; fresh?: boolean; afterItemWrite?: boolean }) => {
       const seq = ++reqSeq.current;
       if (!opts?.silent) setLoading(true);
       setError(null);
@@ -356,6 +356,12 @@ function KanbanBoardInner({
       // read when a realtime event or our own bulk op needs server truth.
       const staleTime = opts?.fresh ? 0 : 30_000;
       try {
+        // `afterItemWrite`: we just wrote an item, so the list must come from a
+        // read that STARTED after the write. fetchQuery joins an in-flight
+        // request, which may have captured the old list — cancel it first.
+        if (opts?.afterItemWrite) {
+          await qc.cancelQueries({ queryKey: itemsKey, exact: true });
+        }
         // Two of these seven gate the first paint: the board (for its columns)
         // and the items (for the cards). The other five feed the filter bar and
         // card decorations, and three of them were already best-effort
@@ -457,7 +463,13 @@ function KanbanBoardInner({
           setError(err instanceof Error ? err.message : "Unknown error");
         }
       } finally {
-        if (seq === reqSeq.current && !opts?.silent) setLoading(false);
+        // Whichever fetch is LATEST clears the skeleton, silent or not. A silent
+        // fetch never raises `loading`, but it can supersede one that did: create
+        // an item and the board's own refetch (loud) is overtaken ~400ms later by
+        // the realtime `work-item.created` refetch (silent). If only the loud one
+        // could clear `loading`, the superseded loud one returns early and the
+        // skeleton stays up until a hard refresh.
+        if (seq === reqSeq.current) setLoading(false);
       }
     },
     [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, linksKey, milestonesKey, teamsKey, intervalsKey],
@@ -1264,7 +1276,10 @@ function KanbanBoardInner({
         projectId={projectId}
         projectKey={projectKey}
         boardId={boardId}
-        onCreated={() => void fetchData()}
+        // Silent: the board is already painted, so no skeleton flash.
+        // Fresh + afterItemWrite: a new read, not the 30s cache and not an
+        // in-flight read from before the create.
+        onCreated={() => void fetchData({ silent: true, fresh: true, afterItemWrite: true })}
       />
     </BoardToolbarActions>
   )}

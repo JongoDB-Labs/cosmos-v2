@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.564.3",
+    date: "2026-11-23",
+    title: "New work items show up on the Kanban board straight away",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Creating a work item from a Kanban board no longer leaves the board stuck on its loading placeholder until you refresh the page. The new card now appears straight away, and the cards already on the board stay put while it does.",
+      },
+    ],
+  },
+  {
     version: "2.564.2",
     date: "2026-11-23",
     title: "Whiteboards stop overwriting each other, and Foreman's controls check your role",
