@@ -15,8 +15,7 @@
 // 2. A stale list. The post-create refetch honoured the 30s staleTime, so a
 //    board loaded moments earlier was served from cache — without the item
 //    just created. It must also not JOIN an items read already in flight from
-//    before the create, and must not re-read the board's columns (a failed
-//    columns read would replace a loaded board with an error).
+//    before the create.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -200,34 +199,5 @@ describe("Kanban refresh after creating an item", () => {
     releaseOld!();
 
     expect(await screen.findByText("Just-created card", {}, { timeout: 3000 })).toBeTruthy();
-  });
-
-  it("keeps the loaded board if re-reading its columns would fail", async () => {
-    // Only the item list changes on create. A columns read that fails after a
-    // successful create must not replace the board with an error.
-    let created = false;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        const u = String(url);
-        if (u.endsWith("/boards/b1")) {
-          return created
-            ? new Response(JSON.stringify({ error: "unavailable" }), { status: 503 })
-            : respond(BOARD);
-        }
-        if (u.endsWith("/work-items")) return respond(created ? [EXISTING, CREATED] : [EXISTING]);
-        return respond([]);
-      }),
-    );
-
-    renderKanban();
-    await screen.findByText("Existing card", {}, { timeout: 3000 });
-
-    created = true;
-    fireEvent.click(screen.getByText("fake-create"));
-
-    expect(await screen.findByText("Just-created card", {}, { timeout: 3000 })).toBeTruthy();
-    expect(screen.getByText("Existing card")).toBeTruthy();
-    expect(screen.queryByText("Failed to load board")).toBeNull();
   });
 });

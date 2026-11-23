@@ -355,14 +355,10 @@ function KanbanBoardInner({
       // Serve from cache on a plain board switch (staleTime), but force a live
       // read when a realtime event or our own bulk op needs server truth.
       const staleTime = opts?.fresh ? 0 : 30_000;
-      // `afterItemWrite`: we just wrote an item. Only the item list changed, so
-      // keep any cached board (columns) rather than re-reading it — a failed
-      // board read would otherwise replace a loaded board with an error. And
-      // the item list must be a read that STARTED after the write: fetchQuery
-      // joins an in-flight request, which may have captured the old list.
-      const boardStaleTime = opts?.afterItemWrite ? Infinity : staleTime;
-      const itemsStaleTime = opts?.afterItemWrite ? 0 : staleTime;
       try {
+        // `afterItemWrite`: we just wrote an item, so the list must come from a
+        // read that STARTED after the write. fetchQuery joins an in-flight
+        // request, which may have captured the old list — cancel it first.
         if (opts?.afterItemWrite) {
           await qc.cancelQueries({ queryKey: itemsKey, exact: true });
         }
@@ -380,12 +376,12 @@ function KanbanBoardInner({
           qc.fetchQuery({
             queryKey: boardKey,
             queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
-            staleTime: boardStaleTime,
+            staleTime,
           }),
           qc.fetchQuery({
             queryKey: itemsKey,
             queryFn: () => jsonFetch<WorkItem[]>(`${basePath}/work-items`),
-            staleTime: itemsStaleTime,
+            staleTime,
           }),
         ]);
         const auxP = Promise.all([
@@ -1281,9 +1277,9 @@ function KanbanBoardInner({
         projectKey={projectKey}
         boardId={boardId}
         // Silent: the board is already painted, so no skeleton flash.
-        // afterItemWrite: a new read of the items (not the 30s cache, not an
-        // in-flight read from before the create), and the cached columns kept.
-        onCreated={() => void fetchData({ silent: true, afterItemWrite: true })}
+        // Fresh + afterItemWrite: a new read, not the 30s cache and not an
+        // in-flight read from before the create.
+        onCreated={() => void fetchData({ silent: true, fresh: true, afterItemWrite: true })}
       />
     </BoardToolbarActions>
   )}
