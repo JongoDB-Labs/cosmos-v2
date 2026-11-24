@@ -17,7 +17,9 @@ import {
   ceremonySelectableIntervals,
   defaultCeremonyInterval,
 } from "@/lib/intervals/ceremony-intervals";
-import { useCeremony } from "./use-ceremony";
+import { ceremonyKeyParts, useCeremony } from "./use-ceremony";
+import { useBoardLoadState } from "@/components/boards/shared/use-board-load-state";
+import { useRefreshFailedNotice } from "@/components/boards/shared/use-refresh-failed-notice";
 import { CeremonySummary } from "./ceremony-summary";
 import { ShippedList, CarriedList } from "./item-lists";
 import { RetroColumns } from "./retro-columns";
@@ -171,6 +173,15 @@ export function CeremonyBoard({
     boardId,
     teamId,
   });
+  // Fatal vs stale: a failed background refresh keeps the loaded ceremony
+  // (boards/shared/board-load-state.ts). The key follows the sprint and team
+  // pickers, so one sprint's failure never carries over to another.
+  const ceremonyKey = useOrgQueryKey(...ceremonyKeyParts(boardId, selectedId, teamId));
+  const load = useBoardLoadState([
+    { queryKey: intervalsKey, query: intervalsQ },
+    { queryKey: ceremonyKey, query: ceremonyQ, notFoundIsAccess: true },
+  ]);
+  useRefreshFailedNotice(load.refreshFailed, load.noticeKey);
   // useOrgMutation expects the same PARTS you'd give useOrgQueryKey — it adds
   // the org prefix itself. Passing an already-prefixed key double-prefixes it,
   // which matches no query, so nothing invalidates and the board only recovers
@@ -205,7 +216,7 @@ export function CeremonyBoard({
     invalidate: [ceremonyParts],
   });
 
-  if (intervalsQ.isLoading || ceremonyQ.isLoading) {
+  if (intervalsQ.isLoading || ceremonyQ.isLoading || (load.fatal && load.fetching)) {
     return (
       <div className="space-y-4 p-4">
         <Skeleton className="h-10 w-64" />
@@ -218,26 +229,33 @@ export function CeremonyBoard({
     );
   }
 
-  // Both of these used to render flush into the top-left corner. `EmptyState` and
+  // These used to render flush into the top-left corner. `EmptyState` and
   // `LoadError` expect the caller to place them — every other board centres them
   // in the remaining height.
+  //
+  // A failed load comes BEFORE the empty state: a sprint list that failed to
+  // load is not a project with no sprints.
+  if (load.fatal) {
+    return (
+      <div className="flex h-full items-center justify-center p-4">
+        <LoadError
+          description={
+            intervalsQ.error && load.fatalError === intervalsQ.error
+              ? "Could not load this board's sprints."
+              : "Could not load this ceremony."
+          }
+          onRetry={load.retry}
+        />
+      </div>
+    );
+  }
+
   if (intervals.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-4">
         <EmptyState
           title="No sprints yet"
           description="A ceremony board reports on a sprint. Create one to run planning or a review."
-        />
-      </div>
-    );
-  }
-
-  if (ceremonyQ.isError) {
-    return (
-      <div className="flex h-full items-center justify-center p-4">
-        <LoadError
-          description="Could not load this ceremony."
-          onRetry={() => void ceremonyQ.refetch()}
         />
       </div>
     );

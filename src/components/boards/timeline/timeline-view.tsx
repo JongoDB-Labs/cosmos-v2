@@ -9,6 +9,10 @@ import {
 } from "@/components/boards/shared/board-toolbar";
 import { useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { LoadError } from "@/components/ui/load-error";
+import { loadErrorMessage } from "@/components/boards/shared/board-load-state";
+import { useBoardLoadState } from "@/components/boards/shared/use-board-load-state";
+import { useRefreshFailedNotice } from "@/components/boards/shared/use-refresh-failed-notice";
 import { toast } from "sonner";
 import {
   Route,
@@ -785,11 +789,12 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
     if (announceTimer.current) clearTimeout(announceTimer.current);
   }, []);
   const loading = itemsQ.isLoading || membersQ.isLoading;
-  const error = itemsQ.error
-    ? itemsQ.error instanceof Error
-      ? itemsQ.error.message
-      : "Unknown error"
-    : null;
+  // Fatal vs stale: a failed background refresh keeps the loaded board
+  // (boards/shared/board-load-state.ts).
+  const load = useBoardLoadState([
+    { queryKey: itemsKey, query: itemsQ, notFoundIsAccess: true },
+  ]);
+  useRefreshFailedNotice(load.refreshFailed, load.noticeKey);
 
   const memberMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1737,14 +1742,14 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
 
   if (loading) return <TimelineSkeleton />;
 
-  if (error) {
+  if (load.fatal) {
+    if (load.fetching) return <TimelineSkeleton />;
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <p className="text-sm text-destructive mb-2">Failed to load board</p>
-          <p className="text-xs text-muted-foreground">{error}</p>
-        </div>
-      </div>
+      <LoadError
+        title="Failed to load board"
+        description={loadErrorMessage(load.fatalError)}
+        onRetry={load.retry}
+      />
     );
   }
 

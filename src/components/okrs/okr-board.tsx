@@ -4,6 +4,10 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { jsonFetch, fetchErrorOf } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
+import { LoadError } from "@/components/ui/load-error";
+import { loadErrorMessage } from "@/components/boards/shared/board-load-state";
+import { useBoardLoadState } from "@/components/boards/shared/use-board-load-state";
+import { useRefreshFailedNotice } from "@/components/boards/shared/use-refresh-failed-notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -98,15 +102,16 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
   const objectivesKey = useOrgQueryKey("objectives", projectId);
   const intervalsKey = useOrgQueryKey("intervals", projectId);
 
-  const {
-    data: objectives = [],
-    isLoading: loading,
-    isError,
-  } = useQuery({
+  const objectivesQ = useQuery({
     queryKey: objectivesKey,
     queryFn: () => jsonFetch<Objective[]>(`${basePath}/objectives`),
   });
-  const error = isError ? "Failed to load objectives" : null;
+  const objectives = objectivesQ.data ?? [];
+  const loading = objectivesQ.isLoading;
+  // Fatal vs stale: a failed background refresh keeps the loaded objectives
+  // (boards/shared/board-load-state.ts). Intervals stay non-critical.
+  const load = useBoardLoadState([{ queryKey: objectivesKey, query: objectivesQ }]);
+  useRefreshFailedNotice(load.refreshFailed, load.noticeKey);
 
   // Intervals for the timebox picker, on the key the panel already reads.
   // SPRINT_READ can be denied independently of OKR_READ, so a failure just
@@ -319,16 +324,14 @@ export function OkrBoard({ orgId, projectId }: OkrBoardProps) {
     return <OkrBoardSkeleton />;
   }
 
-  if (error) {
+  if (load.fatal) {
+    if (load.fetching) return <OkrBoardSkeleton />;
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <p className="text-sm text-destructive mb-2">
-            Failed to load OKRs
-          </p>
-          <p className="text-xs text-muted-foreground">{error}</p>
-        </div>
-      </div>
+      <LoadError
+        title="Failed to load OKRs"
+        description={loadErrorMessage(load.fatalError) ?? "Failed to load objectives"}
+        onRetry={load.retry}
+      />
     );
   }
 
