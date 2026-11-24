@@ -16,6 +16,7 @@ import { teamProjectError } from "@/lib/teams/item-team.server";
 import { intervalRequirementError } from "@/lib/work-items/interval-required.server";
 import { assertRefsInScope } from "@/lib/rbac/foreign-refs";
 import { scopeItemLinks } from "@/lib/work-items/linked-scope.server";
+import { avatarSrcs } from "@/lib/users/avatar-srcs.server";
 import {
   allocateTicketNumber,
   allocateSortOrder,
@@ -100,9 +101,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
     });
 
+    // Avatars are stored as `data:` URIs. Inlined on every assignee of every
+    // row, a few users' images were most of a 16 MB board payload, and base64
+    // does not compress. Point at the avatar endpoint instead, which the
+    // browser fetches once per user and caches.
+    const avatars = await avatarSrcs(orgId, items.flatMap((i) => i.assignees.map((a) => a.user)));
+    const withAvatars = items.map((i) => ({
+      ...i,
+      assignees: i.assignees.map((a) => ({
+        ...a,
+        user: { ...a.user, avatarUrl: avatars.get(a.user.id) ?? a.user.avatarUrl },
+      })),
+    }));
+
     // A parent or child linked across orgs or into a hidden project before
     // writes were checked reads as no link.
-    return respond(listProjectWorkItems, 200, await scopeItemLinks(ctx, orgId, projectId, items));
+    return respond(listProjectWorkItems, 200, await scopeItemLinks(ctx, orgId, projectId, withAvatars));
   } catch (error) {
     return handleApiError(error, request);
   }

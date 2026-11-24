@@ -70,6 +70,13 @@ const ALLOWED: Record<string, string> = {
     + "unreadable; only the soft-delete filter is bypassed, and the row is "
     + "read for existence alone.",
 
+  "src/lib/users/avatar-srcs.server.ts":
+    "HISTORICAL ATTRIBUTION. Decides which avatars a list may point at the avatar "
+    + "endpoint instead of inlining. It must agree with that endpoint, which still "
+    + "serves a removed member's avatar (see its entry above), or a departed "
+    + "assignee's face goes back to riding inline on every row. Scoped to `orgId`; "
+    + "the row is read for existence alone.",
+
   "src/app/api/v1/orgs/[orgId]/export/json/route.ts":
     "HISTORICAL ATTRIBUTION. A whole-org archive carries former members too, told " +
     "apart by `removedAt`; dropping them would make the export disagree with the " +

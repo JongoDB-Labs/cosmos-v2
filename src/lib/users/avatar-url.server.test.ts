@@ -17,9 +17,24 @@ describe("avatarSrc", () => {
     expect(src).toMatch(new RegExp(`^/api/v1/orgs/${ORG}/users/${USER}/avatar\\?v=[0-9a-f]+$`));
   });
 
-  it("never returns the data: URI itself — that is the whole point", () => {
+  it("never returns a servable data: URI itself — that is the whole point", () => {
     expect(avatarSrc(ORG, USER, dataUri("AAAA"))).not.toContain("data:");
     expect(avatarSrc(ORG, USER, dataUri("AAAA"))).not.toContain("base64");
+  });
+
+  it("keeps an svg data: URI inline, because the endpoint would 404 it into a broken image", () => {
+    const svg = `data:image/svg+xml;base64,${Buffer.from("<svg/>").toString("base64")}`;
+    expect(avatarSrc(ORG, USER, svg)).toBe(svg);
+  });
+
+  it("keeps a non-base64 data: URI inline, for the same reason", () => {
+    expect(avatarSrc(ORG, USER, "data:image/png,rawbytes")).toBe("data:image/png,rawbytes");
+  });
+
+  it("swaps every raster type the endpoint serves", () => {
+    for (const t of ["image/png", "image/jpeg", "image/gif", "image/webp"]) {
+      expect(avatarSrc(ORG, USER, `data:${t};base64,AAAA`)).toMatch(/^\/api\/v1\/orgs\//);
+    }
   });
 
   it("leaves an absolute http(s) URL alone — it is already cacheable elsewhere", () => {
