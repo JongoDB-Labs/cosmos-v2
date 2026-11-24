@@ -59,7 +59,7 @@ const RELEASES: Release[] = [
       },
       {
         kind: "improvement",
-        text: "For API users: `avatarUrl` on a project's work-items list and teams list is now one of `null`, an absolute http(s) URL (unchanged), or a path such as `/api/v1/orgs/{orgId}/users/{userId}/avatar?v=\u2026` to resolve against your Cosmos address. Fetching it needs the `read` scope; send your Cosmos credentials only to that address. Creating a work item and reading or updating a single one still return the picture inline for now.",
+        text: "For API users: `avatarUrl` on a project's work-items list is now one of `null`, an absolute http(s) URL (unchanged), or a path such as `/api/v1/orgs/{orgId}/users/{userId}/avatar?v=\u2026` to resolve against your Cosmos origin (scheme and host only, not the `/api/v1` base). Fetching it needs the `read` scope; send your Cosmos credentials only to that origin. Creating, merging, reading or updating a single work item still return the picture inline for now.",
       },
     ],
   },
