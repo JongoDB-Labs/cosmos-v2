@@ -5,6 +5,9 @@
 // for a name. This locks the two affordances that fixed it: alphabetical order,
 // and a search box that matches the display name OR the email.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+// The creator-as-default-assignee lookup needs React Query; these cases test
+// other behaviour, so "no signed-in user yet" keeps the picker as it was.
+vi.mock("@/lib/hooks/use-current-user", () => ({ useCurrentUserId: () => null }));
 import { render, screen, cleanup, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 

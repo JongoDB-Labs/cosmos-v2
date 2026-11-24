@@ -2,6 +2,9 @@
 // COSMOS-223: picking an interval in the New work item dialog fills the planned
 // start and end from the interval, but only where they are still empty.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+// The creator-as-default-assignee lookup needs React Query; these cases test
+// other behaviour, so "no signed-in user yet" keeps the picker as it was.
+vi.mock("@/lib/hooks/use-current-user", () => ({ useCurrentUserId: () => null }));
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 

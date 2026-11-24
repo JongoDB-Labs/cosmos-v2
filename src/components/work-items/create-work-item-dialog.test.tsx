@@ -17,6 +17,9 @@
 //      aborted while the board quick-create still worked. It must fall back to
 //      "backlog" and still POST.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+// The creator-as-default-assignee lookup needs React Query; these cases test
+// other behaviour, so "no signed-in user yet" keeps the picker as it was.
+vi.mock("@/lib/hooks/use-current-user", () => ({ useCurrentUserId: () => null }));
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 

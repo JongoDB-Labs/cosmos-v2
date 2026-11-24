@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.565.0",
+    date: "2026-11-23",
+    title: "New work items are assigned to you by default",
+    highlights: [
+      {
+        kind: "feature",
+        text: "When you create a work item, you're now picked as its assignee to start with — in the New work item form and in Cmd+K's quick create. Untick yourself, or pick Unassigned, to leave it with nobody. A duplicated item still keeps the original's assignees.",
+      },
+      {
+        kind: "feature",
+        text: "A sub-item added from an item's detail panel starts with the parent's assignees. If one of them can't take it, the sub-item is created unassigned and you're told.",
+      },
+    ],
+  },
+  {
     version: "2.564.3",
     date: "2026-11-23",
     title: "New work items show up on the Kanban board straight away",

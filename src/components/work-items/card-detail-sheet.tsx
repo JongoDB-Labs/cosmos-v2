@@ -848,19 +848,39 @@ export function CardDetailSheet({
     if (!item || !trimmed) return;
     setAddingChild(true);
     try {
-      const res = await fetch(basePath, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: trimmed,
-          // FR 3fd0e9bd: default the sub-item's type one level down the
-          // hierarchy from its parent (epic→story, story→task, task/bug→subtask)
-          // instead of always TASK.
-          type: childTypeFor(item.workItemType?.key),
-          columnKey: item.columnKey,
-          parentId: item.id,
-        }),
-      });
+      // A sub-item starts with its parent's assignees: a task usually belongs
+      // to whoever owns the story.
+      const inherited = item.assignees?.length
+        ? item.assignees.map((a) => a.userId)
+        : item.assigneeId
+          ? [item.assigneeId]
+          : [];
+      // The create API takes at most 50 assignees (an import can store more on
+      // one item); past that, start the sub-item unassigned.
+      const parentAssigneeIds = inherited.length <= 50 ? inherited : [];
+      const post = (assigneeIds: string[]) =>
+        fetch(basePath, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: trimmed,
+            // FR 3fd0e9bd: default the sub-item's type one level down the
+            // hierarchy from its parent (epic→story, story→task, task/bug→subtask)
+            // instead of always TASK.
+            type: childTypeFor(item.workItemType?.key),
+            columnKey: item.columnKey,
+            parentId: item.id,
+            ...(assigneeIds.length ? { assigneeIds } : {}),
+          }),
+        });
+      let res = await post(parentAssigneeIds);
+      // The inherited assignees are a default, not something the user chose: if
+      // the server refuses them (one has left the org — 422; a create rule
+      // forbids work for them — 403), create it unassigned rather than failing.
+      if (parentAssigneeIds.length > 0 && (res.status === 403 || res.status === 422)) {
+        res = await post([]);
+        if (res.ok) toast.warning("Sub-item created unassigned — it couldn't take the parent's assignee.");
+      }
       if (!res.ok) throw await fetchErrorOf(res);
       const child: WorkItem = await res.json();
       const childRef = {

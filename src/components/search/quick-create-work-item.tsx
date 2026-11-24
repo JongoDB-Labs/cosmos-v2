@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo} from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { useCurrentUserId } from "@/lib/hooks/use-current-user";
+import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
+import { toast } from "sonner";
 import { selectableTypes, useWorkItemTypes } from "@/hooks/use-work-item-types";
 import type { Board, OrgMember, WorkItem } from "@/types/models";
 
@@ -64,6 +66,10 @@ export function QuickCreateWorkItem({
     prefilledProject?.id ?? "",
   );
   const [assigneeId, setAssigneeId] = useState<string>("");
+  // Default the assignee to the creator once the user id and member list have
+  // loaded — unless the user has already picked (including "Unassigned").
+  const currentUserId = useCurrentUserId();
+  const assigneeTouched = useRef(false);
   const [dueDate, setDueDate] = useState<string>("");
   const [members, setMembers] = useState<OrgMember[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -112,6 +118,15 @@ export function QuickCreateWorkItem({
     };
   }, [orgId]);
 
+  useEffect(() => {
+    // Not mid-submit: the request has already captured the value, and the
+    // picker must not then show someone the item isn't being created with.
+    if (submitting || assigneeTouched.current || !currentUserId) return;
+    if (!members.some((m) => m.userId === currentUserId)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAssigneeId((prev) => prev || currentUserId);
+  }, [currentUserId, members, submitting]);
+
   const selectedProject =
     projects.find((p) => p.id === projectId) ??
     (prefilledProject && prefilledProject.id === projectId
@@ -132,19 +147,29 @@ export function QuickCreateWorkItem({
       const firstBoard = boards[0];
       const columnKey = firstBoard?.columns?.[0]?.key ?? "backlog";
 
-      const item = await jsonFetch<WorkItem>(
-        `/api/v1/orgs/${orgId}/projects/${projectId}/work-items`,
-        {
+      const create = (assignTo: string | null) =>
+        jsonFetch<WorkItem>(`/api/v1/orgs/${orgId}/projects/${projectId}/work-items`, {
           method: "POST",
           body: JSON.stringify({
             title: trimmed,
             ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
             columnKey,
-            assigneeId: assigneeId || null,
+            assigneeId: assignTo,
             dueDate: dueDate ? new Date(dueDate).toISOString() : null,
           }),
-        },
-      );
+        });
+      // Assigned to the creator by default, not by choice: if a create rule
+      // refuses that (403) where an unassigned item is allowed, file it
+      // unassigned instead of failing.
+      const isAutoDefault = !assigneeTouched.current && !!assigneeId && assigneeId === currentUserId;
+      let item: WorkItem;
+      try {
+        item = await create(assigneeId || null);
+      } catch (err) {
+        if (!(isAutoDefault && err instanceof FetchError && err.status === 403)) throw err;
+        item = await create(null);
+        toast.warning("Created unassigned — you can't be assigned this item.");
+      }
 
       onClose();
 
@@ -236,7 +261,10 @@ export function QuickCreateWorkItem({
           <Label className="px-0.5 text-[11px]">Assignee</Label>
           <select
             value={assigneeId}
-            onChange={(e) => setAssigneeId(e.target.value)}
+            onChange={(e) => {
+              assigneeTouched.current = true;
+              setAssigneeId(e.target.value);
+            }}
             className={fieldClass}
             disabled={submitting}
           >

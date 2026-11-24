@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo} from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { jsonFetch } from "@/lib/query/json-fetcher";
+import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { notifyError } from "@/lib/errors/notify";
 import { toast } from "sonner";
 import { useCustomFields } from "@/hooks/use-custom-fields";
@@ -27,6 +27,7 @@ import {
 } from "@/components/work-items/custom-field-input";
 import { createStatusOptions } from "@/lib/boards/status-columns";
 import { filterMemberOptions, memberPickerOptions } from "@/lib/org/member-picker";
+import { useCurrentUserId } from "@/lib/hooks/use-current-user";
 import type { Board, BoardColumn, OrgMember, Interval } from "@/types/models";
 import { datesFromInterval } from "@/lib/intervals/fill-dates";
 import {
@@ -202,6 +203,12 @@ export function CreateWorkItemDialog({
   // Assignee search box (COSMOS-171) — client-side only; the member list is
   // already loaded in full.
   const [assigneeSearch, setAssigneeSearch] = useState("");
+  // A new item defaults its assignee to the person creating it. The user id
+  // and the member list both load after the dialog opens, so the default is
+  // applied when they land, and never once the user has touched the picker
+  // (unticking yourself must stick).
+  const currentUserId = useCurrentUserId();
+  const assigneesTouched = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   // Status. The dialog used to resolve this silently — first board, first column
   // — with no way to say where the issue should land, which is the one thing the
@@ -260,6 +267,7 @@ export function CreateWorkItemDialog({
       setTitle("");
       setPriority("MEDIUM");
       setAssigneeIds([]);
+      assigneesTouched.current = false;
       setAssigneeSearch("");
       setStoryPoints("");
       // Both date fields are reset from their seeds (usually absent, so ""):
@@ -299,6 +307,23 @@ export function CreateWorkItemDialog({
     initialDueDate,
     initialColumnKey,
   ]);
+
+  // Default the assignee to the creator (see `assigneesTouched`). Not for a
+  // duplicate, which keeps the original's assignees, and only when the creator
+  // is in the member list, so the default is always someone the picker offers.
+  // `assigneeIds.length` is a dependency because the reset above can run again
+  // after open (a lazily loaded project list changes `firstProjectId`) and
+  // empty the picker; an untouched, empty picker gets the default back.
+  const assigneeCount = assigneeIds.length;
+  useEffect(() => {
+    // Not mid-submit: the request has already captured the picker, and it must
+    // not then show someone the item isn't being created with.
+    if (!open || duplicateSource || submitting || assigneesTouched.current || !currentUserId) return;
+    if (assigneeCount > 0) return;
+    if (!memberOptions.some((m) => m.value === currentUserId)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAssigneeIds((prev) => (prev.length === 0 ? [currentUserId] : prev));
+  }, [open, duplicateSource, submitting, currentUserId, memberOptions, assigneeCount]);
 
   // The statuses this dialog can file into: the board's own workflow when it was
   // opened from a board, else the project's, pooled across its boards.
@@ -525,14 +550,15 @@ export function CreateWorkItemDialog({
         return;
       }
 
-      await jsonFetch(`/api/v1/orgs/${orgId}/projects/${projectId}/work-items`, {
+      const create = (assignTo: string[]) =>
+        jsonFetch(`/api/v1/orgs/${orgId}/projects/${projectId}/work-items`, {
         method: "POST",
         body: JSON.stringify({
           title: trimmed,
           ...(workItemTypeId ? { workItemTypeId } : { type: "TASK" }),
           columnKey: submitColumnKey,
           priority,
-          ...(assigneeIds.length ? { assigneeIds } : {}),
+          ...(assignTo.length ? { assigneeIds: assignTo } : {}),
           ...(intervalId ? { intervalId } : {}),
           ...(teamId ? { teamId } : {}),
           description:
@@ -546,6 +572,23 @@ export function CreateWorkItemDialog({
             : {}),
         }),
       });
+      // The creator was assigned by DEFAULT, not by choice. If a create rule
+      // refuses work assigned to them (403) where an unassigned item is allowed,
+      // fall back to unassigned rather than failing a create that worked before
+      // the default existed. A choice the user made is never second-guessed.
+      // A duplicate's assignees came from its source, never from the default.
+      const isAutoDefault =
+        !duplicateSource &&
+        !assigneesTouched.current &&
+        assigneeIds.length === 1 &&
+        assigneeIds[0] === currentUserId;
+      try {
+        await create(assigneeIds);
+      } catch (err) {
+        if (!(isAutoDefault && err instanceof FetchError && err.status === 403)) throw err;
+        await create([]);
+        toast.warning("Created unassigned — you can't be assigned this item.");
+      }
       toast.success(`Created "${trimmed}"`);
       onOpenChange(false);
       onCreated?.();
@@ -699,13 +742,14 @@ export function CreateWorkItemDialog({
                       className="accent-[var(--primary)]"
                       checked={assigneeIds.includes(m.value)}
                       disabled={submitting}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        assigneesTouched.current = true;
                         setAssigneeIds((prev) =>
                           e.target.checked
                             ? [...prev, m.value]
                             : prev.filter((id) => id !== m.value),
-                        )
-                      }
+                        );
+                      }}
                     />
                     {m.label}
                   </label>
