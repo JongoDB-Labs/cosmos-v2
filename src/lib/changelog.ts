@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.565.1",
+    date: "2026-11-24",
+    title: "A board stays on screen when a refresh fails",
+    highlights: [
+      {
+        kind: "fix",
+        text: "If a board's background refresh fails (for example while the server restarts), the board you were looking at now stays on screen with a \"Couldn't refresh\" notice, instead of being replaced by \"Failed to load board\". The notice clears on the next good refresh. This covers Kanban, Sprint, Table, Timeline, Calendar, Dashboard, Backlog, RAID, OKR and ceremony boards.",
+      },
+      {
+        kind: "fix",
+        text: "When a board can't load at all, it now offers \"Try again\". A ceremony board whose sprint list fails to load says so, rather than \"No sprints yet\".",
+      },
+    ],
+  },
+  {
     version: "2.565.0",
     date: "2026-11-23",
     title: "New work items are assigned to you by default",
