@@ -75,6 +75,13 @@ export function useBoardLoadState(reads: readonly BoardRead[]): BoardLoadState {
   useEffect(() => {
     const watched = new Map<string, boolean>();
     hashList.split("|").forEach((h, i) => watched.set(h, access404[i] === "1"));
+    // Snapshot the cache before listening: a view that remounts onto a query
+    // still holding a 403 must keep that latch when the next fetch fails differently.
+    const seeds = new Map<string, ReadMemory>();
+    watched.forEach((notFoundIsAccess, h) => {
+      const state = qc.getQueryCache().get(h)?.state;
+      if (state?.status === "error") seeds.set(h, memoryFromState(state, notFoundIsAccess));
+    });
     return qc.getQueryCache().subscribe((event) => {
       if (event.type !== "updated") return;
       const hash = event.query.queryHash;
@@ -85,7 +92,7 @@ export function useBoardLoadState(reads: readonly BoardRead[]): BoardLoadState {
         if (isCancelledError(action.error)) return;
         setMemory((prev) => ({
           ...prev,
-          [hash]: recordFetch(prev[hash] ?? FRESH_READ, {
+          [hash]: recordFetch(prev[hash] ?? seeds.get(hash) ?? FRESH_READ, {
             ok: false,
             error: action.error,
             notFoundIsAccess,

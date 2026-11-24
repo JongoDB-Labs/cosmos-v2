@@ -73,6 +73,40 @@ describe("useBoardLoadState", () => {
     expect(hook.result.current.refreshFailed).toBe(false);
   });
 
+  it("an access error stays latched after a remount when the next fetch fails differently", async () => {
+    const first = setup();
+    await waitFor(() => expect(first.qc.getQueryData(["items", "a"])).toBeTruthy());
+    first.server.fail = http(403);
+    await act(() => first.qc.refetchQueries({ queryKey: ["items", "a"] }));
+    await waitFor(() => expect(first.hook.result.current.fatal).toBe(true));
+    first.hook.unmount();
+
+    // Remount on the same cache; the query still holds the 403 and its old data.
+    const qc = first.qc;
+    const server = { fail: http(500) as FetchError | null };
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => {
+        const key = ["items", "a"];
+        const q = useQuery({
+          queryKey: key,
+          queryFn: async () => {
+            if (server.fail) throw server.fail;
+            return ["fresh"];
+          },
+        });
+        return useBoardLoadState([{ queryKey: key, query: q, notFoundIsAccess: true }]);
+      },
+      { wrapper },
+    );
+    expect(result.current.fatal).toBe(true);
+    await act(() => qc.refetchQueries({ queryKey: ["items", "a"] }));
+    expect(result.current.fatal).toBe(true);
+    expect(result.current.refreshFailed).toBe(false);
+  });
+
   it("a key change resets the memory", async () => {
     const { qc, server, hook } = setup((qc) => qc.setQueryData(["items", "b"], ["cached b"]));
     await waitFor(() => expect(qc.getQueryData(["items", "a"])).toBeTruthy());
