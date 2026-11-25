@@ -51,7 +51,7 @@ const RELEASES: Release[] = [
   {
     version: "2.565.1",
     date: "2026-11-24",
-    title: "Boards load faster when people have profile pictures",
+    title: "Boards load faster and stay on screen when a refresh fails",
     highlights: [
       {
         kind: "improvement",
@@ -60,6 +60,14 @@ const RELEASES: Release[] = [
       {
         kind: "improvement",
         text: "For API users: `avatarUrl` on a project's work-items list is now one of `null`, an absolute http(s) URL (unchanged), or a path such as `/api/v1/orgs/{orgId}/users/{userId}/avatar?v=\u2026` to resolve against your Cosmos origin (scheme and host only, not the `/api/v1` base). Fetching it needs the `read` scope; send your Cosmos credentials only to that origin. Creating, merging, reading or updating a single work item still return the picture inline for now.",
+      },
+      {
+        kind: "fix",
+        text: "If a board's background refresh fails (for example while the server restarts), the board you were looking at now stays on screen with a \"Couldn't refresh\" notice, instead of being replaced by \"Failed to load board\". The notice clears on the next good refresh. This covers Kanban, Sprint, Table, Timeline, Calendar, Dashboard, Backlog, RAID, OKR and ceremony boards.",
+      },
+      {
+        kind: "fix",
+        text: "When a board can't load at all, it now offers \"Try again\". A ceremony board whose sprint list fails to load says so, rather than \"No sprints yet\".",
       },
     ],
   },

@@ -17,6 +17,7 @@ import {
   BoardToolbarTitle,
 } from "@/components/boards/shared/board-toolbar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadError } from "@/components/ui/load-error";
 import type { WorkItem, Board, BoardColumn } from "@/types/models";
 import { cumulativeFlow, type CfdCategory } from "@/lib/dashboard/cfd";
 import { fetchErrorOf } from "@/lib/query/json-fetcher";
@@ -42,6 +43,8 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
   const [columns, setColumns] = useState<BoardColumn[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by "Try again" to re-run the load below.
+  const [reloadKey, setReloadKey] = useState(0);
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}`;
 
@@ -81,7 +84,7 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
 
     fetchData();
     return () => { cancelled = true; };
-  }, [orgId, projectId, boardId, basePath]);
+  }, [orgId, projectId, boardId, basePath, reloadKey]);
 
   const columnCategoryMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -121,12 +124,11 @@ export function CfdView({ orgId, projectId, projectKey, boardId }: CfdViewProps)
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <p className="text-sm text-destructive mb-2">Failed to load board</p>
-          <p className="text-xs text-muted-foreground">{error}</p>
-        </div>
-      </div>
+      <LoadError
+        title="Failed to load board"
+        description={error}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
     );
   }
 

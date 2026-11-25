@@ -4,6 +4,10 @@ import { useBoardQuery } from "@/components/boards/shared/use-board-query";
 import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { useMemo, useState, useCallback, useRef } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { LoadError } from "@/components/ui/load-error";
+import { loadErrorMessage } from "@/components/boards/shared/board-load-state";
+import { useBoardLoadState } from "@/components/boards/shared/use-board-load-state";
+import { useRefreshFailedNotice } from "@/components/boards/shared/use-refresh-failed-notice";
 import {
   DndContext,
   closestCorners,
@@ -245,12 +249,13 @@ export function BacklogView({
 
   const loading =
     boardQ.isLoading || itemsQ.isLoading || membersQ.isLoading || intervalsQ.isLoading;
-  const fatalError = boardQ.error || itemsQ.error;
-  const error = fatalError
-    ? fatalError instanceof Error
-      ? fatalError.message
-      : "Unknown error"
-    : null;
+  // Fatal vs stale: a failed background refresh keeps the loaded board
+  // (boards/shared/board-load-state.ts).
+  const load = useBoardLoadState([
+    { queryKey: boardKey, query: boardQ, notFoundIsAccess: true },
+    { queryKey: itemsKey, query: itemsQ, notFoundIsAccess: true },
+  ]);
+  useRefreshFailedNotice(load.refreshFailed, load.noticeKey);
 
   const memberById = useMemo(() => {
     const map = new Map<string, OrgMember>();
@@ -602,14 +607,14 @@ export function BacklogView({
 
   if (loading) return <BacklogSkeleton />;
 
-  if (error) {
+  if (load.fatal) {
+    if (load.fetching) return <BacklogSkeleton />;
     return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="text-center">
-          <p className="mb-2 text-sm text-destructive">Failed to load backlog</p>
-          <p className="text-xs text-[var(--text-muted)]">{error}</p>
-        </div>
-      </div>
+      <LoadError
+        title="Failed to load backlog"
+        description={loadErrorMessage(load.fatalError)}
+        onRetry={load.retry}
+      />
     );
   }
 
