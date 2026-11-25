@@ -49,6 +49,25 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.566.0",
+    date: "2026-11-25",
+    title: "The assistant stays on top, stays put, and can be minimized",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Full-screen timelines and presentations no longer hide the assistant, and toasts and the Preferences save bar no longer slide underneath an open side panel.",
+      },
+      {
+        kind: "fix",
+        text: "The assistant's button stays in the same corner instead of moving around the page. Pages leave room at the bottom so nothing is stuck underneath it.",
+      },
+      {
+        kind: "feature",
+        text: "Minimize the assistant (or any side panel) to a slim tab on the right edge to get the corner of the screen back. The assistant keeps your conversation and anything you were typing, and the tab is remembered after a reload. Escape now minimizes instead of closing.",
+      },
+    ],
+  },
+  {
     version: "2.565.1",
     date: "2026-11-24",
     title: "Boards load faster and stay on screen when a refresh fails",

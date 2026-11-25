@@ -8,6 +8,7 @@ import type { Tour } from "@/lib/tours/types";
 
 const { toast } = vi.hoisted(() => ({ toast: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
+vi.mock("@/lib/hooks/use-media-query", () => ({ useMediaQuery: () => true }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/acme", useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/components/providers/permissions-provider", () => ({ usePermissions: () => ({ can: () => true }) }));
 

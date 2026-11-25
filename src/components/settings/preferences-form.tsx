@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { Z_PAGE_FLOAT } from "@/lib/ui/layers";
 import { Button } from "@/components/ui/button";
 import { useBrand } from "@/components/providers/brand-provider";
 import { Input } from "@/components/ui/input";
@@ -718,9 +719,11 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
 
       {/* Sticky save bar — appears when dirty. Bottom offset clears the
        * mobile bottom-nav (h-16 + safe-area, z-30); desktop has no bottom
-       * nav so falls back to bottom-4. z-40 so it stacks above the nav. */}
+       * nav so falls back to bottom-4. The page-float layer stacks it above
+       * the nav; the right inset clears an open drawer and the corner
+       * assistant button (which no longer moves out of its way). */}
       {dirty && (
-        <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+0.5rem)] right-4 left-4 sm:bottom-4 sm:left-auto sm:right-8 z-40 flex items-center gap-3 rounded-lg border border-border bg-popover px-4 py-3 shadow-lg">
+        <div className={cn("fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+0.5rem)] right-[calc(1rem+var(--cosmos-launcher-clear,0px))] left-4 sm:bottom-4 sm:left-auto sm:right-[calc(2rem+var(--cosmos-drawer-w,0px)+var(--cosmos-launcher-clear,0px))]", Z_PAGE_FLOAT, "flex items-center gap-3 rounded-lg border border-border bg-popover px-4 py-3 shadow-lg")}>
           <span className="text-sm text-muted-foreground">Unsaved changes</span>
           <div className="flex-1" />
           <Button variant="ghost" size="sm" onClick={discardAll} disabled={saving}>
@@ -735,7 +738,7 @@ export function PreferencesForm({ orgId }: PreferencesFormProps) {
       )}
 
       {saved && !dirty && (
-        <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+0.5rem)] right-4 left-4 sm:bottom-4 sm:left-auto sm:right-8 z-40 flex items-center gap-2 rounded-lg border border-emerald-500/50 bg-emerald-50 px-4 py-3 text-emerald-700 shadow-lg dark:bg-emerald-950 dark:text-emerald-300">
+        <div className={cn("fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+0.5rem)] right-[calc(1rem+var(--cosmos-launcher-clear,0px))] left-4 sm:bottom-4 sm:left-auto sm:right-[calc(2rem+var(--cosmos-drawer-w,0px)+var(--cosmos-launcher-clear,0px))]", Z_PAGE_FLOAT, "flex items-center gap-2 rounded-lg border border-emerald-500/50 bg-emerald-50 px-4 py-3 text-emerald-700 shadow-lg dark:bg-emerald-950 dark:text-emerald-300")}>
           <Check className="h-4 w-4" />
           <span className="text-sm font-medium">Preferences saved</span>
         </div>

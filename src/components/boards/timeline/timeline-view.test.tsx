@@ -494,10 +494,12 @@ describe("TimelineView — fullscreen shows only the work items and the calendar
 
     fireEvent.click(screen.getByRole("button", { name: "Enter fullscreen" }));
 
-    // A fixed layer over everything the surrounding app drew.
+    // A fixed layer over the page, stopping at an open side drawer.
     const root = screen.getByTestId("gantt-root");
     expect(root.className).toMatch(/\bfixed\b/);
-    expect(root.className).toMatch(/\binset-0\b/);
+    expect(root.className).toMatch(/\binset-y-0\b/);
+    expect(root.className).toMatch(/\bleft-0\b/);
+    expect(root.className).toContain("right-[var(--cosmos-drawer-w,0px)]");
 
     // The two panes the user asked for are still there, inside that layer...
     expect(root.contains(screen.getByTestId("gantt-left"))).toBe(true);

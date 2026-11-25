@@ -80,6 +80,7 @@ import type { NewWorkItemContext } from "@/lib/boards/new-work-item-context";
 import { notifyError } from "@/lib/errors/notify";
 import { usePermissions, Permission } from "@/components/providers/permissions-provider";
 import { cn } from "@/lib/utils";
+import { Z_TAKEOVER } from "@/lib/ui/layers";
 import { buildTimelineTree } from "@/lib/boards/timeline-tree";
 import { useProjectStatuses } from "@/hooks/use-project-statuses";
 import { slipDays } from "@/lib/schedule/health";
@@ -2045,7 +2046,13 @@ export function TimelineView({ orgId, projectId, projectKey, boardId }: Timeline
       data-testid="gantt-root"
       className={cn(
         "flex flex-col h-full",
-        fullscreen && "fixed inset-0 z-50 bg-background",
+        // Beside an open side drawer (not under it), and clear of the corner
+        // assistant button's strip at the bottom; below dialogs and menus.
+        fullscreen &&
+          cn(
+            "fixed inset-y-0 left-0 right-[var(--cosmos-drawer-w,0px)] bg-background pb-[var(--cosmos-launcher-clear-mobile,0px)] md:pb-[var(--cosmos-launcher-clear,0px)]",
+            Z_TAKEOVER,
+          ),
       )}
     >
       <div role="status" aria-live="polite" className="sr-only" data-testid="gantt-announcer">

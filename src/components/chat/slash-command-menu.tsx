@@ -39,13 +39,26 @@ export function SlashCommandMenu({
           onPick(matches[active]);
           e.preventDefault();
         }
-      } else if (e.key === "Escape") {
-        onCancel();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [matches, active, onPick, onCancel]);
+
+  // Escape closes the list, in the CAPTURE phase on window so it runs before
+  // any bubble-phase handler (the docked drawer minimizes on Escape), and marks
+  // the key handled so nothing else acts on it too: one key, one action.
+  // Only while the list is actually showing.
+  useEffect(() => {
+    if (!(matches.length > 0)) return;
+    function onEsc(e: KeyboardEvent) {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      onCancel();
+    }
+    window.addEventListener("keydown", onEsc, true);
+    return () => window.removeEventListener("keydown", onEsc, true);
+  }, [matches.length, onCancel]);
 
   if (matches.length === 0) return null;
   return (

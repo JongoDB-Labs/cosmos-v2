@@ -12,6 +12,7 @@ import { TourLauncher } from "../tour-launcher";
 import type { Tour } from "@/lib/tours/types";
 
 vi.mock("sonner", () => ({ toast: vi.fn() }));
+vi.mock("@/lib/hooks/use-media-query", () => ({ useMediaQuery: () => true }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/acme", useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/components/providers/permissions-provider", () => ({
   usePermissions: () => ({ can: () => true, permissions: 0n }),
