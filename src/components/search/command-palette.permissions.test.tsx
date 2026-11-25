@@ -23,10 +23,14 @@ vi.mock("next/navigation", () => ({
   usePathname: () => nav.path,
 }));
 
+// The create dialog needs a query client; these specs only look at the rows.
+vi.mock("@/components/work-items/create-work-item-dialog", () => ({ CreateWorkItemDialog: () => null }));
+
 import { CommandPalette } from "./command-palette";
 import { DrawerProvider } from "@/components/drawers/drawer-provider";
 import { PermissionsProvider } from "@/components/providers/permissions-provider";
 import { RolePermissions, permissionNames } from "@/lib/rbac/permissions";
+import { setNewWorkItemContext } from "@/lib/boards/new-work-item-context";
 
 function renderPalette(role: keyof typeof RolePermissions, extra: string[] = []) {
   render(
@@ -56,6 +60,7 @@ afterEach(() => {
   nav.path = "/acme";
   nav.push.mockClear();
   vi.unstubAllGlobals();
+  setNewWorkItemContext(null);
 });
 
 describe("CommandPalette offers only what the person may use", () => {
@@ -117,6 +122,13 @@ describe("CommandPalette reaches every page the person may open", () => {
     expect(screen.queryByText("Settings › API Keys")).toBeNull();
   });
 
+  it("finds a page by several words in the Pages group too", async () => {
+    await openPalette("MEMBER");
+    type("settings api");
+    const pages = (await screen.findByText("Pages")).closest("[cmdk-group]") as HTMLElement;
+    expect(within(pages).getByText("Settings › API Keys")).toBeInTheDocument();
+  });
+
   it("puts at most five pages above the results, and Enter opens the top one", async () => {
     vi.stubGlobal(
       "fetch",
@@ -170,5 +182,37 @@ describe("CommandPalette offers only the actions the person may use", () => {
   it("offers New project to an admin", async () => {
     await openPalette("ADMIN");
     expect(screen.getByText("New project…")).toBeInTheDocument();
+  });
+
+  const SCOPE = { scopeLabel: "FSC timeline", orgId: "org-1", projectId: "p1", projectKey: "FSC" };
+
+  it("hides New work item in <board> from a viewer", async () => {
+    setNewWorkItemContext(SCOPE);
+    await openPalette("VIEWER");
+    expect(screen.getByText("Open Assistant")).toBeInTheDocument();
+    expect(screen.queryByText("New work item in FSC timeline…")).toBeNull();
+  });
+
+  it("offers New work item in <board> to a member", async () => {
+    setNewWorkItemContext(SCOPE);
+    await openPalette("MEMBER");
+    expect(await screen.findByText("New work item in FSC timeline…")).toBeInTheDocument();
+  });
+
+  it("hides New board from a guest off a project page", async () => {
+    await openPalette("GUEST");
+    expect(screen.getByText("Open Assistant")).toBeInTheDocument();
+    expect(screen.queryByText("New board")).toBeNull();
+  });
+
+  it("offers New board to a member off a project page", async () => {
+    await openPalette("MEMBER");
+    expect(screen.getByText("New board")).toBeInTheDocument();
+  });
+
+  it("offers New board to a guest on a project page (a project lead may add boards)", async () => {
+    nav.path = "/acme/projects/FSC";
+    await openPalette("GUEST");
+    expect(screen.getByText("New board")).toBeInTheDocument();
   });
 });
