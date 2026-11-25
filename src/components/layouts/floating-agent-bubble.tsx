@@ -1,163 +1,93 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { useEffect } from "react";
+import { ChevronRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDrawers } from "@/components/drawers/drawer-provider";
+import { focusDrawerTab } from "@/components/drawers/drawer-tab";
 import { useBrand } from "@/components/providers/brand-provider";
-import { domIsBlocked, pickOffset, restingBox, type Offset } from "./bubble-dodge";
+import { Z_ASSISTANT } from "@/lib/ui/layers";
 
 /**
- * Persistent floating agent affordance (item 9).
+ * Bottom room the page keeps free while the corner button is shown: 24px edge
+ * gap + 48px button + 12px for the attached minimize control + 4px.
+ */
+export const LAUNCHER_CLEAR = "88px";
+/**
+ * The same for full-screen views on phones, measured from the viewport bottom:
+ * the button's offset (above where the bottom nav sits) + 48px button + 4px.
+ */
+export const LAUNCHER_CLEAR_MOBILE = "calc(5.25rem + env(safe-area-inset-bottom) + 52px)";
+
+/**
+ * The corner button that opens the ONE docked assistant drawer — the same
+ * surface as the topbar trigger and the `cosmos:agent:open` event (mobile
+ * bottom nav, command palette, wake word; that listener lives in DockedDrawer,
+ * which is always mounted).
  *
- * A bottom-right bubble that opens the ONE docked Assistant drawer — the SAME
- * surface as the topbar ✨ trigger and the `cosmos:agent:open` event (mobile
- * bottom nav, command palette). Previously this hosted its OWN slide-over with
- * a different assistant component, which diverged from the topbar drawer; now
- * it's a pure entry point so the agent experience is identical everywhere.
+ * It sits in ONE place: bottom-right, above the bottom nav on phones. It does
+ * not move out of the way of what is under it. Instead the page keeps room for
+ * it — it publishes `--cosmos-launcher-clear` (and a phone variant for
+ * full-screen views), which the shell adds to `<main>`'s bottom padding and
+ * fixed page bars add to their right inset — and the attached control puts the
+ * assistant aside to the side tab, freeing the corner entirely.
  *
- * Rendered only when an org is in context (the drawer's panels need an orgId).
- * On mobile the bubble lifts above the bottom-nav safe area.
- *
- * It also moves out of the way of whatever it would cover: see
- * {@link useDodge}.
+ * Hidden while any drawer is open or minimized, and when no org is in context.
  */
 export function FloatingAgentBubble({ orgId }: { orgId: string | undefined }) {
-  const { open, isOpen } = useDrawers();
+  const { open, minimize, tool } = useDrawers();
   const brand = useBrand();
 
-  // Let other surfaces (mobile bottom nav, command palette) open the agent.
+  const hidden = !orgId || tool !== null;
+
   useEffect(() => {
-    function onOpen() {
-      open("assistant");
-    }
-    window.addEventListener("cosmos:agent:open", onOpen);
-    return () => window.removeEventListener("cosmos:agent:open", onOpen);
-  }, [open]);
+    const root = document.documentElement;
+    root.style.setProperty("--cosmos-launcher-clear", hidden ? "0px" : LAUNCHER_CLEAR);
+    root.style.setProperty(
+      "--cosmos-launcher-clear-mobile",
+      hidden ? "0px" : LAUNCHER_CLEAR_MOBILE,
+    );
+    return () => {
+      root.style.setProperty("--cosmos-launcher-clear", "0px");
+      root.style.setProperty("--cosmos-launcher-clear-mobile", "0px");
+    };
+  }, [hidden]);
 
-  const hidden = !orgId || isOpen("assistant");
-  const { ref, offset } = useDodge(!hidden);
-
-  // Hide the bubble while the assistant drawer is already open (its own header
-  // has the close control) so they don't overlap.
   if (hidden) return null;
 
   return (
-    <button
-      ref={ref}
-      type="button"
-      onClick={() => open("assistant")}
-      aria-label={`Open ${brand.agentName}`}
-      title={brand.agentName}
+    <div
       className={cn(
-        "fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-40 md:bottom-6 md:right-6",
-        "flex h-12 w-12 items-center justify-center rounded-full",
-        "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg",
-        // Only `scale` transitions (for hover). The dodge offset must NOT animate:
-        // see useDodge — an in-flight `translate` made every re-check measure a
-        // position the bubble had not reached yet.
-        "transition-[scale] duration-200 motion-reduce:transition-none hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",
+        "fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 h-12 w-12 md:bottom-6 md:right-6",
+        Z_ASSISTANT,
       )}
-      // `translate` (not `transform`) so it composes with hover:scale.
-      style={offset.x || offset.y ? { translate: `${offset.x}px ${offset.y}px` } : undefined}
     >
-      <Sparkles className="h-5 w-5" />
-    </button>
+      <button
+        type="button"
+        onClick={() => open("assistant")}
+        aria-label={`Open ${brand.agentName}`}
+        title={brand.agentName}
+        className={cn(
+          "flex h-12 w-12 items-center justify-center rounded-full",
+          "bg-[var(--primary)] text-[var(--primary-foreground)] shadow-lg",
+          "transition-[scale] duration-200 motion-reduce:transition-none hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",
+        )}
+      >
+        <Sparkles className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          minimize();
+          focusDrawerTab();
+        }}
+        aria-label={`Minimize ${brand.agentName} to the side`}
+        title={`Minimize ${brand.agentName} to the side`}
+        // 24x24 (WCAG 2.5.8 minimum target), centred on the button's left edge.
+        className="absolute -left-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] shadow-sm hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+      >
+        <ChevronRight className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
-}
-
-/**
- * Re-picks the bubble's slot whenever what lies beneath it can change: scroll
- * (any scroller, so capture phase), resize and rotation, content added or
- * removed, and layout growing or shrinking. Checks are coalesced to one per
- * frame and at most ~8 a second.
- *
- * The resting box is measured so that it does NOT depend on the transform
- * currently applied to the bubble. It used to be `getBoundingClientRect()`
- * minus the applied offset, which made the measurement a function of animation
- * state, and the throttle (120ms) is SHORTER than the old transition (200ms),
- * so a re-check landing mid-move was the normal case rather than an edge one.
- * Such a check computed a resting box off by the untravelled remainder, which
- * shifted every candidate slot and all nine sample points, hit-tested the wrong
- * pixels, and so returned a different slot -- which started another move, and
- * another mistimed check. The bubble darted around the screen instead of
- * settling (feedback item 46d8ea78).
- *
- * Two things keep it settled: the dodge offset is not animated (only `scale`
- * is, for hover), and the size comes from the UNTRANSFORMED layout box, so
- * `hover:scale-105` cannot shift the sample points either. Together those make
- * repeated checks over an unchanged page idempotent, which is the property the
- * tests pin.
- *
- * Idempotence over an UNCHANGED page was never enough on its own, though: a
- * board being scrolled changes the page on every frame, so each check was
- * correct and the answer still kept changing (feedback item 36938fd0, the
- * third report of the bubble moving). Two further rules settle that case, both
- * in `bubble-dodge`: the bubble never crosses to the other side of the
- * viewport, and the offset in force is fed back in so a held slot wins ties.
- */
-function useDodge(active: boolean) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
-  const current = useRef<Offset>({ x: 0, y: 0 });
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!active || !el || typeof document.elementsFromPoint !== "function") return;
-
-    let frame = 0;
-    let last = 0;
-    let trailing: ReturnType<typeof setTimeout> | undefined;
-
-    const check = () => {
-      frame = 0;
-      last = performance.now();
-      // Measure the RESTING spot, independent of the transform applied.
-      const rest = restingBox(
-        el.getBoundingClientRect(),
-        el.offsetWidth,
-        el.offsetHeight,
-        current.current,
-      );
-      // The offset in force is passed back in, so an already-lifted bubble
-      // keeps its slot while that slot stays clear. Without it, a board
-      // scrolling under the corner re-picks on every check (feedback 36938fd0).
-      const next = pickOffset(rest, window.innerWidth, domIsBlocked(el), current.current);
-      if (next.x !== current.current.x || next.y !== current.current.y) {
-        current.current = next;
-        setOffset(next);
-      }
-    };
-    const schedule = () => {
-      if (frame) return;
-      const wait = 120 - (performance.now() - last);
-      if (wait > 0) {
-        clearTimeout(trailing);
-        trailing = setTimeout(schedule, wait);
-        return;
-      }
-      frame = requestAnimationFrame(check);
-    };
-
-    schedule();
-    window.addEventListener("scroll", schedule, { capture: true, passive: true });
-    window.addEventListener("resize", schedule);
-    // Content swaps (route changes, lists loading) — childList only, so the
-    // bubble's own style change never re-triggers it.
-    const mo = new MutationObserver(schedule);
-    mo.observe(document.body, { childList: true, subtree: true });
-    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
-    ro?.observe(document.body);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      clearTimeout(trailing);
-      window.removeEventListener("scroll", schedule, { capture: true });
-      window.removeEventListener("resize", schedule);
-      mo.disconnect();
-      ro?.disconnect();
-    };
-  }, [active]);
-
-  return { ref, offset };
 }

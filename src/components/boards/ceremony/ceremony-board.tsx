@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Play, Lock, Presentation, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Z_TAKEOVER } from "@/lib/ui/layers";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -296,12 +297,24 @@ export function CeremonyBoard({
   const measure = presenting ? "" : "max-w-[1600px]";
 
   return (
+    // Present mode is for a ROOM, not a desk: full-bleed AND legibly bigger.
+    // The full-bleed part lives on this un-zoomed outer wrapper so its insets
+    // are real pixels: it stops at an open side drawer (--cosmos-drawer-w) and
+    // keeps the corner assistant button's strip free at the bottom. It is
+    // always rendered (only its classes change), so Present/Exit never
+    // remounts the board.
     <div
       className={cn(
-        "flex h-full flex-col",
-        // Present mode is for a ROOM, not a desk: full-bleed AND legibly bigger.
-        presenting && "fixed inset-0 z-50 bg-[var(--bg,var(--surface))]"
+        presenting
+          ? cn(
+              "fixed inset-y-0 left-0 right-[var(--cosmos-drawer-w,0px)] bg-[var(--bg,var(--surface))] pb-[var(--cosmos-launcher-clear-mobile,0px)] md:pb-[var(--cosmos-launcher-clear,0px)]",
+              Z_TAKEOVER,
+            )
+          : "h-full",
       )}
+    >
+    <div
+      className="flex h-full flex-col"
       // Scaled with `zoom`, deliberately.
       //
       // This used to put `text-[1.35rem]` on the container, on the theory that it
@@ -592,6 +605,7 @@ export function CeremonyBoard({
         ) : null}
         </div>
       </div>
+    </div>
     </div>
   );
 }

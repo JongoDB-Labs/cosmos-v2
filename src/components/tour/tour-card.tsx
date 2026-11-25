@@ -6,6 +6,8 @@ import { X, ArrowLeft, ArrowRight, Sparkles, MessageSquarePlus } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDrawers } from "@/components/drawers/drawer-provider";
+import { DRAWER_TAB_WIDTH } from "@/components/drawers/drawer-tab";
+import { useMediaQuery } from "@/lib/hooks/use-media-query";
 import { useTour } from "./tour-provider";
 import { usePermissions } from "@/components/providers/permissions-provider";
 import { Permission } from "@/lib/rbac/permissions";
@@ -38,7 +40,8 @@ export function TourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string })
 
 function OpenTourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
   const { tour, index, next, back, stop, start, goTo } = useTour();
-  const { tool, width } = useDrawers();
+  const { isShown, minimized, width } = useDrawers();
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const router = useRouter();
   const pathname = usePathname();
   const [panel, setPanel] = useState<"none" | "ask" | "feedback">("none");
@@ -105,7 +108,9 @@ function OpenTourCard({ orgId, orgSlug }: { orgId: string; orgSlug: string }) {
   const askKey = `${tour.id}:${step.id}`;
   const thread = asks.threads[askKey] ?? EMPTY_THREAD;
 
-  const drawerInset = tool ? width : 0;
+  // What the drawer takes at the right edge: its width when shown, the side
+  // tab's rail when minimized on desktop (phones overlay a small tab instead).
+  const drawerInset = isShown ? width : minimized && isDesktop ? DRAWER_TAB_WIDTH : 0;
   const isLast = index === tour.steps.length - 1;
 
   // Beside the anchor when there is room to its right, otherwise to its left,

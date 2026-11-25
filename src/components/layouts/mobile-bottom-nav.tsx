@@ -6,6 +6,7 @@ import { MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useDrawers } from "@/components/drawers/drawer-provider";
+import { Z_MOBILE_NAV } from "@/lib/ui/layers";
 import { Permission, usePermissions } from "@/components/providers/permissions-provider";
 import {
   DEFAULT_MOBILE_NAV,
@@ -61,7 +62,8 @@ export function MobileBottomNav({
     <nav
       aria-label="Primary (mobile)"
       className={cn(
-        "fixed bottom-0 left-0 right-0 z-30 grid border-t border-[var(--border)] bg-[var(--bg)] pb-[env(safe-area-inset-bottom)] md:hidden",
+        "fixed bottom-0 left-0 right-0 grid border-t border-[var(--border)] bg-[var(--bg)] pb-[env(safe-area-inset-bottom)] md:hidden",
+        Z_MOBILE_NAV,
         chatAllowed ? "grid-cols-5" : "grid-cols-4",
       )}
     >

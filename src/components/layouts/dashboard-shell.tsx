@@ -97,7 +97,7 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
       // skin makes this transparent so its fixed drafting-grid backdrop shows
       // through the work area. Inert for cosmos (no skin rule matches).
       data-app-canvas
-      className="flex h-screen overflow-hidden bg-[var(--bg)] transition-[padding] duration-200 ease-out dark:bg-transparent"
+      className="flex h-screen overflow-hidden bg-[var(--bg)] transition-[padding] duration-200 ease-out motion-reduce:transition-none dark:bg-transparent"
       style={{ paddingRight: "var(--cosmos-drawer-w, 0px)" }}
     >
       <a
@@ -159,7 +159,12 @@ export function DashboardShell({ user, orgs, isSystemAdmin = false, children }: 
           // makes it grow to content height, so the overflow-hidden column clips
           // tall pages instead of letting main scroll. min-h-0 lets it shrink to
           // the flex-allocated height so overflow-y-auto actually scrolls.
-          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--primary)] md:pb-0"
+          // Bottom padding (and matching scroll padding, so a focused control is
+          // scrolled clear too) keeps the page's last row out from under the
+          // corner assistant button, which never moves (see
+          // FloatingAgentBubble's --cosmos-launcher-clear). Phones add the
+          // bottom nav's height.
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-[calc(4rem+env(safe-area-inset-bottom)+var(--cosmos-launcher-clear,0px))] scroll-pb-[calc(4rem+env(safe-area-inset-bottom)+var(--cosmos-launcher-clear,0px))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--primary)] md:pb-[var(--cosmos-launcher-clear,0px)] md:scroll-pb-[var(--cosmos-launcher-clear,0px)]"
           // Focusable because it is the page's scroll container: a long page
           // with nothing focusable in view could not be scrolled from the
           // keyboard at all (axe scrollable-region-focusable). One tab stop,

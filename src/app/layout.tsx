@@ -185,7 +185,13 @@ export default function RootLayout({
             instead, on every route (the sign-in pages too). sonner drops a
             toast that has no mounted toaster, so without this one there the
             tab would sit on a dead chunk with no notice. Mount no other. */}
-        <Toaster position="top-right" richColors />
+        {/* Kept left of an open side drawer so a toast never sits on its
+            header buttons; min() keeps it on screen beside a wide drawer. */}
+        <Toaster
+          position="top-right"
+          richColors
+          offset={{ right: "min(calc(var(--cosmos-drawer-w, 0px) + 24px), calc(100vw - 380px))" }}
+        />
         <CosmosMotionConfig>
           {/* fallback=null (NOT {children}): connection() defers with no I/O so
               the branded subtree resolves same-tick; rendering {children} in both

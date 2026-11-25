@@ -18,6 +18,10 @@ const setWidth = vi.fn();
 vi.mock("./drawer-provider", () => ({
   useDrawers: () => ({
     tool: "assistant",
+    minimized: false,
+    isShown: true,
+    minimize: vi.fn(),
+    restore: vi.fn(),
     seed: null,
     open: vi.fn(),
     openDrawer: vi.fn(),

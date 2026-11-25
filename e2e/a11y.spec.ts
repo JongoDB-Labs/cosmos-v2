@@ -759,6 +759,32 @@ test.describe("a11y — the assistant drawer", () => {
   });
 });
 
+test.describe("a11y — the minimized assistant", () => {
+  test("minimized side tab has no serious/critical axe violations", async ({ page, signInAs }) => {
+    await signInAs(EMAIL);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(`/${ORG}`);
+    await page.waitForSelector("main", { timeout: 20_000 });
+    const drawer = page.getByRole("complementary", { name: "assistant drawer" });
+    await expect(async () => {
+      await page.getByRole("button", { name: "Open assistant" }).click();
+      await expect(drawer).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+    await drawer.getByRole("button", { name: "Minimize drawer" }).click();
+    await expect(page.getByRole("button", { name: /^Restore / })).toBeFocused();
+    await page.waitForTimeout(500);
+
+    const serious = blocking(await runAxe(page));
+    expect(
+      serious,
+      "serious/critical a11y violations with the assistant minimized:\n" +
+        serious
+          .map((v) => `  [${v.impact}] ${v.id} — ${v.help} @ ${v.targets[0]}`)
+          .join("\n"),
+    ).toHaveLength(0);
+  });
+});
+
 test.describe("a11y — the chat drawer", () => {
   test("chat drawer, list and conversation, has no serious/critical axe violations", async ({
     page,

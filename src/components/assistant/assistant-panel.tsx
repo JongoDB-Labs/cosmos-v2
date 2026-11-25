@@ -146,7 +146,7 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
   // the neutral product's agent instead.
   const brand = useBrand();
   // What the opener wanted asked, when something opened this with a question.
-  const { seed } = useDrawers();
+  const { seed, minimized } = useDrawers();
   const pathname = usePathname();
   const orgSlug = pathname.split("/")[1] ?? "";
   const [showSettings, setShowSettings] = useState(false);
@@ -862,6 +862,24 @@ export function AssistantPanel({ orgId }: AssistantPanelProps) {
     window.addEventListener("cosmos:assistant:dictation:start", onStart);
     return () => window.removeEventListener("cosmos:assistant:dictation:start", onStart);
   }, [dictation]);
+
+  // Minimized to the side tab: the panel stays mounted (so the conversation,
+  // draft and a streaming reply survive), but a hidden panel must not keep the
+  // microphone open.
+  useEffect(() => {
+    if (minimized && dictation.listening) dictation.stop();
+  }, [minimized, dictation]);
+
+  // Restored: `display:none` dropped the message list's scroll position, so
+  // pin it to the end again if the user was following the conversation.
+  useEffect(() => {
+    if (minimized) return;
+    const id = requestAnimationFrame(() => {
+      const el = scrollContainerRef.current;
+      if (el && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [minimized]);
 
   // Tell the wake-word provider when the chat mic is live so the two listeners
   // never fight over the microphone (reference: okr-dashboard's chatOpen gate).

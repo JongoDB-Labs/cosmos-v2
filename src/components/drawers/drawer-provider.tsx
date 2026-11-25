@@ -43,6 +43,46 @@ export type DrawerTool =
   | "meetings";
 
 const WIDTH_KEY = "cosmos:drawer-width";
+/**
+ * Which tool is minimized to the side tab, if any: `{"tool":"assistant"}`.
+ * Only this is remembered across a reload; an open drawer still starts closed.
+ */
+export const MINIMIZED_KEY = "cosmos:drawer-minimized";
+export const DRAWER_TOOLS: readonly DrawerTool[] = [
+  "assistant",
+  "chat",
+  "notes",
+  "feedback",
+  "meetings",
+];
+
+function writeMinimized(tool: DrawerTool | null) {
+  try {
+    if (tool) window.localStorage.setItem(MINIMIZED_KEY, JSON.stringify({ tool }));
+    else window.localStorage.removeItem(MINIMIZED_KEY);
+  } catch {
+    /* localStorage unavailable */
+  }
+}
+
+function readMinimized(): DrawerTool | null {
+  try {
+    const raw = window.localStorage.getItem(MINIMIZED_KEY);
+    if (!raw) return null;
+    const tool = (JSON.parse(raw) as { tool?: unknown })?.tool;
+    if (typeof tool === "string" && (DRAWER_TOOLS as readonly string[]).includes(tool)) {
+      return tool as DrawerTool;
+    }
+    window.localStorage.removeItem(MINIMIZED_KEY);
+  } catch {
+    try {
+      window.localStorage.removeItem(MINIMIZED_KEY);
+    } catch {
+      /* localStorage unavailable */
+    }
+  }
+  return null;
+}
 export const DRAWER_MIN_WIDTH = 320;
 export const DRAWER_MAX_WIDTH = 900;
 const DRAWER_DEFAULT_WIDTH = 460;
@@ -52,17 +92,29 @@ function clampWidth(n: number): number {
 }
 
 interface DrawerContextValue {
-  /** The currently open tool, or null when closed. */
+  /** The selected tool (open or minimized), or null when closed. */
   tool: DrawerTool | null;
+  /** True while the selected tool is put aside to the side tab. */
+  minimized: boolean;
+  /** A tool is selected and NOT minimized: the drawer is on screen. */
+  isShown: boolean;
+  /** Put the drawer aside to the side tab (the assistant when none is selected). */
+  minimize: () => void;
+  /** Bring a minimized drawer back. */
+  restore: () => void;
   /** What the opener wanted this panel to start from; null when opened by hand. */
   seed: DrawerSeed | null;
   /** Open (or switch to) a tool, optionally seeding the panel. */
   open: (tool: DrawerTool, seed?: DrawerSeed) => void;
   /** Back-compat alias for `open`. */
   openDrawer: (tool: DrawerTool, seed?: DrawerSeed) => void;
-  /** Toggle a tool — opens it, or closes if it's already the open one. */
+  /**
+   * Toggle a tool — opens it, or closes if it's already the open one. A
+   * minimized tool is restored rather than closed.
+   */
   toggle: (tool: DrawerTool) => void;
   close: () => void;
+  /** This tool is the selected one (open or minimized). */
   isOpen: (tool: DrawerTool) => boolean;
   /** Current docked width in px (persisted). */
   width: number;
@@ -72,20 +124,54 @@ interface DrawerContextValue {
 const DrawerContext = createContext<DrawerContextValue | null>(null);
 
 export function DrawerProvider({ children }: { children: React.ReactNode }) {
-  const [tool, setTool] = useState<DrawerTool | null>(null);
-  const [seed, setSeed] = useState<DrawerSeed | null>(null);
+  // One object, so restoring the remembered minimized state can be a single
+  // functional update that sees an open() made in the same commit.
+  const [state, setState] = useState<{
+    tool: DrawerTool | null;
+    minimized: boolean;
+    seed: DrawerSeed | null;
+  }>({ tool: null, minimized: false, seed: null });
+  const { tool, minimized, seed } = state;
   const [width, setWidthState] = useState<number>(DRAWER_DEFAULT_WIDTH);
 
   // Restore the persisted width on mount (client-only → no hydration mismatch).
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const saved = Number(window.localStorage.getItem(WIDTH_KEY));
+    let saved = NaN;
+    try {
+      saved = Number(window.localStorage.getItem(WIDTH_KEY));
+    } catch {
+      /* localStorage unavailable */
+    }
     // One-shot restore of the persisted width after mount; the default ships in
     // the server render so there's no hydration mismatch (the drawer is closed
     // initially, so nothing width-dependent is in the DOM yet).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (Number.isFinite(saved) && saved > 0) setWidthState(clampWidth(saved));
   }, []);
+
+  // Restore a remembered minimized tab once after mount (the server renders
+  // "not minimized", like the width). Something that already opened a drawer
+  // in this commit — a chat link — wins over the stored state.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = readMinimized();
+    if (!stored) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setState((s) => (s.tool === null ? { ...s, tool: stored, minimized: true } : s));
+  }, []);
+
+  // Write the remembered state whenever it changes. Skipped for the very first
+  // render so the initial "nothing selected" does not erase the stored tab
+  // before the restore above has read it.
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (!hydrated.current) {
+      hydrated.current = true;
+      return;
+    }
+    writeMinimized(minimized ? tool : null);
+  }, [tool, minimized]);
 
   const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /**
@@ -121,25 +207,34 @@ export function DrawerProvider({ children }: { children: React.ReactNode }) {
   const open = useCallback((t: DrawerTool, s?: DrawerSeed) => {
     // Always written, including to null: a stale seed reappearing the next time
     // somebody opens the drawer by hand would put words in their mouth.
-    setSeed(s ?? null);
-    setTool(t);
+    setState({ tool: t, minimized: false, seed: s ?? null });
   }, []);
   const close = useCallback(() => {
-    setSeed(null);
-    setTool(null);
+    setState({ tool: null, minimized: false, seed: null });
   }, []);
-  const toggle = useCallback(
-    (t: DrawerTool) => {
-      setSeed(null);
-      setTool((cur) => (cur === t ? null : t));
-    },
-    [],
-  );
+  const minimize = useCallback(() => {
+    setState((cur) => ({ ...cur, tool: cur.tool ?? "assistant", minimized: true }));
+  }, []);
+  const restore = useCallback(() => {
+    setState((cur) => (cur.tool ? { ...cur, minimized: false } : cur));
+  }, []);
+  const toggle = useCallback((t: DrawerTool) => {
+    setState((cur) => {
+      if (cur.tool === t && cur.minimized) return { ...cur, minimized: false };
+      if (cur.tool === t) return { tool: null, minimized: false, seed: null };
+      return { tool: t, minimized: false, seed: null };
+    });
+  }, []);
   const isOpen = useCallback((t: DrawerTool) => tool === t, [tool]);
+  const isShown = tool !== null && !minimized;
 
   const value = useMemo<DrawerContextValue>(
     () => ({
       tool,
+      minimized,
+      isShown,
+      minimize,
+      restore,
       seed,
       open,
       openDrawer: open,
@@ -149,7 +244,7 @@ export function DrawerProvider({ children }: { children: React.ReactNode }) {
       width,
       setWidth,
     }),
-    [tool, seed, open, toggle, close, isOpen, width, setWidth],
+    [tool, minimized, isShown, minimize, restore, seed, open, toggle, close, isOpen, width, setWidth],
   );
 
   return (
@@ -163,6 +258,10 @@ export function useDrawers(): DrawerContextValue {
   if (!ctx) {
     return {
       tool: null,
+      minimized: false,
+      isShown: false,
+      minimize: () => {},
+      restore: () => {},
       open: () => {},
       seed: null,
       openDrawer: () => {},
