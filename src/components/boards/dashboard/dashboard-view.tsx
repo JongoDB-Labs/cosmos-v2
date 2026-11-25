@@ -4,6 +4,10 @@ import { useBoardQuery } from "@/components/boards/shared/use-board-query";
 import { BoardQueryBar } from "@/components/boards/shared/board-query-bar";
 import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { LoadError } from "@/components/ui/load-error";
+import { loadErrorMessage } from "@/components/boards/shared/board-load-state";
+import { useBoardLoadState } from "@/components/boards/shared/use-board-load-state";
+import { useRefreshFailedNotice } from "@/components/boards/shared/use-refresh-failed-notice";
 import { GridLayout, verticalCompactor } from "react-grid-layout";
 import { jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -237,12 +241,13 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
     membersQ.isLoading ||
     intervalsQ.isLoading;
 
-  const fatalError = boardQ.error || itemsQ.error;
-  const error = fatalError
-    ? fatalError instanceof Error
-      ? fatalError.message
-      : "Unknown error"
-    : null;
+  // Fatal vs stale: a failed background refresh keeps the loaded board
+  // (boards/shared/board-load-state.ts).
+  const load = useBoardLoadState([
+    { queryKey: boardKey, query: boardQ, notFoundIsAccess: true },
+    { queryKey: itemsKey, query: itemsQ, notFoundIsAccess: true },
+  ]);
+  useRefreshFailedNotice(load.refreshFailed, load.noticeKey);
 
   // One instant for the whole pass, so a due-date filter cannot classify two
   // items differently because the clock ticked between them.
@@ -383,14 +388,14 @@ export function DashboardView({ orgId, projectId, projectKey, boardId }: Dashboa
   // shared layout paint and then be swapped out from under them.
   if (loading || myLayoutQ.isLoading) return <DashboardSkeleton />;
 
-  if (error) {
+  if (load.fatal) {
+    if (load.fetching) return <DashboardSkeleton />;
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <p className="text-sm text-destructive mb-2">Failed to load board</p>
-          <p className="text-xs text-muted-foreground">{error}</p>
-        </div>
-      </div>
+      <LoadError
+        title="Failed to load board"
+        description={loadErrorMessage(load.fatalError)}
+        onRetry={load.retry}
+      />
     );
   }
 

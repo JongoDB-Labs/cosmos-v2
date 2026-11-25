@@ -9,6 +9,7 @@ import { memberDisclosure } from "@/lib/members/scoped-roster.server";
 import { ForbiddenError } from "@/lib/rbac/check";
 import { success, created, handleApiError, getIpAddress, readJsonBody } from "@/lib/api-helpers";
 import { logAudit } from "@/lib/audit";
+import { avatarSrc } from "@/lib/users/avatar-url.server";
 
 type RouteParams = { params: Promise<{ orgId: string; projectId: string }> };
 
@@ -95,7 +96,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams): Promi
           userId: m.projectMember.orgMember.userId,
           displayName: m.projectMember.orgMember.user.displayName,
           ...(people.emails && { email: m.projectMember.orgMember.user.email }),
-          avatarUrl: m.projectMember.orgMember.user.avatarUrl,
+          // Every member here has an org membership row (current members
+          // only, above), so the endpoint resolves the URL. Not inlined: the
+          // image bytes were 186 KB of a 195 KB response.
+          avatarUrl: avatarSrc(orgId, m.projectMember.orgMember.userId, m.projectMember.orgMember.user.avatarUrl),
         })),
       })),
     );

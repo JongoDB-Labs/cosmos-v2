@@ -79,6 +79,15 @@ import { sendItemChange, TransitionBackedOut, useTransitionPrompt } from "@/comp
 import { useWorkflowMoves } from "@/hooks/use-workflow-moves";
 import { announceBulkChange, sendBulkChange } from "@/components/work-items/bulk-change";
 import { toast } from "sonner";
+import { LoadError } from "@/components/ui/load-error";
+import {
+  FRESH_READ,
+  classifyBoardLoad,
+  loadErrorMessage,
+  recordFetch,
+  type ReadMemory,
+} from "@/components/boards/shared/board-load-state";
+import { useRefreshFailedNotice } from "@/components/boards/shared/use-refresh-failed-notice";
 import {
   MoveDatesDialog,
   type MoveDatesPrompt,
@@ -182,7 +191,11 @@ function KanbanBoardInner({
   // differently from a sprint (see the board query below).
   const [intervalsSettled, setIntervalsSettled] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  // A background refresh failed while this board was loaded: keep showing it,
+  // with a notice. Tagged with the board it belongs to, so a board switch
+  // never inherits it (boards/shared/board-load-state.ts).
+  const [refreshFailedFor, setRefreshFailedFor] = useState<string | null>(null);
   // Initialize filter state FROM the URL so a shared/reloaded link restores the
   // filtered + swim-laned view. Computed once on mount (searchParams is stable
   // for the initializer); subsequent URL writes flow the other direction.
@@ -345,13 +358,39 @@ function KanbanBoardInner({
   // another refetch), so only the newest response is allowed to write state.
   const reqSeq = useRef(0);
 
+  // Which board this component is showing. The App Router usually remounts on
+  // a different [boardId], but nothing forces it, so a fetch that started for
+  // another board must not land here, and "loaded" / access memory reset.
+  const identity = `${orgId}/${projectId}/${boardId}`;
+  const identityRef = useRef(identity);
+  // The identity whose board + items are in state (null until the first success).
+  const loadedForRef = useRef<string | null>(null);
+  const boardReadRef = useRef<ReadMemory>(FRESH_READ);
+  const itemsReadRef = useRef<ReadMemory>(FRESH_READ);
+  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    identityRef.current = identity;
+    loadedForRef.current = null;
+    boardReadRef.current = FRESH_READ;
+    itemsReadRef.current = FRESH_READ;
+    return () => {
+      if (refetchTimer.current) clearTimeout(refetchTimer.current);
+      refetchTimer.current = null;
+    };
+  }, [identity]);
+
   // Fetch board, items, members, sprints. `silent` skips the loading skeleton
   // so a live-update refetch doesn't flash the board away under the user.
   const fetchData = useCallback(
     async (opts?: { silent?: boolean; fresh?: boolean; afterItemWrite?: boolean }) => {
       const seq = ++reqSeq.current;
-      if (!opts?.silent) setLoading(true);
-      setError(null);
+      const forIdentity = `${orgId}/${projectId}/${boardId}`;
+      // A silent refresh leaves the current screen (board or LoadError) up
+      // until it has an answer.
+      if (!opts?.silent) {
+        setLoading(true);
+        setError(null);
+      }
       // Serve from cache on a plain board switch (staleTime), but force a live
       // read when a realtime event or our own bulk op needs server truth.
       const staleTime = opts?.fresh ? 0 : 30_000;
@@ -372,7 +411,8 @@ function KanbanBoardInner({
         // All seven still START together, so nothing loses parallelism. The
         // change is only what we WAIT for before painting. See
         // kanban-board.first-paint.test.tsx.
-        const criticalP = Promise.all([
+        // allSettled, not all: a 403 on one read must not hide behind a 500 on the other.
+        const criticalP = Promise.allSettled([
           qc.fetchQuery({
             queryKey: boardKey,
             queryFn: () => jsonFetch<Board>(`${basePath}/boards/${boardId}`),
@@ -449,18 +489,71 @@ function KanbanBoardInner({
           setIntervalsSettled(true);
         });
 
-        const [boardData, itemsData] = await criticalP;
+        const [boardRes, itemsRes] = await criticalP;
 
         if (seq !== reqSeq.current) return; // superseded by a newer fetch
+        if (forIdentity !== identityRef.current) return; // started for another board
 
+        boardReadRef.current = recordFetch(
+          boardReadRef.current,
+          boardRes.status === "fulfilled"
+            ? { ok: true }
+            : { ok: false, error: boardRes.reason, notFoundIsAccess: true },
+        );
+        itemsReadRef.current = recordFetch(
+          itemsReadRef.current,
+          itemsRes.status === "fulfilled"
+            ? { ok: true }
+            : { ok: false, error: itemsRes.reason, notFoundIsAccess: true },
+        );
+        if (boardRes.status === "rejected" || itemsRes.status === "rejected") {
+          const hasData = loadedForRef.current === forIdentity;
+          const verdict = classifyBoardLoad([
+            {
+              error: boardRes.status === "rejected" ? boardRes.reason : null,
+              hasData,
+              lastFetchFailed: boardRes.status === "rejected",
+              accessLatched: boardReadRef.current.accessLatched,
+              notFoundIsAccess: true,
+            },
+            {
+              error: itemsRes.status === "rejected" ? itemsRes.reason : null,
+              hasData,
+              lastFetchFailed: itemsRes.status === "rejected",
+              accessLatched: itemsReadRef.current.accessLatched,
+              notFoundIsAccess: true,
+            },
+          ]);
+          if (verdict.fatal) {
+            // Not shown again until a load succeeds.
+            loadedForRef.current = null;
+            setRefreshFailedFor(null);
+            setError(
+              verdict.fatalError ??
+                (boardRes.status === "rejected" ? boardRes.reason : null) ??
+                (itemsRes.status === "rejected" ? itemsRes.reason : null),
+            );
+          } else {
+            setRefreshFailedFor(forIdentity);
+          }
+          return;
+        }
+        const boardData = boardRes.value;
+        const itemsData = itemsRes.value;
+
+        loadedForRef.current = forIdentity;
+        setError(null);
+        setRefreshFailedFor(null);
         setBoard(boardData);
         setColumns(
           (boardData.columns ?? []).sort((a, b) => a.sortOrder - b.sortOrder)
         );
         setItems(itemsData);
       } catch (err) {
-        if (seq === reqSeq.current) {
-          setError(err instanceof Error ? err.message : "Unknown error");
+        if (seq === reqSeq.current && forIdentity === identityRef.current) {
+          loadedForRef.current = null;
+          setRefreshFailedFor(null);
+          setError(err ?? new Error("Unknown error"));
         }
       } finally {
         // Whichever fetch is LATEST clears the skeleton, silent or not. A silent
@@ -472,7 +565,7 @@ function KanbanBoardInner({
         if (seq === reqSeq.current) setLoading(false);
       }
     },
-    [orgId, basePath, boardId, qc, boardKey, itemsKey, membersKey, linksKey, milestonesKey, teamsKey, intervalsKey],
+    [orgId, projectId, basePath, boardId, qc, boardKey, itemsKey, membersKey, linksKey, milestonesKey, teamsKey, intervalsKey],
   );
 
   // Initial load. fetchData sets `loading` up front (the skeleton); that's the
@@ -485,13 +578,13 @@ function KanbanBoardInner({
 
   // Live updates: silently refetch when another client mutates this project's
   // work items. Debounced so a burst of events coalesces into one refetch.
-  const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useWorkItemRealtime(orgId, projectId, () => {
     if (refetchTimer.current) clearTimeout(refetchTimer.current);
     refetchTimer.current = setTimeout(() => {
       void fetchData({ silent: true, fresh: true });
     }, 400);
   });
+  useRefreshFailedNotice(refreshFailedFor === identity, identity);
 
   // Filters -> URL. Serialize the active filters into the query string so the
   // board is shareable + reload-stable. The search term is debounced (200ms)
@@ -1094,14 +1187,11 @@ function KanbanBoardInner({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <p className="text-sm text-destructive mb-2">
-            Failed to load board
-          </p>
-          <p className="text-xs text-muted-foreground">{error}</p>
-        </div>
-      </div>
+      <LoadError
+        title="Failed to load board"
+        description={loadErrorMessage(error)}
+        onRetry={() => void fetchData()}
+      />
     );
   }
 

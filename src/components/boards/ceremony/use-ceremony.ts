@@ -100,6 +100,15 @@ export interface CeremonyPayload {
  * The realtime event carries only a ceremony reference, so this refetch is what
  * actually moves the data — see the API's publishCeremonyChanged.
  */
+/** The ceremony query's key parts (before the org prefix useOrgQueryKey adds). */
+export function ceremonyKeyParts(
+  boardId: string,
+  intervalId: string | null,
+  teamId: string | null = null,
+) {
+  return ["ceremony", boardId, intervalId ?? "none", teamId ?? "all"] as const;
+}
+
 export function useCeremony(args: {
   orgId: string;
   projectId: string;
@@ -112,12 +121,7 @@ export function useCeremony(args: {
   const qc = useQueryClient();
   // The team belongs in the key: two squads' reviews of one sprint are
   // different answers, and sharing an entry would show one team the other's.
-  const key = useOrgQueryKey(
-    "ceremony",
-    boardId,
-    intervalId ?? "none",
-    teamId ?? "all"
-  );
+  const key = useOrgQueryKey(...ceremonyKeyParts(boardId, intervalId, teamId));
 
   const query = useQuery({
     queryKey: key,

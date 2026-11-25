@@ -21,6 +21,13 @@ export const AVATAR_VERSION_LENGTH = 12;
  * unrelated display-name edit fail validation. Substituting at the response
  * boundary keeps both of those inert.
  *
+ * Only an avatar the endpoint can serve (see `decodeAvatarDataUri`) is
+ * swapped. Anything else — an svg, a non-base64 `data:` URI — is returned
+ * unchanged, because the endpoint would 404 it into a broken image.
+ *
+ * Checking that decodes the whole avatar, so a caller with many rows per user
+ * should call this once per user, not once per row (see `avatarSrcs`).
+ *
  * Server-only: `node:crypto` would break `next build` if this were pulled
  * into a client component. Clients never need it — they receive the result.
  */
@@ -28,6 +35,18 @@ export function avatarSrc(orgId: string, userId: string, stored: string | null |
   if (!stored) return null;
   // Already a URL the browser can cache on its own.
   if (!stored.startsWith("data:")) return stored;
+  // Only swap what the endpoint can serve. It answers 404 for anything
+  // `decodeAvatarDataUri` refuses (svg, non-base64), so pointing at it would
+  // turn an avatar that shows today into a broken image. Keep those inline.
+  if (!avatarServable(stored)) return stored;
+  return avatarEndpointPath(orgId, userId, stored);
+}
+
+/**
+ * The endpoint path for a stored avatar the caller has ALREADY checked with
+ * `avatarServable`. Split out so a batch caller decodes each avatar once.
+ */
+export function avatarEndpointPath(orgId: string, userId: string, stored: string): string {
   // Versioned by CONTENT, so the URL is safe to serve `immutable` and two
   // users sharing the same bytes still get their own path.
   const version = createHash("sha256").update(stored).digest("hex").slice(0, AVATAR_VERSION_LENGTH);
@@ -67,4 +86,9 @@ export function decodeAvatarDataUri(
   const bytes = new Uint8Array(decoded.byteLength);
   bytes.set(decoded);
   return { contentType, bytes };
+}
+
+/** True when the avatar endpoint would serve this stored value (not 404 it). */
+export function avatarServable(stored: string | null | undefined): stored is string {
+  return !!stored && stored.startsWith("data:") && decodeAvatarDataUri(stored) !== null;
 }
