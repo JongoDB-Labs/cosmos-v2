@@ -81,6 +81,7 @@ import {
   Merge,
   Split,
   ArchiveRestore,
+  ArrowLeft,
   X,
 } from "lucide-react";
 import type {
@@ -180,6 +181,15 @@ const CANCEL_FIELDS: TransitionInputField[] = [
  * rendered as a chip NEXT TO the field — see `TextFieldSaveStatus`.
  */
 type TextSaveState = "idle" | "unsaved" | "saving" | "saved" | "error";
+
+/**
+ * One earlier view in the sheet's in-sheet navigation history (COSMOS-252).
+ *
+ * The label is captured when the entry is PUSHED — the item was on screen at
+ * that moment — rather than looked up later from `projectItems`, which several
+ * callers don't pass and which never holds an item from another project.
+ */
+type NavEntry = { id: string; ticketNumber: number; title: string };
 
 export function CardDetailSheet({
   item,
@@ -424,6 +434,105 @@ export function CardDetailSheet({
   );
 
   const basePath = `/api/v1/orgs/${orgId}/projects/${projectId}/work-items`;
+
+  // IN-SHEET NAVIGATION HISTORY (COSMOS-252).
+  //
+  // Clicking a sub-item (or a linked item, or a merge survivor) swaps the
+  // sheet's `item` for another one, and that used to be a one-way trip: the only
+  // control left was Close, which dropped back to the board and lost the ticket
+  // being read — "the only option is to close out and start again".
+  //
+  // Every one of those jumps ALREADY funnels through a single prop, `onOpenItem`
+  // (sub-items, links-section, the merged-into notice), so the history belongs
+  // here and not in each of the five board views that own the `detailItem`
+  // state. One stack, one Back control, no per-caller plumbing — and the views
+  // that don't pass `onOpenItem` can't navigate in-sheet at all, so they are
+  // unaffected by construction.
+  //
+  // ASSUMED, pending confirmation: a single Back control backed by this stack
+  // (not a full visible breadcrumb trail of every ancestor), and no Back control
+  // at all on an item reached directly from a board card or a deep link, since
+  // in that case there is no earlier view in the session to step back to.
+  const [navStack, setNavStack] = useState<NavEntry[]>([]);
+  // The stack to install once the sheet actually ARRIVES at `to`. The callers
+  // resolve `onOpenItem` asynchronously — the kanban/backlog handlers fall back
+  // to a GET for an id the board hasn't loaded, and swallow a failure — so the
+  // push can't be applied eagerly: a jump that never lands would leave a Back
+  // control pointing at the item still on screen.
+  const pendingNav = useRef<{ to: string; stack: NavEntry[] } | null>(null);
+
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!open) {
+      pendingNav.current = null;
+      setNavStack((cur) => (cur.length ? [] : cur));
+      return;
+    }
+    const id = item?.id;
+    if (!id) return;
+    const pending = pendingNav.current;
+    if (pending?.to === id) {
+      // Arrived where a Back / sub-item click sent it: install that history.
+      // The ref is left in place and the write compares by reference, so this
+      // is idempotent — a re-run (StrictMode, a re-render) can't drop it.
+      setNavStack((cur) => (cur === pending.stack ? cur : pending.stack));
+      return;
+    }
+    // Landing somewhere nobody in here asked for means the sheet was opened
+    // from OUTSIDE (a board card, a deep link): the history starts over there.
+    pendingNav.current = null;
+    setNavStack((cur) => (cur.length ? [] : cur));
+  }, [open, item?.id]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  /** Open another work item IN this sheet, remembering where we came from. */
+  const navigateToItem = useCallback(
+    (id: string) => {
+      if (!onOpenItem || id === item?.id) return;
+      if (item)
+        pendingNav.current = {
+          to: id,
+          stack: [
+            ...navStack,
+            { id: item.id, ticketNumber: item.ticketNumber, title: item.title },
+          ],
+        };
+      onOpenItem(id);
+    },
+    [item, navStack, onOpenItem],
+  );
+
+  /** Where Back goes, or null when this item is the start of the history. */
+  const backTarget = navStack.length > 0 ? navStack[navStack.length - 1] : null;
+
+  /** Step one view back — the ticket this sub-item was opened from. */
+  const goBack = useCallback(() => {
+    if (!onOpenItem || !backTarget) return;
+    pendingNav.current = { to: backTarget.id, stack: navStack.slice(0, -1) };
+    onOpenItem(backTarget.id);
+  }, [backTarget, navStack, onOpenItem]);
+
+  /**
+   * Dismissing the sheet (the X, Escape, the backdrop) while there IS a history
+   * returns to the ticket the whole chain started from rather than closing —
+   * "there should be a way to close out the view but remain on the original
+   * ticket". Closing the originating ticket itself dismisses as it always has.
+   */
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      const root = navStack[0];
+      // `root.id !== item?.id` matters: a chain can loop back to its own start
+      // (a link on a sub-item pointing at the parent), and "navigate" to the
+      // item already on screen would leave the sheet unclosable.
+      if (!next && root && root.id !== item?.id && onOpenItem) {
+        pendingNav.current = { to: root.id, stack: [] };
+        onOpenItem(root.id);
+        return;
+      }
+      onOpenChange(next);
+    },
+    [item?.id, navStack, onOpenChange, onOpenItem],
+  );
 
   // Seed the form when a DIFFERENT work item is opened.
   //
@@ -1228,7 +1337,7 @@ export function CardDetailSheet({
   );
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent
         side="right"
         finalFocus={finalFocus}
@@ -1250,14 +1359,33 @@ export function CardDetailSheet({
               sheet, and the pane hides overflow-x, so a row that can't wrap
               runs off the edge and takes Delete with it. */}
           <div className="flex flex-wrap items-center justify-between gap-2 pr-10">
-            <SheetTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-              <span className="font-mono">#{item.ticketNumber}</span>
-              {item.workItemType && (
-                <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-muted-foreground">
-                  {item.workItemType.name}
-                </span>
+            <div className="flex min-w-0 items-center gap-2">
+              {/* Back to the ticket this one was opened from (COSMOS-252).
+                  Outside SheetTitle (a heading) rather than in it, and absent
+                  when there is nothing to go back to, so it never promises a
+                  view that doesn't exist. */}
+              {backTarget && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="-ml-1 shrink-0 text-muted-foreground"
+                  onClick={goBack}
+                  aria-label={`Back to #${backTarget.ticketNumber} ${backTarget.title}`}
+                  title={`Back to #${backTarget.ticketNumber} ${backTarget.title}`}
+                  data-testid="card-detail-back"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
               )}
-            </SheetTitle>
+              <SheetTitle className="flex items-center gap-2 text-sm font-normal text-muted-foreground">
+                <span className="font-mono">#{item.ticketNumber}</span>
+                {item.workItemType && (
+                  <span className="rounded px-1.5 py-0.5 font-medium bg-muted text-muted-foreground">
+                    {item.workItemType.name}
+                  </span>
+                )}
+              </SheetTitle>
+            </div>
             <div
               className="flex flex-wrap items-center justify-end gap-1"
               data-testid="card-detail-actions"
@@ -1415,7 +1543,7 @@ export function CardDetailSheet({
               {item?.cancelReason === "MERGED" ? (
                 item.mergedIntoId &&
                 onOpenItem && (
-                  <Button variant="ghost" size="sm" onClick={() => onOpenItem(item.mergedIntoId!)}>
+                  <Button variant="ghost" size="sm" onClick={() => navigateToItem(item.mergedIntoId!)}>
                     Open it
                   </Button>
                 )
@@ -2028,7 +2156,7 @@ export function CardDetailSheet({
                     )}
                     <button
                       type="button"
-                      onClick={() => onOpenItem?.(c.id)}
+                      onClick={() => navigateToItem(c.id)}
                       disabled={!onOpenItem}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left enabled:hover:text-primary disabled:cursor-default"
                     >
@@ -2107,7 +2235,9 @@ export function CardDetailSheet({
             projectId={projectId}
             itemId={item.id}
             canEdit={canEditItem}
-            onOpenItem={onOpenItem}
+            // The history-aware wrapper, so a jump out of the Linked items
+            // list gets the same Back control a sub-item does (COSMOS-252).
+            onOpenItem={onOpenItem && navigateToItem}
           />
 
           {/* No "Save changes" button here any more: every field in this panel
