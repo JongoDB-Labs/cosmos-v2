@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.565.1",
+    date: "2026-11-24",
+    title: "Boards load faster when people have profile pictures",
+    highlights: [
+      {
+        kind: "improvement",
+        text: "A board's list of work items no longer carries a copy of each assignee's profile picture on every card. On a large board where a few busy people had uploaded pictures, that made the list many megabytes and slowed every load and every live refresh. Each picture is now fetched once and reused, and the project's teams list works the same way.",
+      },
+      {
+        kind: "improvement",
+        text: "For API users: `avatarUrl` on a project's work-items list is now one of `null`, an absolute http(s) URL (unchanged), or a path such as `/api/v1/orgs/{orgId}/users/{userId}/avatar?v=\u2026` to resolve against your Cosmos origin (scheme and host only, not the `/api/v1` base). Fetching it needs the `read` scope; send your Cosmos credentials only to that origin. Creating, merging, reading or updating a single work item still return the picture inline for now.",
+      },
+    ],
+  },
+  {
     version: "2.565.0",
     date: "2026-11-23",
     title: "New work items are assigned to you by default",

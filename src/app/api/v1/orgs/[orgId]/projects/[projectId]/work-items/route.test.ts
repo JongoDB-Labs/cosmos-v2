@@ -31,8 +31,15 @@ const { getAuthContext, prisma } = vi.hoisted(() => ({
   },
 }));
 
+const { avatarSrcs } = vi.hoisted(() => ({
+  avatarSrcs: vi.fn<(orgId: string, users: Iterable<unknown>) => Promise<Map<string, string>>>(
+    async () => new Map(),
+  ),
+}));
+
 vi.mock("@/lib/auth/session", () => ({ getAuthContext }));
 vi.mock("@/lib/db/client", () => ({ prisma }));
+vi.mock("@/lib/users/avatar-srcs.server", () => ({ avatarSrcs }));
 
 import { GET } from "./route";
 
@@ -109,5 +116,52 @@ describe("GET project work-items — ABAC enforcement", () => {
 
     expect(res.status).toBe(403);
     expect(prisma.workItem.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET project work-items — assignee avatars", () => {
+  const MAPPED = "55555555-5555-5555-5555-555555555555";
+  const UNMAPPED = "66666666-6666-6666-6666-666666666666";
+  const PNG = `data:image/png;base64,${Buffer.from("PNG").toString("base64")}`;
+  const SVG = `data:image/svg+xml;base64,${Buffer.from("<svg/>").toString("base64")}`;
+  const URL_FOR_MAPPED = `/api/v1/orgs/${ORG_ID}/users/${MAPPED}/avatar?v=abcdef012345`;
+
+  const row = (id: string, assignees: { id: string; avatarUrl: string | null }[]) => ({
+    id, orgId: ORG_ID, projectId: PROJECT_ID, title: "t", description: "", columnKey: "todo",
+    assigneeId: assignees[0]?.id ?? null, priority: "MEDIUM", parentId: null, ticketNumber: 1,
+    storyPoints: null, sortOrder: 0, dueDate: null, startDate: null, actualStart: null,
+    completedAt: null, columnEnteredAt: null, workCategory: "BUSINESS", archivedAt: null,
+    cancelReason: null, cancelNote: null, mergedIntoId: null, tags: [], highlight: null,
+    customFields: {}, createdById: ACTOR_ID, createdAt: new Date(0), updatedAt: new Date(0),
+    workItemTypeId: ORG_MEMBER_ID, intervalId: null, teamId: null, externalSource: null,
+    externalId: null, externalKey: null, sourceStatus: null, resolution: null,
+    closeEvidenceNote: null, originalEstimate: null, remainingEstimate: null, timeSpent: null,
+    sourceRecord: null, parent: null, children: [],
+    workItemType: { id: ORG_MEMBER_ID, key: "software.task", name: "Task", icon: null, color: null },
+    assignees: assignees.map((a) => ({ userId: a.id, user: { id: a.id, displayName: "U", avatarUrl: a.avatarUrl } })),
+  });
+
+  it("sends the mapped avatar URL, not the stored image, and leaves unmapped users as they are", async () => {
+    getAuthContext.mockResolvedValue(ctx([]));
+    prisma.workItem.findMany.mockResolvedValue([
+      row("77777777-7777-7777-7777-777777777771", [{ id: MAPPED, avatarUrl: PNG }, { id: UNMAPPED, avatarUrl: SVG }]),
+      row("77777777-7777-7777-7777-777777777772", [{ id: MAPPED, avatarUrl: PNG }]),
+    ]);
+    avatarSrcs.mockResolvedValue(new Map([[MAPPED, URL_FOR_MAPPED]]));
+
+    const res = await GET(getRequest(), { params });
+    const text = await res.text();
+    expect(res.status, text).toBe(200);
+    expect(text).not.toContain(PNG);
+
+    const body = JSON.parse(text);
+    const rows = (body.data ?? body) as Array<{ assignees: Array<{ user: { id: string; avatarUrl: string | null } }> }>;
+    const users = rows.flatMap((r) => r.assignees.map((a) => a.user));
+    expect(users.filter((u) => u.id === MAPPED).map((u) => u.avatarUrl)).toEqual([URL_FOR_MAPPED, URL_FOR_MAPPED]);
+    expect(users.find((u) => u.id === UNMAPPED)?.avatarUrl).toBe(SVG);
+
+    // One call for the whole list, scoped to this org, not one per row.
+    expect(avatarSrcs).toHaveBeenCalledTimes(1);
+    expect(avatarSrcs.mock.calls[0][0]).toBe(ORG_ID);
   });
 });
