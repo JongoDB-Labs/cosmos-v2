@@ -20,18 +20,8 @@ import {
   ArrowRight,
   Columns3,
   CornerDownLeft,
-  LayoutDashboard,
-  ListChecks,
-  MessageCircle,
   Video,
   Users,
-  Building2,
-  FileSignature,
-  BarChart3,
-  Wallet,
-  Clock,
-  MessageSquarePlus,
-  Settings,
   Sparkles,
   Milestone,
   Goal,
@@ -52,7 +42,13 @@ import {
   type DrawerTool,
 } from "@/components/drawers/drawer-provider";
 import { usePermissions } from "@/components/providers/permissions-provider";
-import { TOPBAR_NAV, visibleTopbarNav } from "@/components/layouts/topbar-nav";
+import { Permission } from "@/lib/rbac/permissions";
+import type { SidebarOrgSettings } from "@/components/layouts/nav-plugins";
+import {
+  paletteDestinations,
+  matchesWords,
+  type PaletteDestination,
+} from "./palette-destinations";
 import {
   ENTITY_ORDER,
   ENTITY_LABEL,
@@ -110,8 +106,12 @@ const typeLabels = ENTITY_LABEL;
 const groupLabels = ENTITY_LABEL_PLURAL;
 
 interface CommandPaletteProps {
-  orgs: { id: string; slug: string }[];
+  /** The org switches let the palette offer exactly what the sidebar shows. */
+  orgs: ({ id: string; slug: string } & SidebarOrgSettings)[];
 }
+
+/** Most pages shown above the search results when typing without ">". */
+const MAX_PAGE_MATCHES = 5;
 
 type Mode = "search" | "create" | "projects";
 
@@ -133,7 +133,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { openDrawer } = useDrawers();
-  const { can } = usePermissions();
+  const { can, permissions } = usePermissions();
   const orgSlug = pathname.split("/")[1];
   const currentOrg = orgs.find((o) => o.slug === orgSlug);
 
@@ -316,36 +316,12 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
     [openDrawer],
   );
 
-  // Chat, Notes and Meetings are offered as the topbar offers them, by its own
-  // gate (topbar-nav.ts): every chat route needs CHAT_USE, so Chat offered to a
-  // viewer only opened the drawer's no-access state. `can()` follows the keys
-  // the server sends, so a work role that grants CHAT_USE brings Chat back.
-  const topbarGated = new Set(TOPBAR_NAV.map((item) => item.id));
-  const topbarAllowed = new Set(visibleTopbarNav(can).map((item) => item.id));
-
-  // Quick-jump destinations — the bulk of the "operations" expansion. Each is a
-  // real workspace route, or a docked drawer (Chat has no page, only its
-  // drawer); they're filtered live by whatever you type after ">".
-  const allNavItems: ({ id: string; label: string; icon: React.ReactNode } & (
-    | { suffix: string; drawer?: undefined }
-    | { suffix?: undefined; drawer: DrawerTool }
-  ))[] = [
-    { id: "overview", label: "Overview", suffix: "", icon: <LayoutDashboard className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "projects", label: "Projects", suffix: "/projects", icon: <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "issues", label: "Work Items", suffix: "/work-items", icon: <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "chat", label: "Chat", drawer: "chat", icon: <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "notes", label: "Notes", suffix: "/notes", icon: <FileText className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "meetings", label: "Meetings", suffix: "/meetings", icon: <Video className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "team", label: "Org", suffix: "/team", icon: <Users className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "crm", label: "CRM", suffix: "/crm", icon: <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "contracts", label: "Contracts", suffix: "/contracts", icon: <FileSignature className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "analytics", label: "Analytics", suffix: "/analytics", icon: <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "finance", label: "Finance", suffix: "/accounting/finance", icon: <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "time", label: "Time Tracking", suffix: "/time-tracking", icon: <Clock className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "feedback", label: "Feedback", suffix: "/feedback", icon: <MessageSquarePlus className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-    { id: "settings", label: "Settings", suffix: "/settings", icon: <Settings className="h-4 w-4 shrink-0 text-muted-foreground" /> },
-  ];
-  const navItems = allNavItems.filter((n) => !topbarGated.has(n.id) || topbarAllowed.has(n.id));
+  // Every page the person may open, from the same lists and filters as the
+  // sidebar, topbar and Settings menu (palette-destinations.ts). Empty off an
+  // org route.
+  const destinations = paletteDestinations({ can, permissions, org: currentOrg });
+  const openDestination = (d: PaletteDestination) =>
+    d.drawer !== undefined ? openToolDrawer(d.drawer) : goTo(d.href);
 
   const grouped = results.reduce(
     (acc, result) => {
@@ -364,24 +340,103 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
   const showActions =
     mode === "search" && (query.trim() === "" || query.trimStart().startsWith(">"));
 
-  // In the actions view, narrow both the quick actions and the nav list by the
-  // text typed after ">" (case-insensitive substring on the visible label).
-  const matchesAction = (label: string) =>
-    actionQuery.trim() === "" ||
-    label.toLowerCase().includes(actionQuery.trim().toLowerCase());
-  const filteredNav = showActions ? navItems.filter((n) => matchesAction(n.label)) : [];
+  // In the actions view, narrow the actions and pages by the words typed after
+  // ">" (each word must appear in the label, ignoring case).
+  const matchesAction = (label: string) => matchesWords(label, actionQuery);
+  const filteredNav = showActions
+    ? destinations.filter((d) => d.group === "goto" && matchesAction(d.label))
+    : [];
+  // The ~23 Settings rows join the actions view only once something is typed,
+  // so the first view stays short.
+  const filteredSettings =
+    showActions && actionQuery.trim() !== ""
+      ? destinations.filter((d) => d.group === "settings" && matchesAction(d.label))
+      : [];
+  // Typing without ">": the best few pages sit above the search results.
+  const isSearchQuery =
+    mode === "search" && query.trim() !== "" && !query.trimStart().startsWith(">");
+  const pageMatches = isSearchQuery
+    ? destinations.filter((d) => matchesWords(d.label, query)).slice(0, MAX_PAGE_MATCHES)
+    : [];
+
+  // Actions, each offered only to someone who can use it. The rows and the
+  // "anything visible?" check both read this one list, so a hidden action can
+  // never leave an empty "Actions" heading or hide "No actions match".
   const newIssueLabel = newIssueCtx ? newIssueActionLabel(newIssueCtx) : null;
-  const fixedActionLabels = [
-    ...(newIssueLabel ? [newIssueLabel] : []),
-    prefilledProject ? `Create work item in ${prefilledProject.key}` : "Create work item",
-    ...(onProjectRoute ? ["Add card to this project"] : []),
-    "Go to project",
-    "New board",
-    "New project",
-    "Open Assistant",
+  const createLabel = prefilledProject
+    ? `Create work item in ${prefilledProject.key}`
+    : "Create work item";
+  const actions: {
+    value: string;
+    label: string;
+    text: string;
+    icon: React.ReactNode;
+    onSelect: () => void;
+    enter?: boolean;
+    allowed: boolean;
+  }[] = [
+    ...(newIssueLabel
+      ? [{
+          value: "action-new-work-item",
+          label: newIssueLabel,
+          text: `${newIssueLabel}…`,
+          icon: <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />,
+          onSelect: openNewWorkItem,
+          enter: true,
+          allowed: can(Permission.ITEM_CREATE),
+        }]
+      : []),
+    {
+      value: "action-create-work-item",
+      label: createLabel,
+      text: `${createLabel}…`,
+      icon: <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />,
+      onSelect: openCreate,
+      enter: true,
+      allowed: can(Permission.ITEM_CREATE),
+    },
+    {
+      // Its picker loads the project list, which needs PROJECT_READ.
+      value: "action-go-to-project",
+      label: "Go to project",
+      text: "Go to project…",
+      icon: <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />,
+      onSelect: openProjectPicker,
+      allowed: can(Permission.PROJECT_READ),
+    },
+    {
+      // On a project route a project MANAGER/LEAD may add boards without the
+      // org-wide permission, so it stays; elsewhere it opens the project picker.
+      value: "action-new-board",
+      label: "New board",
+      text: "New board",
+      icon: <Columns3 className="h-4 w-4 shrink-0 text-muted-foreground" />,
+      onSelect: goToNewBoard,
+      allowed: onProjectRoute || can(Permission.PROJECT_READ),
+    },
+    {
+      value: "action-new-project",
+      label: "New project",
+      text: "New project…",
+      icon: <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />,
+      onSelect: () => goTo("/projects/new"),
+      allowed: can(Permission.PROJECT_CREATE),
+    },
+    {
+      // Not gated, like the topbar's own Assistant button.
+      value: "action-assistant",
+      label: "Open Assistant",
+      text: "Open Assistant",
+      icon: <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />,
+      onSelect: openAssistant,
+      allowed: true,
+    },
   ];
+  const visibleActions = showActions
+    ? actions.filter((a) => a.allowed && matchesAction(a.label))
+    : [];
   const anyActionVisible =
-    showActions && (filteredNav.length > 0 || fixedActionLabels.some(matchesAction));
+    visibleActions.length > 0 || filteredNav.length > 0 || filteredSettings.length > 0;
 
   const inputPlaceholder =
     mode === "create"
@@ -450,94 +505,40 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
         </CommandList>
       ) : (
         <CommandList>
-          {showActions && fixedActionLabels.some(matchesAction) && (
+          {visibleActions.length > 0 && (
             <CommandGroup heading="Actions">
-              {newIssueLabel && matchesAction(newIssueLabel) && (
-                <CommandItem value="action-new-work-item" onSelect={openNewWorkItem}>
-                  <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">{newIssueLabel}…</span>
-                  <CornerDownLeft className="ml-2 h-3.5 w-3.5 text-muted-foreground/60" />
+              {visibleActions.map((a) => (
+                <CommandItem key={a.value} value={a.value} onSelect={a.onSelect}>
+                  {a.icon}
+                  <span className="flex-1 truncate">{a.text}</span>
+                  {a.enter && (
+                    <CornerDownLeft className="ml-2 h-3.5 w-3.5 text-muted-foreground/60" />
+                  )}
                 </CommandItem>
-              )}
-
-              {matchesAction(
-                prefilledProject
-                  ? `Create work item in ${prefilledProject.key}`
-                  : "Create work item",
-              ) && (
-                <CommandItem value="action-create-work-item" onSelect={openCreate}>
-                  <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">
-                    {prefilledProject
-                      ? `Create work item in ${prefilledProject.key}…`
-                      : "Create work item…"}
-                  </span>
-                  <CornerDownLeft className="ml-2 h-3.5 w-3.5 text-muted-foreground/60" />
-                </CommandItem>
-              )}
-
-              {onProjectRoute && matchesAction("Add card to this project") && (
-                <CommandItem
-                  value="action-add-card"
-                  onSelect={openCreate}
-                >
-                  <LayoutList className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">
-                    Add card to this project
-                  </span>
-                </CommandItem>
-              )}
-
-              {matchesAction("Go to project") && (
-                <CommandItem
-                  value="action-go-to-project"
-                  onSelect={openProjectPicker}
-                >
-                  <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">Go to project…</span>
-                </CommandItem>
-              )}
-
-              {matchesAction("New board") && (
-                <CommandItem value="action-new-board" onSelect={goToNewBoard}>
-                  <Columns3 className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">New board</span>
-                </CommandItem>
-              )}
-
-              {matchesAction("New project") && (
-                <CommandItem
-                  value="action-new-project"
-                  onSelect={() => goTo("/projects/new")}
-                >
-                  <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">New project…</span>
-                </CommandItem>
-              )}
-
-              {matchesAction("Open Assistant") && (
-                <CommandItem value="action-assistant" onSelect={openAssistant}>
-                  <Sparkles className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate">Open Assistant</span>
-                </CommandItem>
-              )}
+              ))}
             </CommandGroup>
           )}
 
-          {showActions && currentOrg && filteredNav.length > 0 && (
+          {filteredNav.length > 0 && (
             <CommandGroup heading="Go to">
-              {filteredNav.map((n) => (
-                <CommandItem
-                  key={n.id}
-                  value={`nav-${n.id}`}
-                  onSelect={() =>
-                    n.drawer !== undefined ? openToolDrawer(n.drawer) : goTo(n.suffix)
-                  }
-                >
-                  {n.icon}
-                  <span className="flex-1 truncate">{n.label}</span>
-                  <ArrowRight className="ml-2 h-3.5 w-3.5 text-muted-foreground/40" />
-                </CommandItem>
+              {filteredNav.map((d) => (
+                <DestinationRow key={d.key} d={d} onSelect={() => openDestination(d)} />
+              ))}
+            </CommandGroup>
+          )}
+
+          {filteredSettings.length > 0 && (
+            <CommandGroup heading="Settings">
+              {filteredSettings.map((d) => (
+                <DestinationRow key={d.key} d={d} onSelect={() => openDestination(d)} />
+              ))}
+            </CommandGroup>
+          )}
+
+          {pageMatches.length > 0 && (
+            <CommandGroup heading="Pages">
+              {pageMatches.map((d) => (
+                <DestinationRow key={d.key} d={d} onSelect={() => openDestination(d)} />
               ))}
             </CommandGroup>
           )}
@@ -557,7 +558,7 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
               <p className="text-sm text-muted-foreground">Searching...</p>
             </div>
           ) : results.length === 0 ? (
-            <CommandEmpty>No results found.</CommandEmpty>
+            pageMatches.length > 0 ? null : <CommandEmpty>No results found.</CommandEmpty>
           ) : (
             groupOrder.map((type) => {
               const items = grouped[type];
@@ -612,5 +613,22 @@ export function CommandPalette({ orgs }: CommandPaletteProps) {
       />
     )}
     </>
+  );
+}
+
+function DestinationRow({
+  d,
+  onSelect,
+}: {
+  d: PaletteDestination;
+  onSelect: () => void;
+}) {
+  const Icon = d.icon;
+  return (
+    <CommandItem value={`nav-${d.key}`} onSelect={onSelect}>
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="flex-1 truncate">{d.label}</span>
+      <ArrowRight className="ml-2 h-3.5 w-3.5 text-muted-foreground/40" />
+    </CommandItem>
   );
 }

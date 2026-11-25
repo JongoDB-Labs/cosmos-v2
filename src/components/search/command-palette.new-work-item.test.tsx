@@ -117,18 +117,25 @@ import { CommandPalette } from "./command-palette";
 import { TimelineView } from "@/components/boards/timeline/timeline-view";
 import { DrawerProvider } from "@/components/drawers/drawer-provider";
 import { setNewWorkItemContext } from "@/lib/boards/new-work-item-context";
+import { PermissionsProvider } from "@/components/providers/permissions-provider";
+import { RolePermissions, permissionNames } from "@/lib/rbac/permissions";
 
 function renderApp({ timeline }: { timeline: boolean }) {
   return render(
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
+      {/* The create actions need ITEM_CREATE; a MEMBER holds it. */}
+      <PermissionsProvider
+        orgs={[{ id: "org-1", slug: "acme", role: "MEMBER", permissions: permissionNames(RolePermissions.MEMBER) }]}
+      >
       <DrawerProvider>
         {timeline && (
           <TimelineView orgId="o1" projectId="p1" projectKey="FSC" boardId="b1" />
         )}
         <CommandPalette orgs={[{ id: "org-1", slug: "acme" }]} />
       </DrawerProvider>
+      </PermissionsProvider>
     </QueryClientProvider>,
   );
 }
