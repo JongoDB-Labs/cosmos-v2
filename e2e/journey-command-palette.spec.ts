@@ -41,4 +41,45 @@ test.describe("journey — command palette", () => {
     // Selecting a result router.pushes to its url (a project → its board).
     await expect(page).toHaveURL(/\/projects\//, { timeout: 10_000 });
   });
+
+  test("reaches a Settings page by name and hides pages the role can't open", async ({
+    page,
+    signInAs,
+  }) => {
+    test.setTimeout(90_000);
+    // bob is a MEMBER in the seed: he may open API Keys but not Finance.
+    await signInAs("bob@test.local");
+    await page.goto(`/${ORG}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("main", { timeout: 20_000 });
+
+    const openPalette = async () => {
+      await page.getByRole("button", { name: /search/i }).first().click();
+      const input = page.getByPlaceholder(/Search everything/i);
+      await expect(input).toBeVisible({ timeout: 10_000 });
+      return input;
+    };
+
+    // Plain text, no ">": the Settings page is offered by name.
+    let input = await openPalette();
+    await input.fill("api keys");
+    const apiKeys = page.getByRole("option", { name: /Settings › API Keys/ });
+    await expect(apiKeys).toBeVisible({ timeout: 10_000 });
+    await apiKeys.click();
+    await expect(page).toHaveURL(new RegExp(`/${ORG}/settings/api-keys`), {
+      timeout: 20_000,
+    });
+    // The page actually opened for this role (not the no-access screen).
+    await expect(page.getByText("Your API keys")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("You don't have access")).toHaveCount(0);
+
+    // Finance needs FINANCE_READ or ACCOUNTING_READ, which a MEMBER lacks.
+    input = await openPalette();
+    await input.fill(">fe");
+    await expect(page.getByRole("option", { name: /Feedback/ })).toBeVisible({
+      timeout: 10_000,
+    });
+    await input.fill(">finance");
+    await expect(page.getByText(/No actions match/)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("option").filter({ hasText: /Finance/ })).toHaveCount(0);
+  });
 });

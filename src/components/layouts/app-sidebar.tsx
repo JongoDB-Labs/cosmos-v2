@@ -31,14 +31,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { motion } from "@/lib/motion";
 import { usePermissions } from "@/components/providers/permissions-provider";
-import {
-  visibleNav,
-  applyAdminLayout,
-  applyEntitlements,
-  applyPluginEnablement,
-  type NavEntry,
-} from "./nav-config";
-import { composeSidebarNav } from "./nav-plugins";
+import type { NavEntry } from "./nav-config";
+import { visibleSidebarNav } from "./nav-plugins";
 import { isHrefActive, resolveHref, hrefFor } from "./nav-active";
 import { NavGroup } from "./nav-group";
 import { SidebarFilters } from "@/components/work-items/cql/sidebar-filters";
@@ -112,18 +106,7 @@ export function AppSidebar({
   // RBAC/ABAC-gated: drop items + groups the user can't access (item 4), gate
   // by module entitlements (fail-open) and plugin enablement (fail-closed),
   // then apply any admin-defined order/visibility (item 12).
-  const entries = applyAdminLayout(
-    applyPluginEnablement(
-      applyEntitlements(
-        visibleNav(composeSidebarNav(), can),
-        currentOrg?.enabledModules ?? null,
-      ),
-      new Set(currentOrg?.enabledPlugins ?? []),
-    ),
-    // Settings only ever CONSTRAIN: permission, entitlement and plugin
-    // filtering have already run, so hiding can never reveal anything.
-    navLayout ?? currentOrg?.navLayout,
-  );
+  const entries = visibleSidebarNav(can, currentOrg, navLayout);
 
   // Every visible leaf href across the WHOLE nav (top-level leaves + all group
   // children), for cross-group sibling-suppression: a shorter href in one group

@@ -49,6 +49,17 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.565.2",
+    date: "2026-11-25",
+    title: "Command palette reaches every page you can open",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Press Ctrl+K (\u2318K) and type a page name, e.g. \"API keys\", to jump to any Settings page or sidebar page. The palette no longer offers pages your role can't open or create actions it can't use (New board still shows on project pages, where a project lead can add boards), and it hides the sections your organization has turned off or hidden from the sidebar.",
+      },
+    ],
+  },
+  {
     version: "2.565.1",
     date: "2026-11-24",
     title: "Boards load faster and stay on screen when a refresh fails",
