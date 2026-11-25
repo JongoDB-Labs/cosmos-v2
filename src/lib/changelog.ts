@@ -49,6 +49,21 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.565.2",
+    date: "2026-11-25",
+    title: "A way back out of a sub-task",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Opening a sub-task from a ticket is no longer a one-way trip. The detail panel now shows a back arrow that names the ticket it came from, so you can step back one view at a time through however many sub-tasks you clicked into — and closing the panel from a sub-task returns you to the ticket you started on instead of dumping you back on the board. A ticket you opened straight from a board or from a link has nothing behind it, so it shows no back arrow and closes as before.",
+      },
+      {
+        kind: "improvement",
+        text: "ASSUMED, for review: this ships a single back arrow backed by a remembered trail of the views you visited, rather than a full breadcrumb line listing every parent above the one you're reading.",
+      },
+    ],
+  },
+  {
     version: "2.565.1",
     date: "2026-11-24",
     title: "Boards load faster and stay on screen when a refresh fails",
