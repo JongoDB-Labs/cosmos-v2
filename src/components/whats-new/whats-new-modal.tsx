@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTour } from "@/components/tour/tour-provider";
-import { nextUnseenTour } from "@/lib/tours/registry";
+import { TourLauncher } from "@/components/tour/tour-launcher";
+import { availableTours, nextUnseenTour } from "@/lib/tours/registry";
 import { readSeenTours, markTourSeen } from "@/lib/tours/seen";
 import { PluginRegistry } from "@/lib/plugins/registry";
 import { useEnabledPlugins } from "@/components/plugins/plugin-slot";
@@ -51,6 +52,10 @@ function formatDate(iso: string): string {
  * newer. The sidebar's "What's new" menu item re-opens it with the full history
  * via the `cosmos:open-whats-new` event. Renders nothing until it has something
  * to show, so it's inert on the server and for up-to-date users.
+ *
+ * Every walkthrough on offer is listed under the notes, seen or not, so the
+ * modal stays a way back to one after its one-time offer has been used. The
+ * list renders nothing on a deployment with no walkthroughs.
  */
 export function WhatsNew() {
   const { start } = useTour();
@@ -64,6 +69,7 @@ export function WhatsNew() {
   // Undefined on every deployment that contributes no tours, which is what keeps
   // this invisible to anyone who has not asked for it.
   const tour = nextUnseenTour(PluginRegistry.getAll(), enabledPlugins, readSeenTours(), permissions);
+  const hasTours = availableTours(PluginRegistry.getAll(), enabledPlugins, permissions).length > 0;
   const [open, setOpen] = useState(false);
   const [releases, setReleases] = useState<Release[]>([]);
 
@@ -161,6 +167,16 @@ export function WhatsNew() {
             </div>
           ))}
         </div>
+
+        {/* The same list as the topbar's Walkthroughs menu. The footer button
+            below offers only the newest UNSEEN one, once; this is where the
+            rest stay reachable. Picking one closes the notes, as the footer
+            button does, so the tour is not hidden behind the dialog. */}
+        {hasTours && (
+          <div className="border-t border-[var(--border)] pt-3">
+            <TourLauncher onPick={() => handleOpenChange(false)} />
+          </div>
+        )}
 
         <DialogFooter>
           {/* Offered only when THIS release actually shipped a tour. A button
