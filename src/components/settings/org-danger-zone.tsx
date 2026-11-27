@@ -43,7 +43,7 @@ export function OrgDangerZone({ orgId, orgName }: OrgDangerZoneProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirmName: confirm }),
       });
-      if (!res.ok && res.status !== 204) {
+      if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         throw new FetchError(res.status, j, j.error ?? "Couldn't delete the organization.");
       }

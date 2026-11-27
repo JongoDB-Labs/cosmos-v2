@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import {
   Dialog,
   DialogContent,
@@ -389,23 +390,11 @@ export function CustomFieldsManager({ orgId }: CustomFieldsManagerProps) {
 
             {/* Required toggle */}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={formRequired}
-                onClick={() => setFormRequired((r) => !r)}
-                className={cn(
-                  "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
-                  formRequired ? "bg-primary" : "bg-muted"
-                )}
-              >
-                <span
-                  className={cn(
-                    "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-sm transition-transform",
-                    formRequired ? "translate-x-4" : "translate-x-0"
-                  )}
-                />
-              </button>
+              <ToggleSwitch
+                checked={formRequired}
+                onCheckedChange={setFormRequired}
+                aria-label="Required field"
+              />
               <Label className="cursor-pointer" onClick={() => setFormRequired((r) => !r)}>
                 Required field
               </Label>

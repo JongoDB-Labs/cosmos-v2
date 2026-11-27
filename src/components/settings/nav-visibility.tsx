@@ -110,7 +110,7 @@ export function NavVisibility({
         <Button onClick={() => void save()} disabled={!dirty || saving}>
           {saving ? "Saving…" : "Save"}
         </Button>
-        {saved && !dirty && (
+        {saved && (
           <span className="text-sm text-[var(--text-muted)]">
             Saved — reload to see the sidebar change.
           </span>
