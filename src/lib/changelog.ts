@@ -49,6 +49,29 @@ export interface Release {
  *  Never read this directly — `CHANGELOG` is the ordered view. */
 const RELEASES: Release[] = [
   {
+    version: "2.565.2",
+    date: "2026-11-27",
+    title: "Settings tidy-up: the sidebar panel confirms its save",
+    highlights: [
+      {
+        kind: "fix",
+        text: "Settings → Sidebar sections now confirms \"Saved — reload to see the sidebar change.\" after you save. The confirmation was there all along but could never appear, so a successful save looked like nothing had happened. (Assumption made while building this, for the reviewer to confirm: the message was kept and fixed rather than removed.)",
+      },
+      {
+        kind: "fix",
+        text: "The on/off switches for \"Required field\" in custom fields and for a webhook's status now use the same switch as the rest of Settings, so the off position is actually visible on the card background and the switch can be reached and seen with the keyboard. The webhook switch is also now the only control for turning a webhook on and off.",
+      },
+      {
+        kind: "improvement",
+        text: "Each webhook row carried two sets of the same four actions — the icon buttons and a \"⋯\" menu repeating them. The duplicate menu is gone; Edit, Send test, Delete and the status switch stay where they were.",
+      },
+      {
+        kind: "improvement",
+        text: "Your personal Claude connection in Settings → Profile is no longer cached across organisations, so switching organisation shows that organisation's view straight away.",
+      },
+    ],
+  },
+  {
     version: "2.565.1",
     date: "2026-11-24",
     title: "Boards load faster and stay on screen when a refresh fails",

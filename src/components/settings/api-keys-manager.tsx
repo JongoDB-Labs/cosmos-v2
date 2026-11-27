@@ -657,7 +657,6 @@ export function ApiKeysManager({
   );
 }
 
-/** A list of keys with a revoke button on each; `showCreator` adds who made it. */
 /** A date as a timestamp, from the server's Date or the API's ISO string. */
 const instant = (v: string | Date | null | undefined) => (v ? new Date(v).getTime() : null);
 
@@ -687,6 +686,7 @@ function KeyExpiry({ row }: { row: ApiKeyRow }) {
   );
 }
 
+/** A list of keys with a revoke button on each; `showCreator` adds who made it. */
 function KeyList({
   rows,
   showCreator = false,

@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
 import { SectionCard } from "@/components/ui/section-card";
 import { jsonFetch } from "@/lib/query/json-fetcher";
+import { useOrgQueryKey } from "@/lib/query/keys";
 import { notifyError } from "@/lib/errors/notify";
 import { useBrand } from "@/components/providers/brand-provider";
 
@@ -37,8 +38,6 @@ interface ExchangeResponse {
   email?: string;
   error?: string;
 }
-
-const STATUS_KEY = ["me", "claude-subscription"] as const;
 
 function formatExpiry(iso?: string): string | null {
   if (!iso) return null;
@@ -66,8 +65,12 @@ export function ClaudeAccountPanel() {
 
 function ClaudeAccountConnect() {
   const qc = useQueryClient();
+  // This panel renders on /[orgSlug]/settings/profile, so its key goes through
+  // the org prefix like every other query here — a flat literal would share one
+  // cache entry across orgs.
+  const statusKey = useOrgQueryKey("me", "claude-subscription");
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: STATUS_KEY,
+    queryKey: statusKey,
     queryFn: () =>
       jsonFetch<StatusResponse>("/api/v1/me/ai/claude-subscription/status"),
   });
@@ -105,7 +108,7 @@ function ClaudeAccountConnect() {
       );
       setShowExchange(false);
       setCode("");
-      void qc.invalidateQueries({ queryKey: STATUS_KEY });
+      void qc.invalidateQueries({ queryKey: statusKey });
     },
   });
 
@@ -118,7 +121,7 @@ function ClaudeAccountConnect() {
       toast.success("Personal Claude disconnected.");
       setShowExchange(false);
       setCode("");
-      void qc.invalidateQueries({ queryKey: STATUS_KEY });
+      void qc.invalidateQueries({ queryKey: statusKey });
     },
     onError: (err) => notifyError(err, "Couldn't disconnect."),
   });

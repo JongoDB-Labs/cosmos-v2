@@ -97,7 +97,7 @@ const DECIDED_BY_LABEL: Record<string, string> = {
 function decidedByVariant(reason: string): BadgeVariant {
   if (reason === "none" || reason === "handle_resolve") return "done";
   if (reason === "handle_mint") return "strategic";
-  if (reason.endsWith("_block") || reason === "handle_taint_block") return "blocked";
+  if (reason.endsWith("_block")) return "blocked";
   return "review"; // rbac / agentpolicy / classification / tenant — a withhold/deny
 }
 
@@ -322,12 +322,6 @@ function AuditIntegrityPanel({ integrity }: { integrity: AuditIntegrity }) {
 }
 
 /* ── Panel (d): active posture summary + links ────────────────────────────────────────── */
-function tri(label: string, value: string[] | null, emptyAll: string) {
-  if (value === null) return emptyAll;
-  if (value.length === 0) return `${label}: none`;
-  return value.join(", ");
-}
-
 function SettingsLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <Link href={href} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
@@ -373,11 +367,11 @@ function PosturePanel({ posture, orgSlug }: { posture: Posture; orgSlug: string 
             <SettingsLink href={`/${orgSlug}/settings/agent-policy`}>Agent policy</SettingsLink>
           </div>
           <dl className="grid gap-2 text-sm">
-            <Row label="Allowed tools">{agentPolicy.allowedTools === null ? "All tools allowed" : tri("Allowed", agentPolicy.allowedTools, "All tools allowed")}</Row>
+            <Row label="Allowed tools">{agentPolicy.allowedTools === null ? "All tools allowed" : agentPolicy.allowedTools.length === 0 ? "Allowed: none" : agentPolicy.allowedTools.join(", ")}</Row>
             <Row label="Denied tools">{agentPolicy.deniedTools.length === 0 ? "None" : agentPolicy.deniedTools.join(", ")}</Row>
             <Row label="Denied domains">{agentPolicy.deniedDomains.length === 0 ? "None" : agentPolicy.deniedDomains.join(", ")}</Row>
             <Row label="Max result limit">{agentPolicy.maxResultLimit === null ? "No clamp" : agentPolicy.maxResultLimit}</Row>
-            <Row label="Project scope">{agentPolicy.allowedProjectIds === null ? "Any project" : tri("Allowed", agentPolicy.allowedProjectIds, "Any project")}</Row>
+            <Row label="Project scope">{agentPolicy.allowedProjectIds === null ? "Any project" : agentPolicy.allowedProjectIds.length === 0 ? "Allowed: none" : agentPolicy.allowedProjectIds.join(", ")}</Row>
           </dl>
         </div>
 

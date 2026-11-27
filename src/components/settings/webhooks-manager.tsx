@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import type { ActionMenuGroup } from "@/components/ui/action-menu";
 import { cn } from "@/lib/utils";
 import { FetchError, jsonFetch } from "@/lib/query/json-fetcher";
 import { useOrgQueryKey } from "@/lib/query/keys";
@@ -17,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadError } from "@/components/ui/load-error";
 import { DataTable } from "@/components/ui/data-table";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import {
   Dialog,
   DialogContent,
@@ -31,7 +31,6 @@ import {
   Pencil,
   Trash2,
   Play,
-  Power,
   Copy,
   Check,
   AlertTriangle,
@@ -307,42 +306,6 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
     setTimeout(() => setCopiedSecret(false), 2000);
   }
 
-  const rowActions = useCallback(
-    (webhook: Webhook): ActionMenuGroup[] => [
-      {
-        items: [
-          {
-            label: "Edit",
-            icon: Pencil,
-            onClick: () => openEditDialog(webhook),
-          },
-          {
-            label: "Send test",
-            icon: Play,
-            onClick: () => handleTest(webhook.id),
-            disabled: testingId === webhook.id,
-          },
-          {
-            label: webhook.active ? "Deactivate" : "Activate",
-            icon: Power,
-            onClick: () => handleToggleActive(webhook),
-          },
-        ],
-      },
-      {
-        items: [
-          {
-            label: "Delete",
-            icon: Trash2,
-            variant: "destructive",
-            onClick: () => openDeleteDialog(webhook),
-          },
-        ],
-      },
-    ],
-    [testingId, handleTest, handleToggleActive],
-  );
-
   const columns: ColumnDef<Webhook>[] = [
     {
       accessorKey: "url",
@@ -397,24 +360,11 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
       cell: ({ row }) => {
         const webhook = row.original;
         return (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={webhook.active}
+          <ToggleSwitch
+            checked={webhook.active}
+            onCheckedChange={() => handleToggleActive(webhook)}
             aria-label={`Toggle ${webhook.url}`}
-            onClick={() => handleToggleActive(webhook)}
-            className={cn(
-              "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
-              webhook.active ? "bg-primary" : "bg-muted"
-            )}
-          >
-            <span
-              className={cn(
-                "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-sm transition-transform",
-                webhook.active ? "translate-x-4" : "translate-x-0"
-              )}
-            />
-          </button>
+          />
         );
       },
     },
@@ -498,7 +448,6 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
         columns={columns}
         data={webhooks}
         getRowId={(row) => row.id}
-        rowActions={rowActions}
         emptyState={
           <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed py-12">
             <WebhookIcon className="h-10 w-10 text-muted-foreground/40" />
@@ -603,167 +552,43 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
         }}
       />
 
-      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create Webhook</DialogTitle>
-            <DialogDescription>
-              Send event notifications to an external URL.
-            </DialogDescription>
-          </DialogHeader>
+      <WebhookFormDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        title="Create Webhook"
+        description="Send event notifications to an external URL."
+        idPrefix="create"
+        submitLabel="Create"
+        onSubmit={handleCreate}
+        url={formUrl}
+        onUrlChange={(v) => {
+          setFormUrl(v);
+          clearError("url");
+        }}
+        events={formEvents}
+        onToggleEvent={toggleEvent}
+        errors={errors}
+        submitting={submitting}
+      />
 
-          <div className="flex flex-col gap-4 py-2">
-            <FormField label="Payload URL" required error={errors.url}>
-              {(p) => (
-                <Input
-                  {...p}
-                  type="url"
-                  value={formUrl}
-                  onChange={(e) => {
-                    setFormUrl(e.target.value);
-                    clearError("url");
-                  }}
-                  placeholder="https://example.com/webhook"
-                />
-              )}
-            </FormField>
-
-            <div className="flex flex-col gap-2">
-              <Label id="create-events-label">
-                Events
-                <span
-                  className="text-[var(--status-critical-text,var(--status-critical))]"
-                  aria-hidden
-                >
-                  *
-                </span>
-              </Label>
-              <div
-                className="grid grid-cols-2 gap-2"
-                role="group"
-                aria-labelledby="create-events-label"
-                aria-describedby={errors.events ? "create-events-error" : undefined}
-              >
-                {AVAILABLE_EVENTS.map((event) => (
-                  <label
-                    key={event}
-                    className={cn(
-                      "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
-                      formEvents.includes(event)
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:bg-muted/50"
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={formEvents.includes(event)}
-                      onChange={() => toggleEvent(event)}
-                      className="rounded border-input"
-                    />
-                    <span title={EVENT_LABEL.get(event)}>{event}</span>
-                  </label>
-                ))}
-              </div>
-              {errors.events && (
-                <p id="create-events-error" className="text-xs text-destructive">
-                  {errors.events}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreate} disabled={submitting}>
-              {submitting && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-              Create
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Webhook</DialogTitle>
-            <DialogDescription>
-              Update webhook URL and subscribed events.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="flex flex-col gap-4 py-2">
-            <FormField label="Payload URL" required error={errors.url}>
-              {(p) => (
-                <Input
-                  {...p}
-                  type="url"
-                  value={formUrl}
-                  onChange={(e) => {
-                    setFormUrl(e.target.value);
-                    clearError("url");
-                  }}
-                  placeholder="https://example.com/webhook"
-                />
-              )}
-            </FormField>
-
-            <div className="flex flex-col gap-2">
-              <Label id="edit-events-label">
-                Events
-                <span
-                  className="text-[var(--status-critical-text,var(--status-critical))]"
-                  aria-hidden
-                >
-                  *
-                </span>
-              </Label>
-              <div
-                className="grid grid-cols-2 gap-2"
-                role="group"
-                aria-labelledby="edit-events-label"
-                aria-describedby={errors.events ? "edit-events-error" : undefined}
-              >
-                {AVAILABLE_EVENTS.map((event) => (
-                  <label
-                    key={event}
-                    className={cn(
-                      "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
-                      formEvents.includes(event)
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:bg-muted/50"
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={formEvents.includes(event)}
-                      onChange={() => toggleEvent(event)}
-                      className="rounded border-input"
-                    />
-                    <span title={EVENT_LABEL.get(event)}>{event}</span>
-                  </label>
-                ))}
-              </div>
-              {errors.events && (
-                <p id="edit-events-error" className="text-xs text-destructive">
-                  {errors.events}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleEdit} disabled={submitting}>
-              {submitting && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <WebhookFormDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        title="Edit Webhook"
+        description="Update webhook URL and subscribed events."
+        idPrefix="edit"
+        submitLabel="Save"
+        onSubmit={handleEdit}
+        url={formUrl}
+        onUrlChange={(v) => {
+          setFormUrl(v);
+          clearError("url");
+        }}
+        events={formEvents}
+        onToggleEvent={toggleEvent}
+        errors={errors}
+        submitting={submitting}
+      />
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent className="sm:max-w-sm">
@@ -825,14 +650,129 @@ export function WebhooksManager({ orgId }: WebhooksManagerProps) {
 }
 
 /**
+ * The one create/edit webhook form. Both dialogs drive the same URL field and
+ * the same event checkbox grid off the manager's form state, so they used to be
+ * a line-for-line copy differing only in their wording, their element ids and
+ * which handler the submit button called.
+ *
+ * `idPrefix` keeps the two dialogs' label/error ids distinct, as the copies did.
+ */
+function WebhookFormDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  idPrefix,
+  submitLabel,
+  onSubmit,
+  url,
+  onUrlChange,
+  events,
+  onToggleEvent,
+  errors,
+  submitting,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  idPrefix: string;
+  submitLabel: string;
+  onSubmit: () => void;
+  url: string;
+  onUrlChange: (url: string) => void;
+  events: string[];
+  onToggleEvent: (event: string) => void;
+  errors: Record<string, string>;
+  submitting: boolean;
+}) {
+  const eventsLabelId = `${idPrefix}-events-label`;
+  const eventsErrorId = `${idPrefix}-events-error`;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4 py-2">
+          <FormField label="Payload URL" required error={errors.url}>
+            {(p) => (
+              <Input
+                {...p}
+                type="url"
+                value={url}
+                onChange={(e) => onUrlChange(e.target.value)}
+                placeholder="https://example.com/webhook"
+              />
+            )}
+          </FormField>
+
+          <div className="flex flex-col gap-2">
+            <Label id={eventsLabelId}>
+              Events
+              <span
+                className="text-[var(--status-critical-text,var(--status-critical))]"
+                aria-hidden
+              >
+                *
+              </span>
+            </Label>
+            <div
+              className="grid grid-cols-2 gap-2"
+              role="group"
+              aria-labelledby={eventsLabelId}
+              aria-describedby={errors.events ? eventsErrorId : undefined}
+            >
+              {AVAILABLE_EVENTS.map((event) => (
+                <label
+                  key={event}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
+                    events.includes(event)
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:bg-muted/50"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={events.includes(event)}
+                    onChange={() => onToggleEvent(event)}
+                    className="rounded border-input"
+                  />
+                  <span title={EVENT_LABEL.get(event)}>{event}</span>
+                </label>
+              ))}
+            </div>
+            {errors.events && (
+              <p id={eventsErrorId} className="text-xs text-destructive">
+                {errors.events}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={onSubmit} disabled={submitting}>
+            {submitting && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+            {submitLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
  * Asks for a webhook's delivery log when its row opens: from an effect, once
  * per opening, never while the table is rendering.
  */
 function LoadOnOpen({ id, load }: { id: string; load: (id: string) => Promise<void> }) {
   const loadRef = useRef(load);
-  useEffect(() => {
-    loadRef.current = load;
-  });
   useEffect(() => {
     void loadRef.current(id);
   }, [id]);
